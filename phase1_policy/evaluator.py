@@ -1,8 +1,8 @@
 """
 Evaluator for FlashAttention-5 precision policy evolution.
 
-Scores a candidate policy on accuracy (RMSE vs FP64), compression (avg bits),
-and reliability (no NaN/Inf outputs).
+Scores a candidate policy on accuracy (relative RMSE vs FP32 reference),
+compression (avg bits), and reliability (no NaN/Inf outputs).
 """
 
 import importlib.util
@@ -60,9 +60,7 @@ def evaluate(program_path):
             Q, K, V = generate_workload(cfg, seed=42 + idx)
 
             with torch.no_grad():
-                O_ref = reference_attention(
-                    Q.double(), K.double(), V.double(), causal=cfg["causal"]
-                )
+                O_ref = reference_attention(Q, K, V, causal=cfg["causal"])
                 O_mp, avg_bits = mixed_precision_attention(
                     Q, K, V, policy_fn, causal=cfg["causal"]
                 )
@@ -71,8 +69,10 @@ def evaluate(program_path):
                 details.append(f"Workload {idx}: NaN/Inf in output")
                 continue
 
-            rmse = (O_mp.double() - O_ref).pow(2).mean().sqrt().item()
-            acc = 1.0 / (1.0 + rmse * 5000)
+            rmse = (O_mp - O_ref).pow(2).mean().sqrt().item()
+            rms_ref = O_ref.pow(2).mean().sqrt().item() + 1e-10
+            rel_rmse = rmse / rms_ref
+            acc = 1.0 / (1.0 + rel_rmse * 10)
             comp = (16.0 - avg_bits) / 14.0
 
             accuracy_scores.append(acc)
@@ -81,7 +81,7 @@ def evaluate(program_path):
             details.append(
                 f"Workload {idx} (N={cfg['seq_len']},d={cfg['head_dim']},"
                 f"causal={cfg['causal']},outliers={cfg['outliers']}): "
-                f"RMSE={rmse:.6f}, bits={avg_bits:.1f}, acc={acc:.4f}, comp={comp:.4f}"
+                f"rel_RMSE={rel_rmse:.6f}, bits={avg_bits:.1f}, acc={acc:.4f}, comp={comp:.4f}"
             )
 
         except Exception as e:

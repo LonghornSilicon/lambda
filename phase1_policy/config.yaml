@@ -9,7 +9,7 @@ llm:
       provider: "claude_code"
       weight: 0.8
       max_tokens: 16000
-      timeout: 300
+      timeout: 600
       max_budget_usd: 1.0
     - name: "haiku"
       provider: "claude_code"
@@ -31,16 +31,26 @@ prompt:
 
     The policy receives per-block statistics including score magnitudes, entropy,
     outlier presence, and causal distance. The goal is to maximize a combined score:
-    50% accuracy (RMSE vs FP64 reference), 30% compression (fewer bits = better),
+    50% accuracy (relative RMSE vs FP32 reference), 30% compression (fewer bits = better),
     20% reliability (no NaN outputs).
 
+    Scoring details:
+    - accuracy = 1 / (1 + relative_rmse * 10), where relative_rmse = RMSE / RMS(reference_output)
+    - compression = (16 - avg_bits) / 14
+    - combined = 0.50 * accuracy + 0.30 * compression + 0.20 * reliability
+
     Key insights:
-    - Blocks with high attention scores or outliers need high precision (fp16)
-    - Blocks with high entropy (uniform attention) can be compressed (fp4/int4)
-    - Blocks far from the causal diagonal carry less signal
-    - The accumulator is always FP32, so per-block quantization errors partially average out
-    - The baseline (all fp16) scores ~0.35 combined because compression is 0
-    - A good policy targets combined_score > 0.65
+    - The baseline (all fp16) scores combined ~0.70 (accuracy ~0.997, compression 0)
+    - A good policy targets combined_score > 0.72 by compressing easy blocks
+    - has_outlier=True means injected extreme values are present → MUST use fp16
+    - has_outlier=False means normal Gaussian data → safe to compress to fp8
+    - score_max < 10 is normal random data; score_max > 50 indicates outliers
+    - For non-outlier blocks, fp8_e4m3 gives rel_rmse ~0.047 (accuracy ~0.68)
+    - For outlier blocks, fp8 gives rel_rmse ~0.15-0.43 (accuracy ~0.19-0.40)
+    - The winning strategy: use fp16 for has_outlier=True blocks, fp8 for the rest
+    - entropy is ~4.3 for normal blocks, ~0.5 for outlier blocks
+    - int4/fp4 is too aggressive — rel_rmse > 0.5 even for normal blocks
+    - int8 is slightly less accurate than fp8_e4m3 for similar bit savings
 
     Be creative with the policy logic. Consider thresholds, multi-level decisions,
     and combinations of features. The function must be pure Python with no imports.

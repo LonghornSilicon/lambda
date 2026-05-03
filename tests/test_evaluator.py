@@ -16,8 +16,8 @@ def test_evaluator_on_initial_policy():
     assert "compression_score" in m
     assert "reliability_score" in m
 
-    # FP16 baseline: high accuracy, zero compression
-    assert m["accuracy_score"] > 0.5, f"Accuracy too low: {m['accuracy_score']}"
+    # FP16 baseline: high accuracy (~0.997 with relative RMSE, k=10), zero compression
+    assert m["accuracy_score"] > 0.95, f"Accuracy too low: {m['accuracy_score']}"
     assert m["compression_score"] < 0.05, f"FP16 should have near-zero compression: {m['compression_score']}"
     assert m["reliability_score"] == 1.0, f"FP16 should never produce NaN"
     assert 0.0 < m["combined_score"] < 1.0

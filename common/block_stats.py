@@ -46,8 +46,10 @@ def compute_block_stats(Q, K, V, block_size=128):
             score_mean = S_block.mean().item()
             score_var = S_block.var().item()
 
+            abs_max = S_block.abs().max().item()
             abs_mean = S_block.abs().mean().item()
-            has_outlier = bool(S_block.abs().max().item() > 6 * abs_mean) if abs_mean > 0 else False
+            abs_std = S_block.abs().std().item()
+            has_outlier = bool(abs_max > abs_mean + 10 * abs_std) if abs_std > 0 else False
 
             P_block = torch.softmax(S_block, dim=-1)
             log_P = torch.log(P_block + 1e-10)
