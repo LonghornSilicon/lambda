@@ -39,18 +39,23 @@ prompt:
     - compression = (16 - avg_bits) / 14
     - combined = 0.50 * accuracy + 0.30 * compression + 0.20 * reliability
 
-    Key insights:
+    Accuracy of each precision on non-outlier blocks (measured, k=10):
+    - fp16:     rel_rmse=0.0002, accuracy=0.998 (16 bits)
+    - int8:     rel_rmse=0.018,  accuracy=0.847 (8 bits) ← BEST 8-bit option
+    - fp8_e4m3: rel_rmse=0.047,  accuracy=0.681 (8 bits)
+    - fp8_e5m2: rel_rmse=0.093,  accuracy=0.519 (8 bits)
+    - fp4/int4: rel_rmse>0.5,    accuracy<0.17  (4 bits) — too aggressive
+
+    Block statistics guide:
+    - has_outlier: True for blocks with injected extreme values, False for normal data
+    - score_max: <10 means normal blocks, >50 means outlier blocks
+    - entropy: ~4.3 for uniform attention (normal data), ~0.5 for peaked (outliers)
+    - causal_dist: distance from diagonal in causal attention
     - The baseline (all fp16) scores combined ~0.70 (accuracy ~0.997, compression 0)
-    - A good policy targets combined_score > 0.72 by compressing easy blocks
-    - has_outlier=True means injected extreme values are present → MUST use fp16
-    - has_outlier=False means normal Gaussian data → safe to compress to fp8
-    - score_max < 10 is normal random data; score_max > 50 indicates outliers
-    - For non-outlier blocks, fp8_e4m3 gives rel_rmse ~0.047 (accuracy ~0.68)
-    - For outlier blocks, fp8 gives rel_rmse ~0.15-0.43 (accuracy ~0.19-0.40)
-    - The winning strategy: use fp16 for has_outlier=True blocks, fp8 for the rest
-    - entropy is ~4.3 for normal blocks, ~0.5 for outlier blocks
-    - int4/fp4 is too aggressive — rel_rmse > 0.5 even for normal blocks
-    - int8 is slightly less accurate than fp8_e4m3 for similar bit savings
+    - Outlier blocks (has_outlier=True) need fp16; compressing them destroys accuracy
+    - Non-outlier blocks can be compressed — int8 gives the best accuracy/compression ratio
+    - Try different precisions for different block characteristics
+    - Consider multi-level decisions based on score_max, entropy, causal_dist
 
     Be creative with the policy logic. Consider thresholds, multi-level decisions,
     and combinations of features. The function must be pure Python with no imports.
