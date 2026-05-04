@@ -111,9 +111,26 @@ We compare three strategies across all 12 workloads:
 
 | Strategy | Avg Rel. RMSE | Avg Bits | Compression |
 |----------|---------------|----------|-------------|
-| Uniform FP16 | ~3e-4 | 16.0 | 1.0x |
-| Evolved Policy | ~1e-2 | 11.3 | 1.4x |
-| Uniform INT8 | ~0.5 | 8.0 | 2.0x |
+| Uniform FP16 | 4.93e-4 | 16.0 | 1.0x |
+| Evolved Policy | 1.08e-2 | 11.3 | 1.4x |
+| Uniform INT8 | 5.61e-1 | 8.0 | 2.0x |
+
+Per-workload detail (relative RMSE vs FP64 reference):
+
+| Seq Len | Head Dim | Causal | Outliers | FP16 | INT8 | Evolved | Bits |
+|---------|----------|--------|----------|------|------|---------|------|
+| 512 | 64 | No | No | 1.84e-4 | 1.81e-2 | 1.81e-2 | 8 |
+| 512 | 128 | Yes | Yes | 5.74e-4 | 1.33e+0 | 5.74e-4 | 16 |
+| 2048 | 64 | No | Yes | 1.00e-3 | 1.35e+0 | 1.00e-3 | 16 |
+| 2048 | 128 | Yes | No | 1.67e-4 | 1.79e-2 | 1.79e-2 | 8 |
+| 8192 | 64 | Yes | No | 1.73e-4 | 1.62e-2 | 1.62e-2 | 8 |
+| 8192 | 128 | No | Yes | 1.14e-3 | 1.38e+0 | 1.14e-3 | 16 |
+| 2048 | 64 | Yes | Yes | 1.06e-3 | 1.27e+0 | 1.06e-3 | 16 |
+| 2048 | 128 | No | No | 1.82e-4 | 1.92e-2 | 1.92e-2 | 8 |
+| 4096 | 64 | No | No | 1.89e-4 | 1.92e-2 | 1.92e-2 | 8 |
+| 4096 | 128 | Yes | Yes | 8.86e-4 | 1.28e+0 | 8.86e-4 | 16 |
+| 8192 | 64 | No | No | 1.83e-4 | 1.75e-2 | 1.75e-2 | 8 |
+| 8192 | 128 | Yes | No | 1.72e-4 | 1.68e-2 | 1.68e-2 | 8 |
 
 The critical observation is in the per-workload breakdown. On non-outlier workloads, all three strategies perform similarly -- INT8 is safe and the evolved policy correctly assigns it. On outlier workloads, uniform INT8 suffers catastrophic failure with relative RMSE exceeding 1.0 (i.e., the output is essentially random noise), while the evolved policy matches FP16 accuracy exactly by switching to full precision.
 
@@ -129,8 +146,8 @@ The evolved policy achieves 100% INT8 compression on all 7 non-outlier workloads
 
 The entropy distribution across all 19,488 blocks in our evaluation is strongly bimodal:
 
-- **~13,840 blocks** (71%) cluster at entropy ~4.3 (high entropy, uniform attention distribution). These blocks are assigned INT8.
-- **~5,648 blocks** (29%) cluster at entropy 0.5-1.0 (low entropy, peaked attention distribution). These blocks come from outlier workloads and are assigned FP16.
+- **13,840 blocks** (71.0%) cluster at entropy ~4.3 (high entropy, uniform attention distribution). These blocks are assigned INT8.
+- **5,648 blocks** (29.0%) cluster at entropy 0.5-1.0 (low entropy, peaked attention distribution). These blocks come from outlier workloads and are assigned FP16.
 - **The gap between 1.5 and 3.5 is nearly empty.** There are almost no blocks with intermediate entropy values.
 
 **Figure 3** (see `analysis/figures/entropy_distribution.png`): Left panel shows the bimodal entropy histogram with the 2.0 threshold marked. Right panel shows precision decisions plotted against entropy, confirming clean separation.
