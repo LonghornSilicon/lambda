@@ -1,0 +1,51 @@
+{
+  "n_tiles": 8000,
+  "block_size": 64,
+  "threshold": 10.0,
+  "hardware_formulation": "max*N > threshold*sum (no division)",
+  "min_safe_bits": 4,
+  "results": {
+    "4": {
+      "agreement_pct": 100.0,
+      "danger_miss_pct": 0.0,
+      "danger_miss_n": 0,
+      "false_pos_pct": 0.0,
+      "false_pos_n": 0
+    },
+    "6": {
+      "agreement_pct": 100.0,
+      "danger_miss_pct": 0.0,
+      "danger_miss_n": 0,
+      "false_pos_pct": 0.0,
+      "false_pos_n": 0
+    },
+    "8": {
+      "agreement_pct": 100.0,
+      "danger_miss_pct": 0.0,
+      "danger_miss_n": 0,
+      "false_pos_pct": 0.0,
+      "false_pos_n": 0
+    },
+    "10": {
+      "agreement_pct": 100.0,
+      "danger_miss_pct": 0.0,
+      "danger_miss_n": 0,
+      "false_pos_pct": 0.0,
+      "false_pos_n": 0
+    },
+    "12": {
+      "agreement_pct": 100.0,
+      "danger_miss_pct": 0.0,
+      "danger_miss_n": 0,
+      "false_pos_pct": 0.0,
+      "false_pos_n": 0
+    },
+    "16": {
+      "agreement_pct": 100.0,
+      "danger_miss_pct": 0.0,
+      "danger_miss_n": 0,
+      "false_pos_pct": 0.0,
+      "false_pos_n": 0
+    }
+  }
+}
