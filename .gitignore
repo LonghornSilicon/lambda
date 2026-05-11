@@ -14,3 +14,8 @@ rtl/build/
 # Generated hex vectors (reproducible from analysis/gen_rtl_testvectors.py)
 rtl/tb/testvectors/scores.hex
 rtl/tb/testvectors/expected.hex
+
+# OpenLane runs (each is ~200+ MB of intermediate artifacts).
+# We commit curated outputs under openlane/*/results/ instead.
+openlane/*/runs/
+openlane/*/runs/**
