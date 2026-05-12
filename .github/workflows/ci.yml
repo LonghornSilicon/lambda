@@ -81,9 +81,12 @@ jobs:
           # Assert the FF count matches the closed-form prediction.
           # For default params (BLOCK_M=BLOCK_N=64, SCORE_WIDTH=8):
           #   FFs = 2*8 + log2(4096) + 2 = 30
-          FF_COUNT=$(grep -oE "DFF[A-Z_]*\s+[0-9]+" synth.log | awk '{sum+=$2} END {print sum}')
+          # Yosys 0.33 emits cell types like `$_SDFFE_PN0P_` with digits in
+          # the suffix, so match any line whose cell name contains DFF and
+          # sum the last whitespace-delimited field (the count).
+          FF_COUNT=$(awk '/\$_S?DFF/ {sum+=$NF} END {print sum+0}' synth.log)
           echo "FF count: $FF_COUNT (expected 30)"
-          [ "$FF_COUNT" = "30" ] || (echo "FF count mismatch"; exit 1)
+          [ "$FF_COUNT" = "30" ] || { echo "FF count mismatch"; exit 1; }
 
       - name: Upload synth log
         uses: actions/upload-artifact@v4
