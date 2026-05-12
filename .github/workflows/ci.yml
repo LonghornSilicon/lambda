@@ -57,6 +57,16 @@ jobs:
             || grep -q "ALL TESTS PASSED" /tmp/sim_realdata.log \
             || (echo "Replay TB failed"; exit 1)
 
+          {
+            echo "## RTL functional verification"
+            echo ""
+            echo "| Testbench | Cases | Result |"
+            echo "|---|---|---|"
+            echo "| Directed (\`tb_precision_controller.sv\`) | 110 | PASS |"
+            echo "| Replay (\`tb_realdata.sv\`) | 143 | PASS |"
+            echo "| **Total** | **253** | **PASS** |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # ------------------------------------------------------------------
   # 2. RTL synthesis — Yosys sweep across tile/bit-width axes.
   # Light job, runs on GitHub-hosted Ubuntu.
@@ -75,20 +85,38 @@ jobs:
       - name: Synthesize precision_controller
         working-directory: rtl
         run: |
+          # No trailing `; stat`: the `synth` command already prints one
+          # stats block (step 2.26 in the log). Adding another would print
+          # the same numbers twice and double-count downstream.
           yosys -p "read_verilog -sv precision_controller.sv; \
-                    synth -flatten -top precision_controller; \
-                    stat" 2>&1 | tee synth.log
+                    synth -flatten -top precision_controller" \
+                2>&1 | tee synth.log
+
           # Assert the FF count matches the closed-form prediction.
           # For default params (BLOCK_M=BLOCK_N=64, SCORE_WIDTH=8):
-          #   FFs = 2*8 + log2(4096) + 2 = 30
-          # Yosys 0.33 emits cell types like `$_SDFFE_PN0P_` with digits in
-          # the suffix, so match any line whose cell name contains DFF and
-          # sum the last whitespace-delimited field (the count).
+          #   FFs = 2*SCORE_WIDTH + log2(N) + 2 = 2*8 + 12 + 2 = 30
+          # Yosys 0.33 emits cell types like `$_SDFFE_PN0P_` and
+          # `$_SDFF_PN0_` with digits in the suffix; match anything
+          # containing DFF and sum the last whitespace-delimited field.
           FF_COUNT=$(awk '/\$_S?DFF/ {sum+=$NF} END {print sum+0}' synth.log)
+          CELL_COUNT=$(awk '/Number of cells:/{print $NF; exit}' synth.log)
           echo "FF count: $FF_COUNT (expected 30)"
+          echo "Total cell count: $CELL_COUNT"
+
+          # Write a nice markdown summary for the GitHub run page.
+          {
+            echo "## Yosys synthesis"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|---|---|"
+            echo "| Flip-flops | $FF_COUNT (expected 30) |"
+            echo "| Total cells | $CELL_COUNT |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
           [ "$FF_COUNT" = "30" ] || { echo "FF count mismatch"; exit 1; }
 
       - name: Upload synth log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: yosys-synth-log
@@ -104,6 +132,12 @@ jobs:
     name: OpenLane Sky130 sign-off
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 30
+    # Adding an `environment` makes this job show up as a "Deployment"
+    # in the right-hand sidebar of the repo home / PRs / commits — same
+    # widget Vercel uses. `url` is what the "View deployment" button links to.
+    environment:
+      name: sky130-signoff
+      url: https://github.com/LonghornSilicon/adaptive-precision-attention/blob/master/openlane/precision_controller/results/precision_controller.png
     steps:
       - uses: actions/checkout@v4
 
@@ -126,7 +160,7 @@ jobs:
           LAST_RUN=$(ls -1 runs/ | tail -1)
           echo "Validating $LAST_RUN"
           python3 - <<PYEOF
-          import json, sys
+          import json, os, sys
           m = json.load(open(f"runs/$LAST_RUN/final/metrics.json"))
           checks = {
               "setup_vio":      m["timing__setup_vio__count"],
@@ -136,15 +170,42 @@ jobs:
               "antenna_vio":    m["route__antenna_violation__count"],
               "powergrid_vio":  m["design__power_grid_violation__count"],
           }
+          ss_wns  = m["timing__setup__ws__corner:max_ss_100C_1v60"]
+          tt_wns  = m["timing__setup__ws__corner:max_tt_025C_1v80"]
+          ff_wns  = m["timing__setup__ws__corner:max_ff_n40C_1v95"]
+          area    = m["design__instance__area__stdcell"]
+          power   = m["power__total"] * 1e6
+          ffs     = m["design__instance__count__class:sequential_cell"]
+
+          # Step summary — rendered as markdown on the run page.
+          summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
+          ok = all(v == 0 for v in checks.values())
+          summary.write("## Sky130 OpenLane sign-off\n\n")
+          summary.write("**" + ("PASSED" if ok else "FAILED") + "** — all corners checked.\n\n")
+          summary.write("| Check | Value |\n|---|---|\n")
+          for name, value in checks.items():
+              mark = "PASS" if value == 0 else "FAIL"
+              summary.write(f"| {name} | {value} ({mark}) |\n")
+          summary.write("\n### Timing (setup WNS by corner)\n\n")
+          summary.write("| Corner | WNS |\n|---|---|\n")
+          summary.write(f"| FF (–40 °C, 1.95 V) | {ff_wns:+.3f} ns |\n")
+          summary.write(f"| TT (+25 °C, 1.80 V) | {tt_wns:+.3f} ns |\n")
+          summary.write(f"| SS (+100 °C, 1.60 V, sign-off) | {ss_wns:+.3f} ns |\n")
+          summary.write("\n### Physical\n\n")
+          summary.write(f"- Flip-flops: {ffs}\n")
+          summary.write(f"- Stdcell area: {area:.0f} µm²\n")
+          summary.write(f"- Total power (TT): {power:.1f} µW\n")
+          summary.close()
+
           for name, value in checks.items():
               print(f"  {name}: {value}")
-          if any(v != 0 for v in checks.values()):
+          if not ok:
               print("SIGN-OFF FAILED")
               sys.exit(1)
           print("SIGN-OFF PASSED — all corners clean")
-          print(f"  SS WNS:   {m['timing__setup__ws__corner:max_ss_100C_1v60']:+.3f} ns")
-          print(f"  Area:     {m['design__instance__area__stdcell']:.0f} um^2")
-          print(f"  Power TT: {m['power__total']*1e6:.1f} uW")
+          print(f"  SS WNS:   {ss_wns:+.3f} ns")
+          print(f"  Area:     {area:.0f} um^2")
+          print(f"  Power TT: {power:.1f} uW")
           PYEOF
 
       - name: Upload final GDS + metrics
@@ -166,6 +227,9 @@ jobs:
   paper-build:
     name: Compile paper PDF
     runs-on: ubuntu-latest
+    environment:
+      name: paper
+      url: https://github.com/LonghornSilicon/adaptive-precision-attention/blob/master/paper/adaptive_precision_attention.pdf
     steps:
       - uses: actions/checkout@v4
 
@@ -184,6 +248,21 @@ jobs:
           pdflatex -interaction=nonstopmode -halt-on-error adaptive_precision_attention.tex
           pdflatex -interaction=nonstopmode -halt-on-error adaptive_precision_attention.tex
           ls -lh adaptive_precision_attention.pdf
+
+          # Pull stats for the run-page summary.
+          PAGES=$(pdfinfo adaptive_precision_attention.pdf 2>/dev/null | awk '/^Pages:/{print $2}')
+          SIZE=$(stat -c%s adaptive_precision_attention.pdf)
+          SIZE_KB=$((SIZE / 1024))
+          {
+            echo "## Paper build"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|---|---|"
+            echo "| Pages | $PAGES |"
+            echo "| Size | ${SIZE_KB} KB |"
+            echo ""
+            echo "[Open latest PDF on GitHub](https://github.com/LonghornSilicon/adaptive-precision-attention/blob/master/paper/adaptive_precision_attention.pdf)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check for undefined refs
         working-directory: paper
