@@ -1,185 +1,414 @@
-# Adaptive Precision Attention — `compiler-integration-prep` branch
+# Adaptive Precision Attention
 
-> 🪧 **You are on a feature branch.** This branch adds the software
-> reference model and ISA stub a silicon-agnostic compiler can target
-> *before* the chip is fabricated. For the main project (precision
-> controller RTL, OpenLane Sky130 sign-off, paper, CI), switch to
-> [`master`](https://github.com/LonghornSilicon/adaptive-precision-attention/tree/master).
+A hardware-verified extension of [FlashAttention](https://arxiv.org/abs/2205.14135)
+that routes each attention tile to **INT8** or **FP16** at runtime based on
+a single pre-softmax ratio check. ~79% of tiles end up on the cheaper
+INT8 path with zero accuracy loss versus FlashAttention-2, giving a
+theoretical **1.7× KV-cache bandwidth improvement** for ~30 flip-flops
+of additional silicon.
 
-This branch exists because we have a meeting with a compiler team that
-wants to integrate their silicon-agnostic compiler with the
-LonghornSilicon chip. They can't wait for tape-out (Q3/Q4 2026), so we
-expose:
+This is the **ACU (Attention Compute Unit)** block of the LonghornSilicon
+LLM inference accelerator — one of four blocks targeting TSMC 16FFC tape-out.
 
-1. A **bit-accurate Python reference model** of the precision
-   controller that produces exactly the same INT8/FP16 decision as the
-   real chip will.
-2. An **ISA / interface specification** describing the memory map,
-   AXI-Lite registers, AXI-Stream protocols, and a C API stub. This is
-   the contract their compiler targets.
-3. **Self-tests** proving the Python model agrees bit-for-bit with the
-   RTL testbench across all 143 replay tiles.
-
-The compiler team writes their backend against the ISA. Their backend
-emits operations the Python model can execute now, the FPGA prototype
-can execute when ZCU102/104 arrives, and the chip can execute after
-tape-out — same interface throughout.
+📄 **Paper**: [`paper/adaptive_precision_attention.pdf`](paper/adaptive_precision_attention.pdf)
+🧱 **Sky130 GDS** (signed off): [`openlane/precision_controller/results/precision_controller.gds`](openlane/precision_controller/results/precision_controller.gds)
+🎨 **Layout**: [`paper/sky130_layout.png`](paper/sky130_layout.png)
 
 ---
 
-## What's in this branch (delta from `master`)
+## TL;DR
+
+| | |
+|---|---|
+| **What** | A streaming precision controller that gates attention tiles INT8/FP16 |
+| **Why** | Cuts KV-cache bandwidth ~1.7× with no accuracy loss vs FlashAttention-2 |
+| **How** | Pre-softmax ratio test: `max(|S|)·N > 10·sum(|S|)` → no division, no transcendentals |
+| **Hardware cost** | 30 flip-flops, ~30 µm² in TSMC 16FFC (~0.2% of an 8×8 INT8 MAC array) |
+| **Verified** | 253/253 testbench cases, signed off on Sky130 (DRC/LVS/antenna/IR-drop clean) |
+| **Status** | Tape-out target Q3/Q4 2026 via TSMC University Program 16FFC |
+
+---
+
+## How this improves on FlashAttention
+
+### What FlashAttention already solved
+
+FlashAttention reframed attention as a tiled, IO-aware operation: rather
+than materialize the full `N×N` softmax matrix, it computes attention in
+blocks small enough to fit in SRAM. FA-2 added better parallelism;
+FA-3 added asynchronous execution and FP8 — but FP8 needs Hopper-class
+Tensor Cores (H100).
+
+### Where FA still leaves cycles on the table
+
+Inside each tile, FA-2 keeps everything in FP16. But in practice the
+attention score distribution within a tile is bimodal:
+
+- **Uniform tiles** — attention spread evenly across many keys.
+  Numerically tame. INT8 quantization preserves the result.
+- **Peaked tiles** — one or two keys dominate. INT8 quantization sets the
+  scale to the dominant value, rounding the small-but-nonzero values
+  to zero and destroying the softmax.
+
+The naive instinct is to compute entropy to detect peaked tiles. Entropy
+needs softmax. Softmax needs exponentials. Exponentials are expensive
+in hardware. We don't want any of that.
+
+### Our contribution: an entropy-equivalent ratio test on raw scores
+
+Empirically, peakedness is captured by a single ratio on the raw
+(pre-softmax) scores:
 
 ```
-adaptive-precision-attention/  (compiler-integration-prep)
-├── sw/                                                ← NEW directory
+            max(|S|)
+   ratio = ─────────
+            mean(|S|)
+```
+
+- Uniform tile: max ≈ mean → ratio ≈ 1
+- Peaked tile (one outlier): max ≫ mean → ratio in the 100s–1000s
+
+A threshold of 10 perfectly separates the two populations across 19,488
+real attention tiles. The check rearranges to:
+
+```
+   max(|S|) · N  >  10 · sum(|S|)
+```
+
+— a left shift, a multiply-by-10 (= two shifts + an add), and one
+comparator. Zero floating-point. Zero division. Decision in one cycle
+after the last score of the tile streams in.
+
+### Why this matters for the hardware budget
+
+In TSMC 16FFC the controller is **~30 flip-flops, ~150 µm²**, less than
+**0.2%** of a single 8×8 INT8 MAC array. The cost of *deciding* whether
+to use INT8 is rounding error against the savings from *actually using*
+INT8 on 79% of tiles.
+
+| | FlashAttention-2 | This work |
+|---|---|---|
+| Precision inside a tile | FP16 always | INT8 (79% of tiles) or FP16 (21%) |
+| Decision logic | none | ratio gate (~30 FFs, 1-cycle latency) |
+| KV-cache bandwidth per tile | 1.0× | 0.605× average |
+| Effective KV-cache bandwidth | 1.0× | **~1.7×** |
+| Hopper hardware required | no | no |
+| Accuracy vs FP16 baseline | matched | matched |
+
+### Why we can't show this speedup in software (yet)
+
+Software simulation of "INT8 attention" on a GPU still uses the GPU's
+FP16 Tensor Cores — the integer multiply is faked by quantize → cast →
+FP16 multiply → dequantize. The actual speedup requires **physical
+integer multipliers in silicon**, which is what we're building.
+
+The current Triton kernel (`kernels/`) proves *correctness* across
+real Qwen2 and Phi-2 traces. Throughput numbers come from the ASIC
+or — sooner — the ZCU102/104 FPGA prototype.
+
+---
+
+## How this fits in LonghornSilicon
+
+The precision controller is one of four blocks in the
+LonghornSilicon LLM inference accelerator. The rest of the architecture
+is in flight:
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│              LonghornSilicon LLM Inference Accelerator (16FFC)        │
+│                                                                       │
+│   ┌──────────────────┐         ┌──────────────────────────────┐       │
+│   │  ACU             │ scores  │  Token Importance Unit       │       │
+│   │  (this repo)     │────────▶│                              │       │
+│   │                  │         │  Per-token attention weight  │       │
+│   │  precision_      │         │  accumulator + comparator    │       │
+│   │  controller      │         │  → keep / demote / evict     │       │
+│   │  ────────────    │         └──────────┬───────────────────┘       │
+│   │  INT8 vs FP16    │                    │ tier signals               │
+│   │  gate per tile   │                    ▼                            │
+│   │                  │         ┌──────────────────────────────┐       │
+│   │  + INT8/FP16     │  K, V   │  KV Cache Engine             │       │
+│   │  MAC array       │◀───────▶│                              │       │
+│   │                  │         │  Compress (2-4b quant,       │       │
+│   │                  │         │  GEAR / RotateKV / Lexico)   │       │
+│   └──────────────────┘         │  on writes, decompress       │       │
+│                                │  on reads                    │       │
+│                                └──────────┬───────────────────┘       │
+│                                           │                            │
+│                            ┌──────────────┴──────────────┐             │
+│                            ▼                             ▼             │
+│              ┌─────────────────────────┐   ┌─────────────────────┐    │
+│              │  Memory Hierarchy Ctrl. │   │  Off-chip LPDDR5    │    │
+│              │                         │◀─▶│  (cold KV + model   │    │
+│              │  L1 SRAM (hottest KV)   │   │   weights)          │    │
+│              │  L2 eDRAM 8-32 MB       │   └─────────────────────┘    │
+│              │  (bulk on-chip KV)      │                                │
+│              │  SHIELD refresh control │                                │
+│              └─────────────────────────┘                                │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+| Block | This repo? | Role |
+|---|---|---|
+| **ACU (Attention Compute Unit)** | ✅ this repo | Decides INT8 vs FP16 per tile, runs the MAC array |
+| **KV Cache Engine** | not yet | Compresses K/V on write, decompresses on read (2–4 bit quantization + outlier correction) |
+| **Token Importance Unit** | not yet | Tracks attention weight per cached token → mixed-precision retention (hot tokens stay high precision, cold tokens demoted or evicted) |
+| **Memory Hierarchy Controller** | not yet | Routes between L1 SRAM / L2 eDRAM / off-chip LPDDR5; uses SHIELD-style refresh disable for ~35% eDRAM energy savings |
+
+The precision controller is the **first** to get verified through to
+GDSII because it's the smallest, has the clearest spec, and unblocks
+the area/timing budgets of every block that uses it.
+
+---
+
+## What's in this repo
+
+```
+adaptive-precision-attention/
+├── analysis/                  # Python: evolutionary search, fixed-point sim, RTL test-vector gen
+├── kernels/                   # Triton GPU kernel (correctness proof on real LLM traces)
+├── rtl/
+│   ├── precision_controller.sv     # The DUT (streaming, 1-cycle decision latency)
+│   ├── tb/                          # Self-checking + replay testbenches (253 cases)
+│   ├── constraints/timing.sdc       # 16FFC-targeted timing constraints
+│   ├── genus.tcl, innovus.tcl       # Cadence flow (waiting on TSMC PDK)
+│   └── Makefile                     # Targets: sim, sim_realdata, testvectors, synth
+├── openlane/
+│   └── precision_controller/        # LibreLane / OpenROAD flow targeting Sky130A
+│       ├── config.json              # Signed-off config (80 MHz, all corners clean)
+│       └── results/                 # GDS + layout PNG + signoff metrics
+├── sw/                                       # Compiler co-design: software references
+│   ├── README.md                             # Top-level orientation for the compiler team
 │   └── reference_model/
-│       ├── precision_controller_ref.py                ← bit-accurate Python model
-│       └── test_precision_controller_ref.py           ← 143 replay tests + sanity checks
+│       ├── precision_controller_ref.{hpp,cpp,py}   # Block 1a, bit-exact 143/143 vs RTL
+│       ├── mac_array_ref.{hpp,cpp,py}              # Block 1b, INT8 + FP16 matmul
+│       ├── test_*.{cpp,py}                          # C++ and Python test suites
+│       ├── integration_example.py                  # End-to-end attention tile flow
+│       └── Makefile                                # test, test-all, shared, static, integration
+├── paper/
+│   ├── adaptive_precision_attention.tex/.pdf   # Full writeup
+│   └── *.png                                    # Figures
 ├── docs/
-│   └── isa/                                           ← NEW directory
-│       └── precision_controller_isa.md                ← ISA / interface spec
-└── README.md                                          ← this file (branch-scoped)
+│   ├── isa/precision_controller_isa.{tex,pdf}   # ISA spec for block 1 (pc-isa-0.1)
+│   ├── mac_array_design.{tex,pdf}               # Design rationale for block 2 (mac-array-v0.1)
+│   ├── sw_overview.{tex,pdf}                    # Compiler-team orientation PDF
+│   ├── reference_model_api.{tex,pdf}            # Formal C++ / C / Python API reference
+│   ├── meeting_handout.{tex,pdf}                # 2-page brief for compiler-team meetings
+│   ├── chamber_setup.md                          # End-to-end walkthrough for Cadence chamber sign-off
+│   ├── ci_setup.md                               # GitHub Actions self-hosted runner setup
+│   ├── ci_overview.md                            # CI pipeline reference
+│   └── new_block_blueprint.md                    # Template for future LonghornSilicon block repos
+├── .github/workflows/ci.yml      # CI: RTL verif → synth → Sky130 signoff → ref tests → paper build
+└── README.md (this file)
 ```
-
-Everything else (`rtl/`, `openlane/`, `paper/`, `analysis/`, the CI
-pipeline) is unchanged from `master`.
 
 ---
 
-## Quick verification — model is bit-exact against the RTL
+## Results
+
+### Accuracy (algorithmic)
+
+- **253/253 testbench cases pass** bit-exactly against a Python integer
+  reference (110 directed + 143 replay from real attention-score traces).
+- **Matches FlashAttention-2 accuracy** on Qwen2-0.5B/1.5B/3B and Phi-2
+  (91–97% of attention tiles INT8-safe; INT8 fraction *improves* with
+  scale, suggesting the savings get bigger on larger models).
+- Threshold-of-10 robust to its exact value: the gap between uniform
+  and peaked tiles is 1.5 < ratio < 3.5 (nearly empty in 19,488 tiles).
+
+### Hardware (post-PnR Sky130, signed off)
+
+| Metric | Value |
+|---|---|
+| Frequency (signed off at SS / 100 °C / 1.60 V) | **80 MHz** |
+| Setup WNS (FF / TT / SS) | +8.34 / +6.10 / **+0.072** ns |
+| Hold WS (FF / TT / SS) | +0.18 / +0.36 / +0.86 ns |
+| DRC / LVS / antenna / IR-drop violations | **0 / 0 / 0 / 0** |
+| Flip-flops | 30 (matches closed-form `2·SCORE_WIDTH + log₂N + 2`) |
+| Stdcell area | 3,438 µm² (Sky130A) |
+| Die size | 87.8 × 98.5 µm² (59% utilization) |
+| Total power (TT corner) | 330.5 µW |
+| End-to-end flow runtime | ~3 min per pass |
+
+Independently scaling Sky130 → TSMC 16FFC (5× area reduction, 2× speed,
+10× dynamic power reduction): **~700 µm², ~600 MHz, ~30 µW** — within
+margin of the 800 MHz / ~150 µm² ASAP7-derived projection.
+
+---
+
+## Reproduce
+
+### Functional verification (~30 sec)
 
 ```sh
-python3 sw/reference_model/test_precision_controller_ref.py
+cd rtl
+make testvectors   # generate 143 INT8-quantized replay tiles
+make sim           # 110 directed cases — should print 110/110 pass
+make sim_realdata  # 143 replay cases — should print 143/143 pass
 ```
 
-Expected output:
+### Yosys synthesis (~10 sec)
 
-```
-Tests: 143  Pass: 143  Fail: 0  ALL TESTS PASSED
-ALL SELF-TESTS PASSED
+```sh
+cd rtl
+yosys -p "read_verilog -sv precision_controller.sv; \
+          synth -flatten -top precision_controller; stat"
+# Expect 30 FFs (29 SDFFE + 1 SDFF)
 ```
 
-The first line is the exact match string the RTL testbench prints when
-all 143 replay tiles agree with the integer reference. The Python
-model reaches the same result through the same arithmetic
-(SCORE_WIDTH-bit two's-complement abs, SUM_WIDTH accumulator,
-CMP_WIDTH comparison, shift-and-add multiply by THRESHOLD).
+### Sky130 OpenLane signoff (~3 min)
+
+Requires Docker (~25 GB free) and `pip install librelane`:
+
+```sh
+cd openlane/precision_controller
+librelane --docker-no-tty --dockerized config.json
+# Final metrics at runs/<latest>/final/metrics.json
+```
+
+### Cadence flow (TSMC 16FFC, when PDK is provisioned)
+
+```sh
+cd rtl
+genus -files genus.tcl -log reports/genus.log
+innovus -files innovus.tcl -log reports/innovus.log
+```
+
+PDK paths are at the top of each Tcl file. The end-to-end walkthrough
+for fresh-chamber sign-off is in [`docs/chamber_setup.md`](docs/chamber_setup.md).
+
+### Build the paper (~1 min)
+
+```sh
+cd paper
+pdflatex adaptive_precision_attention.tex
+bibtex   adaptive_precision_attention
+pdflatex adaptive_precision_attention.tex
+pdflatex adaptive_precision_attention.tex
+```
 
 ---
 
-## Using the model from your compiler
+## CI / CD
 
-### High-level (stateless, one-shot)
+The pipeline at [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+runs on every push and PR:
 
-```python
-from precision_controller_ref import PrecisionController
+| Job | Runner | What it does |
+|---|---|---|
+| `rtl-functional-verification` | GitHub Ubuntu (free) | 253 iverilog test cases |
+| `rtl-synthesis` | GitHub Ubuntu (free) | Yosys synth + assert FF count = 30 |
+| `reference-model-tests` | GitHub Ubuntu (free) | Builds Python + C++ refs, runs 143/143 vs RTL + MAC array tests |
+| `openlane-sky130` | **self-hosted (cloud box)** | Full Sky130 signoff; **fails CI if any violation** |
+| `paper-build` | GitHub Ubuntu (free) | pdflatex + bibtex + undefined-ref check |
 
-scores = [...]   # exactly 4096 int8 values (BLOCK_M * BLOCK_N)
-decision = PrecisionController.decide(scores)
-# decision is True (FP16) or False (INT8)
+The OpenLane job runs on a self-hosted runner because the LibreLane
+Docker image is 6 GB and the PDK cache benefits from staying warm
+between runs.
+
+### Reusing this CI in other LonghornSilicon repos
+
+When you start the KV Cache Engine, Token Importance Unit, or Memory
+Hierarchy Controller repos, you have three options for sharing the CI
+setup, ordered by effort:
+
+**Option A — Copy the workflow file** (easiest, 1 minute per repo)
+
+1. Copy `.github/workflows/ci.yml` into the new repo.
+2. Adjust the paths (`rtl/`, `openlane/<block>/`, `paper/`) to the new
+   repo's layout.
+3. Update the FF-count assertion in `rtl-synthesis` to whatever the new
+   block's closed-form predicts.
+
+This is sufficient for now. Each repo gets its own CI but they all
+share the same self-hosted runner (next item).
+
+**Option B — Share the self-hosted runner across the org** (recommended)
+
+Currently the runner is registered to *this repo* only. Re-register
+it at the **organization level** so every LonghornSilicon repo can use
+it without re-installing:
+
+1. On https://github.com/organizations/LonghornSilicon/settings/actions/runners,
+   click **New runner** → Linux → x64 to get a new token.
+2. On the always-on cloud box, stop the existing runner:
+   ```sh
+   cd ~/actions-runner && sudo ./svc.sh stop && sudo ./svc.sh uninstall
+   ./config.sh remove --token <TOKEN-FROM-OLD-REPO-RUNNER-PAGE>
+   ```
+3. Re-register with the **org-level** token and URL:
+   ```sh
+   ./config.sh \
+     --url https://github.com/LonghornSilicon \
+     --token <ORG-TOKEN> \
+     --labels self-hosted,linux,x64 \
+     --unattended
+   sudo ./svc.sh install && sudo ./svc.sh start
+   ```
+4. The same `runs-on: [self-hosted, linux, x64]` in any LonghornSilicon
+   repo's workflow will now pick it up.
+
+**Option C — Reusable workflow** (DRY for future-you, ~30 min one-time)
+
+Create a `LonghornSilicon/.github` repo at the org level with a
+`workflow-templates/` directory. Each component repo then references the
+shared template:
+
+```yaml
+# in any component repo's .github/workflows/ci.yml:
+jobs:
+  signoff:
+    uses: LonghornSilicon/.github/.github/workflows/openlane-signoff.yml@main
+    with:
+      design-dir: openlane/kv_cache_engine
+      expected-ff-count: 1248
 ```
 
-### High-level (stateful, batch)
+This is overkill for two blocks but pays off by the time you have all
+four. Worth doing when the second block lands.
 
-```python
-pc = PrecisionController()
-decisions = pc.process_tiles(many_tiles)   # list of bools, one per tile
+Detailed instructions, including troubleshooting, are in
+[`docs/ci_setup.md`](docs/ci_setup.md) and
+[`docs/runner_setup_prompt.md`](docs/runner_setup_prompt.md).
+
+---
+
+## Status & roadmap
+
+- [x] Evolutionary policy discovery (entropy → ratio simplification)
+- [x] Fixed-point hardware simulation (zero misses across 8,000 tiles)
+- [x] Real-LLM validation on Qwen2-0.5B/1.5B/3B and Phi-2
+- [x] SystemVerilog RTL + self-checking testbenches (253/253 pass)
+- [x] Yosys synth + parameter sweep (log-area scaling confirmed)
+- [x] ASAP7 open synth + 16FFC projection
+- [x] Sky130 OpenLane signoff (all corners clean)
+- [x] Paper + CI pipeline + chamber walkthrough docs
+- [ ] **TSMC 16FFC sign-off on Cadence (waiting on PDK access)**
+- [ ] **ZCU102/104 FPGA prototype (Vivado, when board arrives)**
+- [ ] Integration with KV Cache Engine, Token Importance Unit, Memory Hierarchy Controller
+- [ ] Full-chip tape-out via TSMC University Program shuttle (target Q3/Q4 2026)
+
+---
+
+## Citation
+
+```bibtex
+@misc{adaptive_precision_attention_2026,
+  title  = {Adaptive Precision Attention: Evolutionary Discovery to Hardware-Verified Ratio Gates},
+  author = {LonghornSilicon},
+  year   = {2026},
+  url    = {https://github.com/LonghornSilicon/adaptive-precision-attention}
+}
 ```
 
-### Low-level (streaming, mirrors the chip's AXI-Stream interface)
+## Acknowledgments
 
-```python
-pc = PrecisionController()
-pc.reset()
-for i, s in enumerate(scores):
-    last = (i == len(scores) - 1)
-    pc.tick(s_valid=True, s_data=s, s_last=last)
-    if pc.d_valid:
-        decision = pc.d_fp16
-```
-
-This last form is what an FPGA driver or a cycle-accurate simulator
-would do — feed one beat per clock, watch for `d_valid`.
-
----
-
-## ISA / interface spec
-
-[`docs/isa/precision_controller_isa.md`](docs/isa/precision_controller_isa.md)
-
-Covers:
-
-- 11-register AXI-Lite memory map (control, status, INFO, decision FIFO,
-  interrupt)
-- Two AXI-Stream channels (`s_axis_scores`, `m_axis_decisions`) with
-  protocol details
-- 7 logical operations a compiler emits (`PC_QUERY`, `PC_RESET`,
-  `PC_ENABLE`, `PC_PUSH_TILE`, `PC_READ`, `PC_READ_BATCH`, `PC_STATUS`)
-- C API stub for the runtime driver layer
-- Synthesis-time configuration table (BLOCK_M/N, SCORE_WIDTH, THRESHOLD)
-- The 4-phase integration plan (Python ref → FPGA → multi-block FPGA →
-  real silicon)
-- Open questions for the compiler team meeting
-
-The spec is versioned `pc-isa-0.1`. Breaking changes bump the major
-version; backwards-compatible additions bump the minor.
-
----
-
-## 4-phase integration plan (recap from the ISA spec)
-
-| Phase | Timeline | Compiler targets | We provide |
-|---|---|---|---|
-| **0 — Python ref** | now | `sw/reference_model/precision_controller_ref.py` | This branch ✅ |
-| **1 — FPGA prototype** | when ZCU102/104 arrives | AXI-Lite + AXI-Stream on the dev board | Vivado bitstream + PYNQ driver (TBD) |
-| **2 — Multi-block FPGA** | after KV cache + token importance + memory controller blocks | Same AXI interface, now with neighbor blocks | Larger Vivado project (TBD) |
-| **3 — Real silicon** | post-tape-out, 2027+ | Same AXI-mapped interface over PCIe | TSMC 16FFC chip (TBD) |
-
-Phase 0 is what this branch enables. It commits both sides to a
-concrete, testable interface *before silicon exists* — which is the
-only way to start meaningful compiler-side work months ahead of
-tape-out.
-
----
-
-## When this branch merges back to master
-
-After the compiler integration meeting and any consequent revisions to
-the ISA stub, this branch's contents (the `sw/` directory, the `docs/isa/`
-directory, and the model self-tests) will merge into `master`. The
-branch-scoped README will be replaced with the standard master README
-at that point, and a "Compiler integration" section will land in the
-top-level docs.
-
-If you're a Claude Code session arriving here from
-[`docs/new_block_blueprint.md`](docs/new_block_blueprint.md) (on
-master) to set up similar software for another LonghornSilicon block
-(KV Cache Engine, Token Importance Unit, etc.), use this branch's
-`sw/reference_model/` and `docs/isa/` directories as the template.
-Same pattern, different block.
-
----
-
-## Provenance and caveats
-
-- The Python model assumes `THRESHOLD = 10` (the synthesized default).
-  Other thresholds require an RTL re-synthesis; the model raises
-  `NotImplementedError` if you try to instantiate with a different
-  threshold. See "Open questions" at the end of the ISA spec.
-- `N = BLOCK_M * BLOCK_N` must be a power of two (the SV uses
-  `$clog2(N)` as a hardwired shift; non-powers-of-two would need a
-  parameterized shift register, which the current implementation does
-  not have).
-- The C API in §5 of the ISA is a **stub**, not a working
-  implementation. A real driver requires the FPGA bitstream and the
-  AXI-Lite/AXI-Stream IPs to actually wire up.
-- This branch does **not** modify any RTL, OpenLane config, or paper
-  content. The chip-side commitments are unchanged.
-
----
-
-## License / contact
-
-Same as master. Project lives at
-[`LonghornSilicon/adaptive-precision-attention`](https://github.com/LonghornSilicon/adaptive-precision-attention).
-Author: Chaithu Talasila, UT Austin.
+This work builds directly on FlashAttention
+(Dao et al., 2022), FlashAttention-2 (Dao, 2023), and FlashAttention-3
+(Shah et al., 2024). The open hardware flow uses
+[Yosys](https://github.com/YosysHQ/yosys),
+[OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD),
+[LibreLane](https://github.com/librelane/librelane),
+[ASAP7](https://github.com/The-OpenROAD-Project/asap7), and the
+[SkyWater Sky130 PDK](https://github.com/google/skywater-pdk).
