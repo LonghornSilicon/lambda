@@ -104,11 +104,11 @@ jobs:
 
   # ------------------------------------------------------------------
   # 3. OpenLane Sky130 sign-off.
-  # Runs on self-hosted runner with Docker.
+  # Runs on GitHub-hosted Ubuntu (x86_64, free for public repos).
   # ------------------------------------------------------------------
   openlane-sky130:
     name: OpenLane Sky130 sign-off
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
       name: sky130-signoff
