@@ -117,9 +117,11 @@ TSMC University Program (tape-out target Q3/Q4 2026):
       off-chip LPDDR5 routing.
 \end{enumerate}
 
-For compiler co-design, blocks 1 (and its two sub-components) are
-the first to be fully specified in software. Blocks 2--4 follow the
-same template as they land.
+For compiler co-design, block 1 (the ACU and its two sub-components,
+the precision controller and the MAC array) is the first to be fully
+specified in software. Blocks 2--4 (KV Cache Engine, Token Importance
+Unit, Memory Hierarchy Controller) follow the same template as they
+land.
 
 %==============================================================================
 \section{Block Coverage in the Software Reference}
@@ -133,10 +135,10 @@ same template as they land.
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}p{3.0cm} p{4.0cm} p{1.8cm} p{3.3cm} p{2.3cm}@{}}
 \toprule
-Block                       & C++ class                          & C API                 & Python                       & Status \\
+Block / sub-block           & C++ class                          & C API                 & Python                       & Status \\
 \midrule
-Precision Controller        & \texttt{lhsi::PrecisionController} & \texttt{lhsi\_pc\_*}  & \texttt{PrecisionController} & 143/143 vs RTL \\
-MAC Array                   & \texttt{lhsi::mac::MacArray}       & \texttt{lhsi\_mac\_*} & \texttt{MacArray}            & numpy agreed \\
+ACU --- Precision Ctrl.     & \texttt{lhsi::PrecisionController} & \texttt{lhsi\_pc\_*}  & \texttt{PrecisionController} & 143/143 vs RTL \\
+ACU --- MAC Array           & \texttt{lhsi::mac::MacArray}       & \texttt{lhsi\_mac\_*} & \texttt{MacArray}            & numpy agreed \\
 KV Cache Engine             & ---                                & ---                   & ---                          & in design \\
 Token Importance Unit       & ---                                & ---                   & ---                          & not started \\
 Memory Hierarchy Controller & ---                                & ---                   & ---                          & not started \\
@@ -246,7 +248,7 @@ Phase & Timeline & Compiler targets & We provide \\
 \midrule
 0 & now                      & Python + C++ reference models                & Models, ISA, tests on this branch \\
 1 & when ZCU102/104 arrives  & AXI-Lite + AXI-Stream on Zynq UltraScale+    & Vivado bitstream + PYNQ driver \\
-2 & blocks 3/4/5 land        & Same AXI, more blocks visible                & Larger Vivado project \\
+2 & KV / TIU / MHC blocks land & Same AXI, more blocks visible              & Larger Vivado project \\
 3 & post-tape-out (2027+)    & PCIe-attached custom chip                    & TSMC 16FFC silicon + Linux driver \\
 \bottomrule
 \end{tabular}
