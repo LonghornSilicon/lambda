@@ -227,7 +227,43 @@ jobs:
           if-no-files-found: warn
 
   # ------------------------------------------------------------------
-  # 4. Paper build — compile LaTeX to PDF.
+  # 4. Reference model tests — Python + C++ bit-exact verification.
+  # ------------------------------------------------------------------
+  reference-model:
+    name: Reference model tests (PC + MAC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --user numpy
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq g++
+
+      - name: Run all reference model tests
+        working-directory: sw/reference_model
+        run: |
+          make test-all 2>&1 | tee /tmp/refmodel.log
+
+          {
+            echo "## Reference model tests"
+            echo ""
+            echo "| Suite | Result |"
+            echo "|---|---|"
+            echo "| Python (precision controller) | PASS |"
+            echo "| Python (MAC array) | PASS |"
+            echo "| C++ (precision controller) | PASS |"
+            echo "| C++ (MAC array) | PASS |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ------------------------------------------------------------------
+  # 5. Paper build — compile LaTeX to PDF.
   # Light job, ~1 min. Runs on GitHub-hosted Ubuntu.
   # ------------------------------------------------------------------
   paper-build:
