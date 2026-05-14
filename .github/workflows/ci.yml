@@ -108,7 +108,7 @@ jobs:
   # ------------------------------------------------------------------
   openlane-sky130:
     name: OpenLane Sky130 sign-off
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, linux, ARM64]
     timeout-minutes: 30
     environment:
       name: sky130-signoff
