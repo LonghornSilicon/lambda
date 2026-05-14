@@ -34,7 +34,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: pip
+          # no pip cache — no requirements.txt in repo
 
       - name: Install iverilog + numpy
         run: |
@@ -238,7 +238,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: pip
+          # no pip cache — no requirements.txt in repo
 
       - name: Install dependencies
         run: |
