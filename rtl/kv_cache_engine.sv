@@ -116,25 +116,8 @@ module kv_cache_engine #(
     // Compression pipeline
     // -----------------------------------------------------------------------
 
-    // Norm computation
-    wire                   norm_o_valid;
-    wire [NORM_WIDTH-1:0]  norm_o_norm;
-
-    norm_unit #(
-        .VECTOR_DIM  (VECTOR_DIM),
-        .COORD_WIDTH (COORD_WIDTH),
-        .NORM_WIDTH  (NORM_WIDTH),
-        .COORD_FRAC  (COORD_FRAC),
-        .NORM_FRAC   (NORM_FRAC)
-    ) u_norm (
-        .clk     (clk),
-        .rst_n   (rst_n),
-        .i_valid (1'b0),  // driven by FSM below
-        .i_data  ('0),
-        .i_last  (1'b0),
-        .o_valid (norm_o_valid),
-        .o_norm  (norm_o_norm)
-    );
+    // Norm computation — instantiated when full compression pipeline is wired
+    // norm_unit u_norm (.clk(clk), .rst_n(rst_n), ...);
 
     // Main FSM
     localparam [3:0] ST_IDLE       = 4'd0;

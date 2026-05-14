@@ -20,7 +20,6 @@
 # array ports. Include them here once the full compression pipeline is wired.
 
 read_verilog -sv kv_cache_engine.sv
-read_verilog -sv norm_unit.sv
 read_verilog -sv sram_controller.sv
 
 hierarchy -check -top kv_cache_engine

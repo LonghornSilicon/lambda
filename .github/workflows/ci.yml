@@ -131,7 +131,7 @@ jobs:
           # Sub-modules with unpacked arrays (rotation_unit, quantizer,
           # qjl_unit, packer, decompressor) aren't wired into the top-level
           # yet — add them once the full pipeline is connected.
-          for f in kv_cache_engine.sv norm_unit.sv sram_controller.sv; do
+          for f in kv_cache_engine.sv sram_controller.sv; do
             ln -sf ../../../rtl/$f $f
           done
           ls -la
