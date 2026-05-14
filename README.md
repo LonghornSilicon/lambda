@@ -260,15 +260,21 @@ for fresh-chamber sign-off is in [`docs/chamber_setup.md`](docs/chamber_setup.md
 
 ## CI / CD
 
-The pipeline at [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
-runs on every push and PR:
+The thin caller at [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+delegates to the
+[LonghornSilicon shared `block-ci` reusable workflow](https://github.com/LonghornSilicon/.github/blob/main/.github/workflows/block-ci.yml),
+which defines 8 gates for every block in the organization:
 
-| Job | Runner | What it does |
+| Gate | Runner | What it does |
 |---|---|---|
-| `rtl-functional-verification` | GitHub Ubuntu (free) | Directed + replay iverilog test cases |
-| `rtl-synthesis` | GitHub Ubuntu (free) | Yosys synth + cell count report |
-| `openlane-sky130` | GitHub Ubuntu (free) | Full Sky130 signoff; **fails CI if any violation** |
-| `reference-model` | GitHub Ubuntu (free) | Builds Python + C++ refs, runs all test suites |
+| 1. RTL functional verification | GitHub Ubuntu | Directed + replay iverilog testbenches |
+| 2. Line coverage gate | GitHub Ubuntu | Verilator-based line coverage (disabled for now) |
+| 3. RTL synthesis (Yosys) | GitHub Ubuntu | Synth + FF-count assertion (expected: 72) |
+| 4. Formal equivalence | GitHub Ubuntu | RTL ≡ post-synth netlist via Yosys |
+| 5. Reference model tests | GitHub Ubuntu | C++ + Python bit-exact verification |
+| 6. OpenLane Sky130 sign-off | GitHub Ubuntu | Full Sky130 PnR; **fails if any violation** |
+| 7. Paper build | GitHub Ubuntu | pdflatex compile (disabled — no paper) |
+| 8. Cadence 16FFC sign-off | Self-hosted | Genus + Innovus (disabled until PDK + licenses) |
 
 Detailed CI walkthrough: [`docs/ci_overview.md`](docs/ci_overview.md).
 Runner setup: [`docs/ci_setup.md`](docs/ci_setup.md).
