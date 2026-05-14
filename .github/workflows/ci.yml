@@ -127,9 +127,11 @@ jobs:
         run: |
           mkdir -p openlane/kv_cache_engine/src
           cd openlane/kv_cache_engine/src
-          for f in kv_cache_engine.sv norm_unit.sv sram_controller.sv \
-                   rotation_unit.sv quantizer.sv qjl_unit.sv \
-                   packer.sv decompressor.sv; do
+          # Only include files Yosys can parse (no SV unpacked array ports).
+          # Sub-modules with unpacked arrays (rotation_unit, quantizer,
+          # qjl_unit, packer, decompressor) aren't wired into the top-level
+          # yet — add them once the full pipeline is connected.
+          for f in kv_cache_engine.sv norm_unit.sv sram_controller.sv; do
             ln -sf ../../../rtl/$f $f
           done
           ls -la
