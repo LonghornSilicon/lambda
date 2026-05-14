@@ -25,6 +25,8 @@ sw/**/*.o
 sw/**/*.a
 sw/**/*.so
 sw/**/test_ref
+sw/**/test_pc
+sw/**/test_mac
 
 # LaTeX intermediate artifacts (regenerable from .tex + .bib)
 paper/*.aux
