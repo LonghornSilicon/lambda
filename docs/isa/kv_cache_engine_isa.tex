@@ -1,0 +1,620 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+% Hyperref colors
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={KV Cache Engine --- Interface Specification},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={ISA Specification, Version kv-isa-0.1}
+}
+
+% Headings
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{\thesubsubsection}{0.6em}{}
+
+% Headers / footers
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small KV Cache Engine ISA}
+\rhead{\small \texttt{kv-isa-0.1}}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% Code listings
+\definecolor{codebg}{gray}{0.97}
+\definecolor{codekey}{rgb}{0.13,0.29,0.53}
+\definecolor{codecom}{rgb}{0.25,0.5,0.25}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+  xleftmargin=0.5em,
+  xrightmargin=0.5em,
+  aboveskip=0.6em,
+  belowskip=0.6em,
+  showstringspaces=false,
+  breaklines=true,
+  keywordstyle=\color{codekey}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  numbers=none
+}
+
+\setlist{itemsep=1pt,topsep=2pt}
+
+\begin{document}
+
+%==============================================================================
+% Title page
+%==============================================================================
+\thispagestyle{empty}
+\begin{center}
+\vspace*{1.2in}
+{\Huge\bfseries KV Cache Engine}\\[0.4em]
+{\LARGE\bfseries Interface Specification}\\[1.2em]
+
+{\large \textsc{LonghornSilicon LLM Inference Accelerator}}\\[0.4em]
+{\large Block 2 of 4 --- KV Cache Compression / Decompression}\\[2em]
+
+\rule{0.7\textwidth}{0.4pt}\\[1em]
+
+\begin{tabular}{rl}
+\textbf{Version}:    & \texttt{kv-isa-0.1} (first public draft) \\
+\textbf{Date}:       & 2026-05-14 \\
+\textbf{Status}:     & Pre-tape-out stub for compiler integration \\
+\textbf{Author}:     & Chaithu Talasila, The University of Texas at Austin \\
+\textbf{Reference}:  & \texttt{LonghornSilicon/kv-cache-engine} \\
+\end{tabular}\\[1em]
+\rule{0.7\textwidth}{0.4pt}
+
+\vfill
+\begin{minipage}{0.85\textwidth}
+\small
+\textbf{Scope.} This document describes the externally-visible interface to the
+\texttt{kv\_cache\_engine} block as it will appear on the chip, on an
+FPGA prototype, or in the bit-accurate software model.
+A compiler backend targeting the KV cache engine writes against this
+interface; the hardware implementation must conform to it. This specification
+is stable for the KV cache engine block only and will be unified
+with the rest of the LonghornSilicon ISA when the Token
+Importance Unit and Memory Hierarchy Controller blocks land.
+\end{minipage}
+
+\vspace{0.3in}
+\end{center}
+
+\clearpage
+
+%==============================================================================
+% TOC
+%==============================================================================
+\tableofcontents
+\clearpage
+
+%==============================================================================
+% 1. Block overview
+%==============================================================================
+\section{Block Overview}
+\label{sec:overview}
+
+The KV cache engine manages on-chip storage of key and value tensors for
+transformer attention, with lossy compression to reduce DRAM bandwidth.
+It implements TurboQuant+ (\texttt{turbo4} configuration):
+
+\begin{itemize}
+\item \textbf{Key path}: PolarQuant (3-bit) + QJL (1-bit) = 4.25 bits per value (bpv)
+\item \textbf{Value path}: PolarQuant (3-bit) only $\approx$ 3.0 bpv
+\end{itemize}
+
+\noindent The compression pipeline consists of:
+\begin{enumerate}
+\item \textbf{Norm extraction}: L2 norm of the input vector, stored as metadata.
+\item \textbf{Rotation}: Walsh-Hadamard Transform with random sign flips
+      (deterministic from seed). Self-inverse, $O(n \log n)$ butterfly structure.
+\item \textbf{Quantization}: 3-bit optimal Lloyd-Max scalar quantization on the
+      rotated coordinates, producing centroid indices.
+\item \textbf{QJL projection} (K path only): Quantized Johnson-Lindenstrauss
+      transform on the residual. Random $\pm 1$ projection matrix from seed,
+      producing 1-bit signs per dimension.
+\item \textbf{Packing}: Bit-packing of norm, indices, residual norm, and signs
+      into a compact SRAM word.
+\end{enumerate}
+
+\noindent Decompression reverses the pipeline: unpack, centroid lookup, QJL
+correction (K only), inverse WHT, norm rescaling.
+
+\medskip
+\noindent\textbf{Compression ratio:} K = 3.56$\times$, V = 4.92$\times$, combined $\geq$ 3$\times$.\\
+\textbf{Footprint:} $\sim$6400 FFs estimated (full pipeline); $\sim$93 FFs current top-level.\\
+\textbf{Bit-exact reference:} \path{sw/reference_model/kv_cache_engine_ref.py}
+and \path{sw/reference_model/kv_cache_engine_ref.{hpp,cpp}}.
+
+%==============================================================================
+% 2. Address space and memory map
+%==============================================================================
+\section{Address Space and Memory Map}
+\label{sec:memmap}
+
+The block exposes a 256-byte AXI-Lite slave register window. All registers
+are 32-bit, word-aligned. The base address is set at chip integration time.
+
+\begin{table}[h]
+\centering
+\small
+\caption{AXI-Lite register window (offsets relative to base address).}
+\label{tab:regs}
+\begin{tabular}{@{}l l c l p{6cm}@{}}
+\toprule
+Offset & Name & Access & Reset & Purpose \\
+\midrule
+\texttt{0x00} & \texttt{CTRL}              & RW    & 0x0   & bit[0]: \texttt{soft\_reset} (write-1 to pulse); bit[1]: \texttt{enable} \\
+\texttt{0x04} & \texttt{STATUS}            & R     & 0x1   & bit[0]: \texttt{idle}; bit[1]: reserved; bit[2]: reserved; bit[3]: \texttt{sram\_full} \\
+\texttt{0x08} & \texttt{INFO\_DIM}         & R     & (syn) & Synthesis-time \texttt{VECTOR\_DIM} \\
+\texttt{0x0C} & \texttt{INFO\_PQ\_BITS}    & R     & (syn) & PolarQuant quantization bits (3) \\
+\texttt{0x10} & \texttt{INFO\_QJL\_BITS}   & R     & (syn) & QJL projection bits (1) \\
+\texttt{0x14} & \texttt{INFO\_SRAM\_DEPTH} & R     & (syn) & Number of SRAM entries \\
+\texttt{0x18} & \texttt{INFO\_CR\_K}       & R     & (syn) & Key compression ratio, fixed-point 8.8 \\
+\texttt{0x1C} & \texttt{INFO\_CR\_V}       & R     & (syn) & Value compression ratio, fixed-point 8.8 \\
+\texttt{0x20} & \texttt{INFO\_VERSION}     & R     & 0x00010000 & bits[31:24] major, bits[23:16] minor, bits[15:8] patch, bits[7:0] build \\
+\texttt{0x24} & \texttt{OCCUPANCY}         & R     & 0x0   & Number of valid entries in SRAM \\
+\texttt{0x28} & \texttt{WRITE\_ADDR}       & RW    & 0x0   & Target SRAM address for next write \\
+\texttt{0x2C} & \texttt{READ\_ADDR}        & RW    & 0x0   & Target SRAM address for next read \\
+\texttt{0x30} & \texttt{KV\_SELECT}        & RW    & 0x0   & bit[0]: 0 = key path, 1 = value path \\
+\texttt{0x34} & \texttt{IRQ\_MASK}         & RW    & 0x0   & bits[3:0]: interrupt enable mask \\
+\texttt{0x38} & \texttt{IRQ\_STATUS}       & R/W1C & 0x0   & bits[3:0]: interrupt pending; write-1-to-clear \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\medskip
+\noindent\textbf{Conventions.} \texttt{RW} = read/write; \texttt{R} = read-only;
+\texttt{W1C} = write-1-to-clear; (syn) = value fixed at synthesis time.
+Writes to read-only registers are silently dropped. Reading reserved offsets
+returns \texttt{0xDEADBEEF}.
+
+%==============================================================================
+% 3. Streaming data interfaces
+%==============================================================================
+\section{Streaming Data Interfaces}
+\label{sec:stream}
+
+Two AXI-Stream interfaces carry the vector data. The AXI-Lite window in
+\S\ref{sec:memmap} is for control only.
+
+\subsection{\texttt{s\_axis\_kv} --- Vector Write (Slave)}
+\label{sec:s_axis_kv}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l c c p{8cm}@{}}
+\toprule
+Signal      & Width                  & Direction & Purpose \\
+\midrule
+\texttt{tdata}  & \texttt{COORD\_WIDTH} & in        & One signed two's-complement coordinate \\
+\texttt{tlast}  & 1                     & in        & Assert on the final coordinate of the vector \\
+\texttt{tvalid} & 1                     & in        & Handshake: data is valid \\
+\texttt{tready} & 1                     & out       & Handshake: block is ready to accept \\
+\texttt{tuser}  & 1                     & in        & 0 = key vector, 1 = value vector \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Protocol:}
+\begin{itemize}
+\item A complete vector is exactly \texttt{VECTOR\_DIM} beats. \texttt{tlast}
+  asserts on the final beat.
+\item The \texttt{tuser} field selects the compression path: key vectors receive
+  PolarQuant + QJL compression; value vectors receive PolarQuant only.
+\item The target SRAM address must be set via \texttt{WRITE\_ADDR} before
+  streaming begins.
+\item Backpressure: when the block is not ready (e.g., during compression or
+  SRAM write), \texttt{tready} deasserts. Upstream must hold signals stable.
+\end{itemize}
+
+\subsection{\texttt{m\_axis\_kv} --- Vector Read (Master)}
+\label{sec:m_axis_kv}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l c c p{8cm}@{}}
+\toprule
+Signal      & Width                    & Direction & Purpose \\
+\midrule
+\texttt{tdata}  & \texttt{COORD\_WIDTH}   & out       & One signed two's-complement decompressed coordinate \\
+\texttt{tlast}  & 1                       & out       & Asserted on the final coordinate \\
+\texttt{tvalid} & 1                       & out       & Handshake: data is valid \\
+\texttt{tready} & 1                       & in        & Handshake: downstream is ready to accept \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Protocol.} One beat per coordinate, \texttt{VECTOR\_DIM} beats
+per vector. Set \texttt{READ\_ADDR} and \texttt{KV\_SELECT} before initiating
+a read. The decompression path is selected by \texttt{KV\_SELECT}.
+
+\subsection{Eviction Interface}
+\label{sec:evict}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l c c p{8cm}@{}}
+\toprule
+Signal             & Width                         & Direction & Purpose \\
+\midrule
+\texttt{evict\_needed} & 1                         & out       & Asserted when SRAM is full \\
+\texttt{evict\_addr}   & $\lceil\log_2 D\rceil$    & out       & Address of entry to evict \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent This interface connects to the Memory Hierarchy Controller (block~4).
+When \texttt{evict\_needed} asserts, the controller must either spill the entry
+at \texttt{evict\_addr} to DRAM or invalidate it before the next write.
+
+%==============================================================================
+% 4. Logical operations (compiler-facing)
+%==============================================================================
+\section{Logical Operations}
+\label{sec:ops}
+
+Below are the abstract operations a compiler emits. Each maps to a short
+sequence of register writes and stream beats; the C API in \S\ref{sec:capi}
+gives the concrete library calls.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l l p{5.5cm}@{}}
+\toprule
+Operation                     & Inputs             & Outputs          & Description \\
+\midrule
+\texttt{KV\_QUERY}            & ---                & INFO struct      & Read all \texttt{INFO\_*} registers \\
+\texttt{KV\_RESET}            & ---                & ---              & Soft reset: clear SRAM, reset FSM \\
+\texttt{KV\_ENABLE}           & ---                & ---              & Set bit[1] of \texttt{CTRL} \\
+\texttt{KV\_COMPRESS\_KEY}    & addr, $D$ coords   & ---              & Compress and store a key vector at \texttt{addr} \\
+\texttt{KV\_COMPRESS\_VALUE}  & addr, $D$ coords   & ---              & Compress and store a value vector at \texttt{addr} \\
+\texttt{KV\_DECOMPRESS\_KEY}  & addr               & $D$ coords       & Read and decompress a key vector from \texttt{addr} \\
+\texttt{KV\_DECOMPRESS\_VALUE}& addr               & $D$ coords       & Read and decompress a value vector from \texttt{addr} \\
+\texttt{KV\_STATUS}           & ---                & STATUS bits      & Read the \texttt{STATUS} register \\
+\texttt{KV\_OCCUPANCY}        & ---                & count            & Read the \texttt{OCCUPANCY} register \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Worked Lowering Example}
+\label{sec:lowering}
+
+This section walks through how a compiler lowers a transformer attention
+operation into KV cache engine operations.
+
+Suppose the compiler's IR contains:
+\begin{lstlisting}[basicstyle=\ttfamily\small\itshape]
+%out = transformer_block(%q, %k, %v, %kv_cache)
+    : tensor<S x D x f16>, tensor<S x D x f16>, tensor<S x D x f16>,
+      kv_cache_handle -> tensor<S x D x f16>
+\end{lstlisting}
+
+\textbf{Stage~1: setup.} Query hardware configuration once per compilation:
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+info = KV_QUERY()       // -> dim=64, pq_bits=3, qjl_bits=1, sram_depth=16
+KV_RESET()
+KV_ENABLE()
+\end{lstlisting}
+
+\textbf{Stage~2: store phase.} For each new token, compress and store its K/V:
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+for token_idx in new_tokens:
+    addr = token_idx % info.sram_depth
+    KV_COMPRESS_KEY(addr, k_vectors[token_idx])
+    KV_COMPRESS_VALUE(addr, v_vectors[token_idx])
+\end{lstlisting}
+
+\textbf{Stage~3: attention phase.} Decompress cached K/V for attention:
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+for cached_idx in range(num_cached):
+    k_hat = KV_DECOMPRESS_KEY(cached_idx)
+    v_hat = KV_DECOMPRESS_VALUE(cached_idx)
+    score = dot(query, k_hat) / sqrt(D)
+
+    // Route through precision controller (block 1)
+    decision = PC_PUSH_TILE(score)
+    if decision == FP16:
+        out += fp16_matmul(softmax(score), v_hat)
+    else:
+        out += int8_matmul(softmax(score), v_hat)
+\end{lstlisting}
+
+\noindent Note the interaction between block~1 (precision controller) and
+block~2 (KV cache engine): the decompressed K/V vectors feed into the
+attention score computation, which the precision controller routes.
+
+\subsection{Compiler Binding Patterns}
+\label{sec:bindings}
+
+\noindent\textbf{MLIR dialect.} Define \texttt{lhsi.kv.*} ops mirroring the
+table in \S\ref{sec:ops}. The lowering pass rewrites \texttt{linalg.attention}
+or vendor-equivalent ops to emit \texttt{lhsi.kv.compress\_key},
+\texttt{lhsi.kv.decompress\_key}, etc.
+
+\noindent\textbf{TVM Relax / TIR.} Register backend target \texttt{"lhsi-kv"},
+pattern-match KV cache operations in the attention sub-graph, emit calls to
+TVM-runtime extern functions named for each \texttt{KV\_*} operation.
+
+\noindent\textbf{ONNX.} Add \texttt{CustomOpDomain} with KV cache ops, graph
+transform inserts compression/decompression around attention.
+
+\noindent\textbf{Custom IR.} Replace KV cache codegen with \texttt{KV\_*}
+operation sequences targeting the C API.
+
+%==============================================================================
+% 5. C API stub
+%==============================================================================
+\section{C API Stub}
+\label{sec:capi}
+
+\begin{lstlisting}[language=C]
+/* lhsi_kv_cache_engine.h --- LonghornSilicon KV Cache Engine driver API. */
+
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+
+typedef struct {
+    uint32_t vector_dim;
+    uint32_t pq_bits;
+    uint32_t qjl_bits;
+    uint32_t sram_depth;
+    uint32_t cr_k_fixed;       /* compression ratio K, fixed-point 8.8 */
+    uint32_t cr_v_fixed;       /* compression ratio V, fixed-point 8.8 */
+    uint32_t version;
+} lhsi_kv_info_t;
+
+typedef struct lhsi_kv_handle lhsi_kv_handle_t;
+
+/* Open / close */
+int  lhsi_kv_open (const char *device, lhsi_kv_handle_t **out);
+void lhsi_kv_close(lhsi_kv_handle_t *h);
+
+/* Configuration queries */
+int  lhsi_kv_query(lhsi_kv_handle_t *h, lhsi_kv_info_t *out);
+
+/* Control */
+int  lhsi_kv_reset (lhsi_kv_handle_t *h);
+int  lhsi_kv_enable(lhsi_kv_handle_t *h, bool enable);
+
+/* Compress and store a key vector at the given SRAM address. */
+int  lhsi_kv_compress_key(lhsi_kv_handle_t *h, uint32_t addr,
+                          const int16_t *coords, size_t dim);
+
+/* Compress and store a value vector at the given SRAM address. */
+int  lhsi_kv_compress_value(lhsi_kv_handle_t *h, uint32_t addr,
+                            const int16_t *coords, size_t dim);
+
+/* Read and decompress a key vector from the given SRAM address. */
+int  lhsi_kv_decompress_key(lhsi_kv_handle_t *h, uint32_t addr,
+                            int16_t *coords, size_t dim);
+
+/* Read and decompress a value vector from the given SRAM address. */
+int  lhsi_kv_decompress_value(lhsi_kv_handle_t *h, uint32_t addr,
+                              int16_t *coords, size_t dim);
+
+/* Diagnostics. */
+typedef struct {
+    bool     idle;
+    bool     sram_full;
+    uint32_t occupancy;
+} lhsi_kv_status_t;
+int  lhsi_kv_status(lhsi_kv_handle_t *h, lhsi_kv_status_t *out);
+\end{lstlisting}
+
+\noindent
+Return codes follow the standard Linux convention: \texttt{0} on success,
+\texttt{-errno} on failure.
+
+%==============================================================================
+% 6. Compression algorithm
+%==============================================================================
+\section{Compression Algorithm: TurboQuant+}
+\label{sec:algorithm}
+
+TurboQuant+ is a two-stage vector quantization scheme designed for KV cache
+compression in transformer inference. The \texttt{turbo4} configuration
+provides 4.25 bpv for keys and $\sim$3.0 bpv for values.
+
+\subsection{PolarQuant (Both K and V)}
+
+\begin{enumerate}
+\item \textbf{Norm extraction}: Compute $\|x\|_2$ (L2 norm) and normalize:
+      $\hat{x} = x / \|x\|_2$.
+\item \textbf{Rotation}: Apply random sign flips $s_i \in \{-1, +1\}$ (from
+      LCG seed), then Walsh-Hadamard Transform:
+      $y = \mathrm{WHT}(\hat{x} \odot s)$.
+      This randomizes the coordinate distribution toward i.i.d.\ Gaussian.
+\item \textbf{Quantization}: 3-bit optimal Lloyd-Max scalar quantization of
+      each rotated coordinate $y_i$, using 8 centroids symmetric around zero:
+      $\pm 0.2451\sigma$, $\pm 0.7560\sigma$, $\pm 1.3439\sigma$,
+      $\pm 2.1520\sigma$ where $\sigma = 1/\sqrt{D}$.
+\end{enumerate}
+
+\subsection{QJL Correction (K Path Only)}
+
+After PolarQuant, the quantization residual $r = y - \hat{y}$ is projected
+through a random $\pm 1$ matrix $R \in \{-1,+1\}^{D \times D}$ (from
+seed + \texttt{0xDEADBEEF}):
+\[
+z_j = \mathrm{sign}\bigl(\textstyle\sum_{i=1}^{D} R_{ji} \cdot r_i\bigr)
+\]
+The 1-bit signs $z_j$ preserve inner products in expectation (Johnson-Lindenstrauss
+property). During decompression, the QJL correction is added back to the
+dequantized PolarQuant output, improving attention score accuracy for keys.
+
+\subsection{Bit Layout}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l l l@{}}
+\toprule
+Path & Fields & Bits & Compression \\
+\midrule
+Key  & norm(16) + indices($D \times 3$) + res\_norm(16) + signs($D \times 1$) & $32 + 4D$ & 3.56$\times$ \\
+Value & norm(16) + indices($D \times 3$) & $16 + 3D$ & 4.92$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent For $D = 64$: key = 288 bits, value = 208 bits,
+vs.\ uncompressed $D \times 16 = 1024$ bits.
+
+%==============================================================================
+% 7. Synthesis-time configuration
+%==============================================================================
+\section{Synthesis-Time Configuration}
+\label{sec:syntime}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l c l p{5cm}@{}}
+\toprule
+Parameter             & Default & Range                   & Notes \\
+\midrule
+\texttt{VECTOR\_DIM}    & 64  & 16, 32, 64, 128          & Must be a power of two (WHT constraint) \\
+\texttt{PQ\_BITS}       & 3   & 2, 3, 4                  & Lloyd-Max quantization bits \\
+\texttt{QJL\_BITS}      & 1   & 1                        & Fixed at 1 in \texttt{kv-isa-0.1} \\
+\texttt{SRAM\_DEPTH}    & 16  & 4--4096                  & Behavioral reg array for Sky130; real macros at 16FFC \\
+\texttt{COORD\_WIDTH}   & 16  & 8, 12, 16                & Fixed-point coordinate width \\
+\texttt{COORD\_FRAC}    & 12  & 4--14                    & Fractional bits in coordinate representation \\
+\texttt{NORM\_WIDTH}    & 16  & 8, 12, 16                & Norm storage width \\
+\texttt{ROTATION\_SEED} & 42  & any 32-bit               & Deterministic LCG seed for sign flips and QJL matrix \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+% 8. Bit-Accurate Reference
+%==============================================================================
+\section{Bit-Accurate Reference}
+\label{sec:ref}
+
+Three implementations are provided, all bit-exact with each other:
+
+\begin{enumerate}
+\item \textbf{Python}: \path{sw/reference_model/kv_cache_engine_ref.py} ---
+      golden reference with fixed-point arithmetic.
+\item \textbf{C++}: \path{sw/reference_model/kv_cache_engine_ref.{hpp,cpp}} ---
+      same fixed-point math, with \texttt{extern "C"} API using opaque handles.
+\item \textbf{SystemVerilog}: \path{rtl/kv_cache_engine.sv} + sub-modules ---
+      synthesizable RTL.
+\end{enumerate}
+
+\noindent Usage:
+\begin{lstlisting}[language=Python]
+from kv_cache_engine_ref import KVCacheEngine, KVCacheEngineInfo
+
+engine = KVCacheEngine()
+ck = engine.compress_key(vector)
+reconstructed = engine.decompress_key(ck)
+\end{lstlisting}
+
+%==============================================================================
+% 9. Integration phases
+%==============================================================================
+\section{Integration Phases}
+\label{sec:phases}
+
+\begin{table}[ht]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}c p{3.0cm} p{4.0cm} p{5.0cm}@{}}
+\toprule
+Phase & Timeline & Compiler targets & We provide \\
+\midrule
+0 & now & Bit-accurate Python and C++ reference models & Models + ISA + tests \\
+1 & when FPGA arrives & AXI-Lite + AXI-Stream on Zynq UltraScale+ & Vivado bitstream + driver \\
+2 & after all 4 blocks complete & Multi-block FPGA project & Integrated attention pipeline \\
+3 & post-tape-out (2027+) & PCIe-attached custom chip & TSMC 16FFC silicon + Linux driver \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+% 10. Interaction with other blocks
+%==============================================================================
+\section{Interaction with Other Blocks}
+\label{sec:interaction}
+
+\begin{itemize}
+\item \textbf{Block 1 (Precision Controller)}: Receives decompressed K/V vectors
+      from this block for attention score computation. The precision controller
+      decides INT8 vs FP16 routing based on the decompressed scores.
+\item \textbf{Block 3 (Token Importance Unit)}: Provides token importance scores
+      that inform eviction decisions when the SRAM is full.
+\item \textbf{Block 4 (Memory Hierarchy Controller)}: Receives
+      \texttt{evict\_needed} / \texttt{evict\_addr} signals when SRAM is full.
+      Manages spilling compressed entries to DRAM and fetching them back.
+\end{itemize}
+
+%==============================================================================
+% 11. Open questions
+%==============================================================================
+\section{Open Questions}
+\label{sec:open}
+
+\begin{enumerate}
+\item Should the compression path support variable-rate quantization (2/3/4-bit
+      PolarQuant selected per-vector based on norm)?
+\item Should the QJL projection dimension be configurable (currently $D \times D$,
+      could be $D \times D'$ with $D' < D$ for reduced storage)?
+\item Should the block support direct SRAM-to-SRAM copy for cache migration?
+\item Are the current fixed-point widths sufficient for larger models
+      ($D = 128, 256$)?
+\item Should the eviction policy be configurable via registers (LRU, FIFO,
+      importance-based)?
+\end{enumerate}
+
+%==============================================================================
+% 12. Change log
+%==============================================================================
+\section{Change Log}
+\label{sec:changelog}
+
+\begin{itemize}
+\item \texttt{kv-isa-0.1} (2026-05-14): First public draft. Stable for the
+      KV cache engine block only.
+\end{itemize}
+
+\vspace{0.5in}
+\noindent\rule{\textwidth}{0.4pt}\\
+\noindent\small\textit{LonghornSilicon KV Cache Engine --- Interface Specification.
+This document is open and may be redistributed. The TSMC 16FFC PDK referenced
+in the integration phases is NDA-protected and is not part of this document
+or the public repository.}
+
+\end{document}

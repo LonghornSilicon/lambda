@@ -1,0 +1,43 @@
+# synth.ys — Yosys area-sanity flow for kv_cache_engine
+#
+# Run from rtl/:   yosys -s synth.ys
+# Or via Makefile: make synth
+#
+# Two area reports are produced:
+#   1. After generic synth+flatten (technology-independent gate counts, FFs)
+#   2. After abc -fast -g NAND mapping (NAND2-equivalent gate count, lower-bound)
+#
+# Estimated area budget (current hierarchy):
+#   sram_controller: ~200 FFs (behavioral reg array, SRAM_DEPTH=16)
+#   norm_unit:       ~400 FFs
+#   top-level FSM:   ~400 FFs
+#   Total:           ~1000 FFs (top-level only; sub-modules with unpacked
+#                     array ports need Yosys SV workarounds for full synth)
+#
+# Sub-modules with unpacked array ports (rotation_unit, quantizer, qjl_unit,
+# packer, decompressor) are not yet wired into the top-level FSM. They
+# synthesize correctly under Genus/DC but Yosys doesn't support SV unpacked
+# array ports. Include them here once the full compression pipeline is wired.
+
+read_verilog -sv kv_cache_engine.sv
+read_verilog -sv norm_unit.sv
+read_verilog -sv sram_controller.sv
+
+hierarchy -check -top kv_cache_engine
+
+# Generic synthesis with parameter elaboration and flatten
+synth -top kv_cache_engine -flatten
+
+# --- Area report after generic synth ---
+echo on
+stat -width
+echo off
+
+# Map combinational logic into NAND2 gates for technology-independent
+# gate-count lower bound.
+abc -fast -g NAND
+
+# --- Area report after NAND mapping ---
+echo on
+stat -width
+echo off

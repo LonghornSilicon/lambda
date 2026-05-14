@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.o
+*.a
+*.so
+*.dylib
+*.d
+test_kv
+*.vcd
+*.out
+*.log
+openlane/kv_cache_engine/results/
+*.swp
+*.swo
+*~
+.DS_Store
