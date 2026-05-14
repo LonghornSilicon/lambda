@@ -1,0 +1,361 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={KV Cache Engine --- Reference Model API},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={API Reference, Version 0.1}
+}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{\thesubsubsection}{0.6em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small KV Cache Engine --- Reference Model API}
+\rhead{\small v0.1}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\definecolor{codebg}{gray}{0.97}
+\definecolor{codekey}{rgb}{0.13,0.29,0.53}
+\definecolor{codecom}{rgb}{0.25,0.5,0.25}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+  xleftmargin=0.5em,
+  xrightmargin=0.5em,
+  aboveskip=0.6em,
+  belowskip=0.6em,
+  showstringspaces=false,
+  breaklines=true,
+  keywordstyle=\color{codekey}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  numbers=none
+}
+
+\setlist{itemsep=1pt,topsep=2pt}
+
+\begin{document}
+
+%==============================================================================
+\thispagestyle{empty}
+\begin{center}
+\vspace*{1.2in}
+{\Huge\bfseries KV Cache Engine}\\[0.4em]
+{\LARGE\bfseries Reference Model API}\\[1.2em]
+
+{\large \textsc{LonghornSilicon LLM Inference Accelerator}}\\[0.4em]
+{\large Block 2 of 4 --- Bit-Accurate C++ / C / Python Models}\\[2em]
+
+\rule{0.7\textwidth}{0.4pt}\\[1em]
+
+\begin{tabular}{rl}
+\textbf{Version}:    & 0.1 (first public draft) \\
+\textbf{Date}:       & 2026-05-14 \\
+\textbf{Status}:     & Verified against RTL testbench vectors \\
+\textbf{Source}:     & \texttt{sw/reference\_model/} \\
+\end{tabular}\\[1em]
+\rule{0.7\textwidth}{0.4pt}
+\vfill
+\end{center}
+\clearpage
+
+%==============================================================================
+\tableofcontents
+\clearpage
+
+%==============================================================================
+\section{Overview}
+\label{sec:overview}
+
+Bit-accurate reference implementations of the KV cache engine in three
+languages, all verified against the same test vectors.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l l l l@{}}
+\toprule
+Block & C++ class & \texttt{extern "C"} API & Python class & Tests \\
+\midrule
+\textbf{KV Cache Engine} & \texttt{lhsi::KVCacheEngine} & \texttt{lhsi\_kv\_*} & \texttt{KVCacheEngine} & 120 Python + 64 C++ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Top-level orientation for the compiler team: see
+\path{sw/README.md}. ISA specification: see
+\path{docs/isa/kv_cache_engine_isa.pdf}.
+
+%==============================================================================
+\section{Building and Testing}
+\label{sec:build}
+
+\begin{lstlisting}[language=bash]
+make test-all      # build C++ tests, run them, run all Python tests
+make test          # only the C++ tests
+make test-py       # only the Python tests
+make shared        # libkv_cache_engine_ref.so
+make static        # libkv_cache_engine_ref.a
+make clean
+\end{lstlisting}
+
+\noindent Requires Python 3.10+, NumPy, and a C++17 compiler (gcc-9+ or
+clang-10+). The C++ tests pick up the RTL test vectors from
+\path{rtl/tb/testvectors/*.hex}; the Makefile regenerates them from
+\path{analysis/gen_kv_testvectors.py} on first build if absent.
+
+%==============================================================================
+\section{KV Cache Engine}
+\label{sec:kvcache}
+
+\subsection{Configuration}
+
+\begin{lstlisting}[language=C++]
+#include "kv_cache_engine_ref.hpp"
+
+lhsi::KVCacheEngineInfo info;
+info.vector_dim    = 64;    // power of two (WHT constraint)
+info.pq_bits       = 3;     // Lloyd-Max quantization bits
+info.qjl_bits      = 1;     // QJL projection bits
+info.sram_depth    = 1024;
+info.coord_width   = 16;    // fixed-point coordinate width
+info.coord_frac    = 12;    // fractional bits
+info.norm_width    = 16;    // norm storage width
+info.rotation_seed = 42;    // deterministic LCG seed
+info.validate();            // asserts on invalid combinations
+\end{lstlisting}
+
+\subsection{C++ Class API}
+
+\begin{lstlisting}[language=C++]
+#include "kv_cache_engine_ref.hpp"
+
+lhsi::KVCacheEngine engine;   // default config
+
+// Compress a key vector
+std::vector<int16_t> key_vec(64, /* ... */);
+lhsi::CompressedKey ck = engine.compress_key(key_vec);
+
+// Decompress back
+std::vector<int16_t> reconstructed = engine.decompress_key(ck);
+
+// Compress a value vector (no QJL)
+lhsi::CompressedValue cv = engine.compress_value(val_vec);
+std::vector<int16_t> val_recon = engine.decompress_value(cv);
+
+// Store/load with SRAM address
+engine.store_kv(/*addr=*/0, key_vec.data(), val_vec.data(), 64);
+engine.load_k(0, key_out.data(), 64);
+engine.load_v(0, val_out.data(), 64);
+\end{lstlisting}
+
+\subsection{Sub-Operations (Pipeline Stage Access)}
+
+For compiler backends that need individual pipeline stages:
+
+\begin{lstlisting}[language=C++]
+// Each method mirrors one RTL pipeline stage
+uint32_t norm = engine.compute_norm(vec, dim);
+engine.normalize(vec, norm, normalized, dim);
+engine.rotate(normalized, rotated, dim);
+engine.quantize_pq(rotated, indices, dim);
+engine.dequantize_pq(indices, dequantized, dim);
+engine.qjl_compress(residual, signs, &res_norm, dim);
+engine.qjl_decompress(signs, res_norm, correction, dim);
+engine.inverse_rotate(corrected, output, dim);
+\end{lstlisting}
+
+\subsection{Plain C (\texttt{extern "C"} API)}
+
+\begin{lstlisting}[language=C]
+#include "kv_cache_engine_ref.hpp"
+
+// Create with default config
+lhsi_kv_handle_t* h = lhsi_kv_create_default();
+
+// Or with custom config
+lhsi_kv_info_t info = { .vector_dim = 64, .pq_bits = 3, /* ... */ };
+lhsi_kv_handle_t* h = lhsi_kv_create(&info);
+
+// Query config
+lhsi_kv_info_t out_info = lhsi_kv_info(h);
+
+// Compress key
+uint32_t norm, res_norm;
+uint8_t indices[64], signs[64];
+lhsi_kv_compress_key(h, vec, 64, &norm, indices, &res_norm, signs);
+
+// Decompress key
+int16_t output[64];
+lhsi_kv_decompress_key(h, norm, indices, res_norm, signs, 64, output);
+
+// Compress/decompress value (no QJL fields)
+lhsi_kv_compress_value(h, vec, 64, &norm, indices);
+lhsi_kv_decompress_value(h, norm, indices, 64, output);
+
+// Store/load with SRAM
+lhsi_kv_store(h, 0, key_vec, val_vec, 64);
+lhsi_kv_load_k(h, 0, key_out, 64);
+lhsi_kv_load_v(h, 0, val_out, 64);
+
+lhsi_kv_destroy(h);
+\end{lstlisting}
+
+\subsection{Python}
+
+\begin{lstlisting}[language=Python]
+from kv_cache_engine_ref import KVCacheEngine, KVCacheEngineInfo
+
+engine = KVCacheEngine()
+
+# Compress key
+ck = engine.compress_key(key_vector)
+reconstructed = engine.decompress_key(ck)
+
+# Compress value
+cv = engine.compress_value(val_vector)
+val_recon = engine.decompress_value(cv)
+
+# Store/load with SRAM
+engine.store_kv(addr=0, key=key_vector, value=val_vector)
+k_out = engine.load_k(addr=0)
+v_out = engine.load_v(addr=0)
+
+# Static method (no state needed)
+ck = KVCacheEngine.decide_compress_key(key_vector)
+\end{lstlisting}
+
+%==============================================================================
+\section{Numerical Semantics (Frozen)}
+\label{sec:semantics}
+
+All arithmetic is \textbf{fixed-point integer}, matching the RTL exactly:
+
+\begin{itemize}
+\item \textbf{Coordinates}: \texttt{COORD\_WIDTH}-bit signed two's complement,
+      \texttt{COORD\_FRAC} fractional bits (default: Q4.12).
+\item \textbf{Norms}: \texttt{NORM\_WIDTH}-bit unsigned, \texttt{NORM\_FRAC}
+      fractional bits (default: Q8.8).
+\item \textbf{WHT butterfly}: additions widen by 1 bit per stage
+      ($\log_2 D$ stages), then truncate back to coordinate width.
+\item \textbf{Quantization}: nearest-centroid with 3 comparators per
+      coordinate. Centroids are Lloyd-Max optimal for $\mathcal{N}(0, 1/\sqrt{D})$.
+\item \textbf{QJL}: random $\pm 1$ matrix from deterministic LCG seed.
+      Inner product → sign extraction. Decompression scales by
+      $\sqrt{\pi/2}$ (fixed-point constant).
+\item \textbf{Integer sqrt}: non-restoring algorithm, bit-serial from MSB.
+\end{itemize}
+
+\noindent If the model disagrees with the chip on any input, the model is
+wrong. Open an issue with the failing vector.
+
+%==============================================================================
+\section{Compressed Data Structures}
+\label{sec:structures}
+
+\subsection{\texttt{CompressedKey}}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l l p{6cm}@{}}
+\toprule
+Field & Type & Bits & Purpose \\
+\midrule
+\texttt{norm} & \texttt{uint32\_t} & 16 & L2 norm of original vector \\
+\texttt{indices} & \texttt{uint8\_t[D]} & $3D$ & Lloyd-Max centroid indices (0--7) \\
+\texttt{residual\_norm} & \texttt{uint32\_t} & 16 & L2 norm of quantization residual \\
+\texttt{signs} & \texttt{uint8\_t[D]} & $D$ & QJL sign bits \\
+\midrule
+\multicolumn{2}{@{}l}{\textbf{Total (D=64)}} & \textbf{288} & 3.56$\times$ compression \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{\texttt{CompressedValue}}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l l p{6cm}@{}}
+\toprule
+Field & Type & Bits & Purpose \\
+\midrule
+\texttt{norm} & \texttt{uint32\_t} & 16 & L2 norm of original vector \\
+\texttt{indices} & \texttt{uint8\_t[D]} & $3D$ & Lloyd-Max centroid indices (0--7) \\
+\midrule
+\multicolumn{2}{@{}l}{\textbf{Total (D=64)}} & \textbf{208} & 4.92$\times$ compression \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{Verification Status}
+\label{sec:verification}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l l@{}}
+\toprule
+Test & Block / Aspect & Status \\
+\midrule
+120 Python unit tests & Full round-trip, all paths & Pass \\
+64 C++ unit tests & Full round-trip, all paths & Pass \\
+Compress/decompress round-trip & K and V paths & Bit-exact \\
+K/V asymmetry verification & QJL on K only & Pass \\
+Streaming vs batch agreement & tick() vs compress\_*() & Pass \\
+\texttt{extern "C"} = C++ class & C API parity & Pass \\
+RTL replay vectors & Hex-file bit-exact match & Pass \\
+Compression ratio >= 3$\times$ & Canonical trace & Pass \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{Co-Design Context}
+\label{sec:codesign}
+
+This directory is the deliverable for compiler-team integration.
+The reference model provides the same API contract that the hardware
+will expose, enabling compiler backends to target the KV cache engine
+before silicon or FPGA prototypes exist.
+
+\medskip
+\noindent Next integration steps:
+\begin{enumerate}
+\item Compiler targets Python/C++ reference models (Phase~0 --- now)
+\item AXI-Lite + AXI-Stream on Zynq UltraScale+ FPGA (Phase~1)
+\item Multi-block FPGA project with precision controller (Phase~2)
+\item TSMC 16FFC silicon (Phase~3, 2027+)
+\end{enumerate}
+
+\vspace{0.5in}
+\noindent\rule{\textwidth}{0.4pt}\\
+\noindent\small\textit{LonghornSilicon KV Cache Engine --- Reference Model API.
+This document is open and may be redistributed.}
+
+\end{document}

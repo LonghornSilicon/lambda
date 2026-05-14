@@ -11,6 +11,9 @@ test_kv
 *.out
 *.log
 openlane/kv_cache_engine/results/
+openlane/kv_cache_engine/runs/
+openlane/kv_cache_engine/src/*.sv
+rtl/tb/testvectors/
 *.swp
 *.swo
 *~

@@ -1,0 +1,295 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={KV Cache Engine --- Software Overview},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={Compiler Co-Design Orientation}
+}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small KV Cache Engine --- Software Overview}
+\rhead{\small v0.1}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\definecolor{codebg}{gray}{0.97}
+\definecolor{codekey}{rgb}{0.13,0.29,0.53}
+\definecolor{codecom}{rgb}{0.25,0.5,0.25}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+  xleftmargin=0.5em,
+  xrightmargin=0.5em,
+  aboveskip=0.6em,
+  belowskip=0.6em,
+  showstringspaces=false,
+  breaklines=true,
+  keywordstyle=\color{codekey}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  numbers=none
+}
+
+\setlist{itemsep=1pt,topsep=2pt}
+
+\begin{document}
+
+%==============================================================================
+\thispagestyle{empty}
+\begin{center}
+\vspace*{1.2in}
+{\Huge\bfseries KV Cache Engine}\\[0.4em]
+{\LARGE\bfseries Software Overview}\\[1.2em]
+
+{\large \textsc{LonghornSilicon --- Compiler Co-Design Orientation}}\\[0.4em]
+{\large Block 2 of 4 --- KV Cache Compression / Decompression}\\[2em]
+
+\rule{0.7\textwidth}{0.4pt}\\[1em]
+
+\begin{tabular}{rl}
+\textbf{Version}:    & 0.1 \\
+\textbf{Date}:       & 2026-05-14 \\
+\textbf{Audience}:   & Compiler team, runtime engineers \\
+\end{tabular}\\[1em]
+\rule{0.7\textwidth}{0.4pt}
+\vfill
+\end{center}
+\clearpage
+
+%==============================================================================
+\tableofcontents
+\clearpage
+
+%==============================================================================
+\section{Purpose}
+
+This document orients the compiler team on the KV cache engine block.
+It covers: what the block does, how to use the reference models, what
+the compiler should emit, and what integration phases look like.
+
+For the formal interface contract, see the ISA specification
+(\path{docs/isa/kv_cache_engine_isa.pdf}). For the API reference, see
+\path{docs/reference_model_api.pdf}.
+
+%==============================================================================
+\section{What the Block Does}
+
+The KV cache engine sits between the attention compute unit (block~1)
+and the memory hierarchy controller (block~4). It compresses key and
+value vectors before writing to on-chip SRAM, and decompresses them
+when the attention unit needs them for dot-product computation.
+
+\begin{itemize}
+\item \textbf{On write}: incoming FP16 K/V vectors are compressed via
+      TurboQuant+ (PolarQuant + QJL for keys, PolarQuant only for values)
+      and stored in SRAM.
+\item \textbf{On read}: compressed entries are decompressed back to
+      FP16 coordinates and streamed to the attention unit via AXI-Stream.
+\item \textbf{Eviction}: when SRAM is full, the block signals the memory
+      hierarchy controller to spill entries to DRAM.
+\end{itemize}
+
+\subsection{Compression Pipeline}
+
+\begin{enumerate}
+\item \textbf{Norm extraction} --- L2 norm stored as metadata (16-bit fixed-point)
+\item \textbf{Rotation} --- Walsh-Hadamard Transform + random sign flips
+      (deterministic from seed, self-inverse, $O(n \log n)$)
+\item \textbf{Quantization} --- 3-bit optimal Lloyd-Max scalar quantization
+      (8 centroids symmetric around zero)
+\item \textbf{QJL projection} (K only) --- 1-bit sign projection of the
+      quantization residual (preserves inner products)
+\item \textbf{Packing} --- bit-pack norm + indices + residual norm + signs
+      into a compact SRAM word
+\end{enumerate}
+
+\noindent Decompression reverses the pipeline: unpack $\rightarrow$
+centroid lookup $\rightarrow$ QJL correction (K only) $\rightarrow$
+inverse WHT $\rightarrow$ norm rescaling.
+
+%==============================================================================
+\section{Reference Models}
+
+\subsection{Directory Layout}
+
+\begin{lstlisting}[language=bash]
+sw/
++-- README.md                     <- orientation (this doc's markdown form)
++-- reference_model/
+    +-- README.md                 <- API reference + build instructions
+    +-- Makefile
+    +-- kv_cache_engine_ref.py    <- Python golden reference
+    +-- kv_cache_engine_ref.hpp   <- C++ header
+    +-- kv_cache_engine_ref.cpp   <- C++ implementation
+    +-- test_kv_cache_engine_ref.py
+    +-- test_kv_cache_engine_ref.cpp
+\end{lstlisting}
+
+\subsection{Which Models Are Available}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l l l l@{}}
+\toprule
+Block & Status & C++ class & C API & Python \\
+\midrule
+KV Cache Engine & Bit-exact vs RTL & \texttt{lhsi::KVCacheEngine} & \texttt{lhsi\_kv\_*} & \texttt{KVCacheEngine} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Build Everything}
+
+\begin{lstlisting}[language=bash]
+cd sw/reference_model
+make test-all     # builds C++ tests, runs them, runs Python tests
+make shared       # libkv_cache_engine_ref.so
+make static       # libkv_cache_engine_ref.a
+make clean
+\end{lstlisting}
+
+\noindent Requires Python 3.10+, NumPy, and a C++17 compiler.
+
+%==============================================================================
+\section{What the Compiler Should Emit}
+
+A compiler backend targeting the KV cache engine emits sequences of
+the operations defined in the ISA spec (\S4 of
+\path{docs/isa/kv_cache_engine_isa.pdf}):
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l p{6cm}@{}}
+\toprule
+Operation & C API & What it does \\
+\midrule
+\texttt{KV\_QUERY} & \texttt{lhsi\_kv\_info()} & Read hardware config \\
+\texttt{KV\_RESET} & \texttt{lhsi\_kv\_reset()} & Clear SRAM, reset FSM \\
+\texttt{KV\_COMPRESS\_KEY} & \texttt{lhsi\_kv\_compress\_key()} & Compress + store key \\
+\texttt{KV\_COMPRESS\_VALUE} & \texttt{lhsi\_kv\_compress\_value()} & Compress + store value \\
+\texttt{KV\_DECOMPRESS\_KEY} & \texttt{lhsi\_kv\_decompress\_key()} & Read + decompress key \\
+\texttt{KV\_DECOMPRESS\_VALUE} & \texttt{lhsi\_kv\_decompress\_value()} & Read + decompress value \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Worked Example: Attention with KV Cache}
+
+\begin{lstlisting}[language=Python]
+from kv_cache_engine_ref import KVCacheEngine
+
+engine = KVCacheEngine()
+
+# Store phase: compress new tokens' K/V
+for token_idx, (k, v) in enumerate(new_kv_pairs):
+    addr = token_idx % engine.info.sram_depth
+    engine.store_kv(addr, k, v)
+
+# Attention phase: decompress for Q*K^T
+for cached_idx in range(num_cached):
+    k_hat = engine.load_k(cached_idx)
+    v_hat = engine.load_v(cached_idx)
+    score = dot(query, k_hat) / sqrt(D)
+    # Route through precision controller (block 1)
+    # ...
+\end{lstlisting}
+
+%==============================================================================
+\section{Integration Phases}
+
+\begin{table}[h]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}c p{3cm} p{4cm} p{4.5cm}@{}}
+\toprule
+Phase & Timeline & Compiler targets & We provide \\
+\midrule
+0 & now & Python + C++ reference models & Models + ISA + tests \\
+1 & when FPGA arrives & AXI-Lite + AXI-Stream on Zynq & Vivado bitstream + driver \\
+2 & all 4 blocks done & Multi-block FPGA project & Integrated attention pipeline \\
+3 & post-tape-out & PCIe-attached chip & TSMC 16FFC silicon + driver \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The ISA contract (\path{docs/isa/kv_cache_engine_isa.pdf}) is
+stable across all four phases. Only the runtime implementation changes ---
+Python function call, AXI register write, or PCIe MMIO.
+
+%==============================================================================
+\section{Interaction with Block~1 (Precision Controller)}
+
+The KV cache engine and precision controller work together during
+attention inference:
+
+\begin{enumerate}
+\item KV cache engine decompresses K/V vectors from SRAM
+\item The attention unit computes $Q \cdot K^T$ scores
+\item The precision controller decides INT8 vs FP16 per tile
+\item The MAC array computes $\mathrm{softmax}(S) \cdot V$ at the chosen precision
+\end{enumerate}
+
+\noindent A compiler backend that targets both blocks emits interleaved
+\texttt{KV\_DECOMPRESS\_*} and \texttt{PC\_PUSH\_TILE} operations. The
+reference models for both blocks can be composed in the same process:
+
+\begin{lstlisting}[language=Python]
+from kv_cache_engine_ref import KVCacheEngine
+from precision_controller_ref import PrecisionController  # from block 1
+
+kv = KVCacheEngine()
+pc = PrecisionController()
+
+k_hat = kv.load_k(addr)
+scores = query @ k_hat  # Q * K^T
+decision = pc.process_tile(scores)
+# decision: True = FP16, False = INT8
+\end{lstlisting}
+
+%==============================================================================
+\section{Open Questions for the Compiler Team}
+
+\begin{enumerate}
+\item \textbf{Granularity}: does the compiler emit individual compress/decompress
+      ops, or a fused \texttt{kv\_attention(Q, K\_cache, V\_cache)} op?
+\item \textbf{Batch interface}: should the reference model support batched
+      compress/decompress (multiple vectors in one call) for throughput?
+\item \textbf{Async model}: should \texttt{KV\_COMPRESS\_KEY} be non-blocking
+      with a separate completion query, matching the hardware pipeline?
+\item \textbf{Cost model}: are placeholder cycle counts sufficient, or do
+      you need post-synthesis numbers for the scheduler?
+\end{enumerate}
+
+\vspace{0.5in}
+\noindent\rule{\textwidth}{0.4pt}\\
+\noindent\small\textit{LonghornSilicon KV Cache Engine --- Software Overview.
+This document is open and may be redistributed.}
+
+\end{document}
