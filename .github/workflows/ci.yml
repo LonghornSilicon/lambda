@@ -28,7 +28,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: pip
 
       - name: Install iverilog + numpy
         run: |
@@ -124,6 +123,16 @@ jobs:
           docker --version
           librelane --version
 
+      - name: Create OpenLane source symlinks
+        working-directory: openlane/kv_cache_engine/src
+        run: |
+          for f in kv_cache_engine.sv norm_unit.sv sram_controller.sv \
+                   rotation_unit.sv quantizer.sv qjl_unit.sv \
+                   packer.sv decompressor.sv; do
+            ln -sf ../../../rtl/$f $f
+          done
+          ls -la
+
       - name: Run LibreLane Sky130 flow
         working-directory: openlane/kv_cache_engine
         run: |
@@ -207,7 +216,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: pip
 
       - name: Install dependencies
         run: |
