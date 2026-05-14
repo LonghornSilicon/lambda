@@ -20,6 +20,12 @@ rtl/tb/testvectors/expected.hex
 openlane/*/runs/
 openlane/*/runs/**
 
+# C/C++ build artifacts under sw/
+sw/**/*.o
+sw/**/*.a
+sw/**/*.so
+sw/**/test_ref
+
 # LaTeX intermediate artifacts (regenerable from .tex + .bib)
 paper/*.aux
 paper/*.bbl
