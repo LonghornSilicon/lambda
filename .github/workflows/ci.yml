@@ -16,7 +16,7 @@ jobs:
     uses: LonghornSilicon/.github/.github/workflows/block-ci.yml@main
     with:
       block-name: kv_cache_engine
-      expected-ff-count: 72
+      expected-ff-count: 81
       has-reference-model: true
       has-paper: false
       has-coverage-gate: false

@@ -137,6 +137,7 @@ module kv_cache_engine #(
     reg                    sram_rd_en;
     reg [ADDR_WIDTH-1:0]   sram_rd_addr;
     wire [SRAM_WIDTH-1:0]  sram_rd_data;
+    reg [$clog2(VECTOR_DIM):0] output_count;
     wire                   sram_rd_valid;
     wire [ADDR_WIDTH:0]    sram_occupancy;
     wire                   sram_full;
@@ -173,12 +174,14 @@ module kv_cache_engine #(
             state         <= ST_IDLE;
             input_count   <= '0;
             input_ready   <= 1'b0;
+            output_count  <= '0;
             s_axis_kv_tready <= 1'b1;
             m_axis_kv_tvalid <= 1'b0;
             m_axis_kv_tdata  <= '0;
             m_axis_kv_tlast  <= 1'b0;
             sram_wr_en    <= 1'b0;
             sram_rd_en    <= 1'b0;
+            sram_rd_addr  <= '0;
             idle          <= 1'b1;
         end else begin
             sram_wr_en <= 1'b0;
@@ -229,6 +232,30 @@ module kv_cache_engine #(
                     input_count <= '0;
                     state       <= ST_IDLE;
                     s_axis_kv_tready <= ctrl_enable;
+                end
+
+                ST_DECOMPRESS: begin
+                    sram_rd_en   <= 1'b1;
+                    sram_rd_addr <= read_addr;
+                    state        <= ST_OUTPUT;
+                    output_count <= '0;
+                end
+
+                ST_OUTPUT: begin
+                    sram_rd_en <= 1'b0;
+                    if (sram_rd_valid || output_count > 0) begin
+                        if (!m_axis_kv_tvalid || m_axis_kv_tready) begin
+                            m_axis_kv_tdata  <= sram_rd_data[output_count*COORD_WIDTH +: COORD_WIDTH];
+                            m_axis_kv_tvalid <= 1'b1;
+                            m_axis_kv_tlast  <= (output_count == VECTOR_DIM - 1);
+                            if (output_count == VECTOR_DIM - 1) begin
+                                state        <= ST_IDLE;
+                                output_count <= '0;
+                            end else begin
+                                output_count <= output_count + 1;
+                            end
+                        end
+                    end
                 end
 
                 default: state <= ST_IDLE;
