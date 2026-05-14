@@ -131,12 +131,14 @@ jobs:
 
   # ------------------------------------------------------------------
   # 3. OpenLane Sky130 sign-off — the heavy one.
-  # ~3-10 min runtime, needs Docker. Runs on self-hosted runner.
-  # See docs/ci_setup.md for runner setup instructions.
+  # ~7-10 min runtime, needs Docker. Runs on GitHub-hosted Ubuntu so
+  # nobody has to maintain a self-hosted runner. Public-repo Linux
+  # minutes are free and unlimited; the cold image pull each run is
+  # the price of zero infra overhead.
   # ------------------------------------------------------------------
   openlane-sky130:
     name: OpenLane Sky130 sign-off
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     # Adding an `environment` makes this job show up as a "Deployment"
     # in the right-hand sidebar of the repo home / PRs / commits — same
