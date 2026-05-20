@@ -327,7 +327,7 @@ class KVCacheEngine:
         result = []
         for v in vec:
             sv = _to_signed(v, info.coord_width)
-            numerator = sv << info.coord_frac
+            numerator = sv << info.norm_frac
             normalized = numerator // norm if norm != 0 else 0
             result.append(_to_signed(normalized, info.coord_width))
         return result

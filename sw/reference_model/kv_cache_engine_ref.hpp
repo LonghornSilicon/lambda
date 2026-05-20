@@ -26,6 +26,14 @@ inline uint32_t to_unsigned(int64_t val, int width) {
     return static_cast<uint32_t>(val & mask(width));
 }
 
+inline int64_t floor_div(int64_t a, int64_t b) {
+    int64_t q = a / b;
+    int64_t r = a % b;
+    if (r != 0 && ((a ^ b) < 0))
+        q--;
+    return q;
+}
+
 inline int32_t fixed_mul(int32_t a, int32_t b, int a_frac, int b_frac,
                          int out_width, int out_frac) {
     int64_t product = static_cast<int64_t>(a) * b;

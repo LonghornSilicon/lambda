@@ -128,9 +128,9 @@ void KVCacheEngine::normalize(const int16_t* vec, uint32_t norm,
     }
     for (size_t i = 0; i < dim; i++) {
         int32_t sv = to_signed(vec[i], info_.coord_width);
-        int64_t numerator = static_cast<int64_t>(sv) << info_.coord_frac;
-        int32_t normalized = static_cast<int32_t>(numerator /
-                             static_cast<int64_t>(norm));
+        int64_t numerator = static_cast<int64_t>(sv) << info_.norm_frac;
+        int32_t normalized = static_cast<int32_t>(
+            floor_div(numerator, static_cast<int64_t>(norm)));
         out[i] = static_cast<int16_t>(
             to_signed(normalized, info_.coord_width));
     }
@@ -224,7 +224,9 @@ void KVCacheEngine::qjl_decompress(const uint8_t* signs, uint32_t res_norm,
         info_.coord_frac, info_.norm_frac,
         info_.coord_width + info_.norm_width, info_.coord_frac);
     int32_t scale = info_.vector_dim > 0 ?
-        scale_num / static_cast<int32_t>(info_.vector_dim) : 0;
+        static_cast<int32_t>(floor_div(
+            static_cast<int64_t>(scale_num),
+            static_cast<int64_t>(info_.vector_dim))) : 0;
 
     for (size_t j = 0; j < dim; j++) {
         int64_t acc = 0;
