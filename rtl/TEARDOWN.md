@@ -49,7 +49,7 @@ Algorithm contract + golden vectors **landed 2026-06-22** (channelquant commit
 - [ ] Update `synth.ys`, OpenLane `config.json` top/IO if ports change.
 - [ ] Update expected FF-count assertions (CI gate 3) after synth lands.
 
-## Verification (gated on channelquant golden vectors)
+## Verification (golden vectors landed; gated only on an SV simulator on PATH)
 - [ ] Unit-test each new block vs the Python reference (behavioral).
 - [ ] 3-way Python ↔ C++ ↔ SV bit-exact parity, compress + decompress, all tiers.
 - [ ] `tb_realdata.sv`: captured Qwen2 K/V trace, reconstructed rMSE within tol.

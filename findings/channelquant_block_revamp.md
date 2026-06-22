@@ -4,8 +4,9 @@
 **Scope:** the KVCE *silicon block* (this repo) — datapath, RTL, CSR/ISA, ACU
 integration, synth. NOT the algorithm (that's the `channelquant` repo).
 **Algorithm source of truth:** `channelquant/docs/HW_CONTRACT.md` +
-`channelquant/REVAMP_SPEC.md`. **Verification golden:**
-`channelquant/reference/testvectors/`.
+`channelquant/REVAMP_SPEC.md`. **Verification golden:** vendored hermetically at
+[`../rtl/tb/testvectors/channelquant/`](../rtl/tb/testvectors/channelquant/README.md)
+(channelquant commit `08d5287`; upstream `channelquant/reference/testvectors/`).
 
 ---
 
@@ -156,7 +157,7 @@ Q·Kᵀ → precision controller routes INT8/FP16 → MAC). Deltas to verify:
 
 1. **Unit tests** (now, vs Python reference behaviorally): amax_unit, quantizer,
    residual_buffer group-flush, scale_bank, outlier bypass, decompress select.
-2. **3-way parity** (gated on golden vectors): Python ↔ C++ ↔ SV bit-exact,
+2. **3-way parity** (vectors landed; gated only on an SV simulator on PATH): Python ↔ C++ ↔ SV bit-exact,
    compress AND decompress, for CQ-8 / CQ-4 / CQ-4+. Reuse the existing
    testvector/parity harness in `rtl/tb/`.
 3. **Real-data trace** (`tb_realdata.sv`): run a captured Qwen2 K/V trace, confirm
@@ -192,7 +193,7 @@ area ≤ TurboQuant+ baseline.
   unit-test vs Python reference.
 - **P2 (now):** implement key path — residual_buffer + scale_bank + group flush +
   outlier ROM. Unit-test.
-- **P3 (gated on channelquant golden vectors):** 3-way bit-exact parity, real-data
+- **P3 (vectors landed; gated only on an SV simulator on PATH):** 3-way bit-exact parity, real-data
   trace.
 - **P4:** synth + area/Fmax vs TurboQuant+ → silicon results for the joint paper.
 
