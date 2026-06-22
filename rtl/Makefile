@@ -10,13 +10,23 @@ TV_DIR  := $(TB_DIR)/testvectors
 
 SIM_BIN     := $(TB_DIR)/tb_kv_cache_engine.out
 SIM_REAL_BIN := $(TB_DIR)/tb_realdata.out
+SIM_CQ_BIN  := $(TB_DIR)/tb_channelquant.out
 
-.PHONY: all sim sim_realdata testvectors clean
+.PHONY: all sim sim_realdata sim_cq testvectors clean
 
 all: sim
 
 sim: $(SIM_BIN)
 	$(VVP) $(SIM_BIN)
+
+# ChannelQuant golden-vector parity (contract §8). Self-contained: the TB pulls
+# the vendored hex images under tb/testvectors/channelquant/. No RTL_SRC deps yet
+# (the datapath modules are wired in as the teardown progresses).
+sim_cq: $(SIM_CQ_BIN)
+	$(VVP) $(SIM_CQ_BIN)
+
+$(SIM_CQ_BIN): $(TB_DIR)/tb_channelquant.sv cq_fp_pkg.sv
+	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_channelquant.sv
 
 $(SIM_BIN): $(RTL_SRC) $(TB_DIR)/tb_kv_cache_engine.sv
 	$(IVERILOG) -g2012 -o $@ $(TB_DIR)/tb_kv_cache_engine.sv $(RTL_SRC)
