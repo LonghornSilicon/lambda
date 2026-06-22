@@ -35,3 +35,26 @@ fp16 cast), final `G` (Phase-2 Pareto), CQ-4+-at-scale accuracy (Phase-3 n≥100
 
 Next: P0/P1/P2 RTL (datapath teardown + value/key paths + outlier ROM) proceed on
 the design side; parity (P3) consumes this bundle when the build host has a sim.
+
+---
+
+## 2026-06-22 — local SV simulator built (verified-build gate cleared)
+
+This aarch64 host had no simulator and no passwordless sudo, so the toolchain was
+built into a repo-local prefix (`/home/chaithu/lhs/.tools`, git-ignored):
+
+- **iverilog/vvp 12.0** — built from the `v12_0` source archive. Bootstrap needed
+  `gperf` (absent from conda-forge aarch64 as `iverilog` itself is), pulled via
+  micromamba; `flex`/`bison`/`autoconf`/`gcc 13.3` already on the host. Recipe:
+  `sh autoconf.sh && ./configure --prefix=… && make -j && make install`.
+- **verilator + gperf** — micromamba env `eda` (conda-forge, linux-aarch64).
+- Convenience: `. rtl/eda-env.sh` puts both on PATH.
+
+**Validation:** `make sim` on the unmodified TurboQuant+ TB → **14/14 PASS**
+(`tb_kv_cache_engine.sv:279 $finish`). Toolchain is functional end-to-end, so the
+"gated on a verified build" caveat in TEARDOWN.md is now cleared. Note: this is the
+*baseline* (still TurboQuant+); no ChannelQuant RTL/TB exists yet.
+
+Next: implement the value path first (P1 — per-token amax + uniform INT4/INT8) and
+stand up `tb_channelquant.sv` to parity-check it against the vendored CQ-8/CQ-4
+value vectors, before touching the key path / deleting rotation+qjl.
