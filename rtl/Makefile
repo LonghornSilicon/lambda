@@ -25,8 +25,8 @@ sim: $(SIM_BIN)
 sim_cq: $(SIM_CQ_BIN)
 	$(VVP) $(SIM_CQ_BIN)
 
-$(SIM_CQ_BIN): $(TB_DIR)/tb_channelquant.sv cq_fp_pkg.sv
-	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_channelquant.sv
+$(SIM_CQ_BIN): $(TB_DIR)/tb_channelquant.sv cq_fp_pkg.sv cq_units.sv
+	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_channelquant.sv cq_units.sv
 
 $(SIM_BIN): $(RTL_SRC) $(TB_DIR)/tb_kv_cache_engine.sv
 	$(IVERILOG) -g2012 -o $@ $(TB_DIR)/tb_kv_cache_engine.sv $(RTL_SRC)

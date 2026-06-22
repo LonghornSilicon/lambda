@@ -123,6 +123,54 @@ package cq_fp_pkg;
     end
   endfunction
 
+  // ---- real -> fp32 bit pattern, round-half-to-even -------------------------
+  // Used by the dequant unit to emit x_hat = q*s as an IEEE binary32 word for a
+  // bit-exact compare against expected_*_hat.f32. For ChannelQuant dequant the
+  // product is exactly representable (<=19 significant bits), so rounding here is
+  // exact; the round-half-even path is implemented generally for safety.
+  function automatic logic [31:0] real_to_f32(input real x);
+    int          sign;
+    real         ax, scaled;
+    int          e, biased;
+    longint      mant;
+    logic [31:0] out;
+    begin
+      if (x == 0.0) return 32'h0000_0000;
+      sign = (x < 0.0) ? 1 : 0;
+      ax   = (x < 0.0) ? -x : x;
+
+      e = 0;
+      if (ax >= 1.0) begin
+        while (ax / (2.0 ** (e+1)) >= 1.0) e = e + 1;
+      end else begin
+        while (ax / (2.0 ** e) < 1.0) e = e - 1;
+      end
+      biased = e + 127;
+
+      if (biased >= 255) begin                       // overflow -> inf
+        return {sign[0], 8'hFF, 23'h0};
+      end else if (biased <= 0) begin                // subnormal
+        scaled = ax / (2.0 ** -149);
+        mant   = rint_ll(scaled);
+        if (mant >= (longint'(1) << 23))
+          return {sign[0], 8'h01, 23'h0};
+        out = {sign[0], 8'h00, mant[22:0]};
+        return out;
+      end
+
+      scaled = (ax / (2.0 ** e)) * (2.0 ** 23);      // in [2^23, 2^24)
+      mant   = rint_ll(scaled);                      // round-half-even
+      if (mant >= (longint'(1) << 24)) begin         // carry into next exponent
+        biased = biased + 1;
+        mant   = (longint'(1) << 23);
+        if (biased >= 255) return {sign[0], 8'hFF, 23'h0};
+      end
+      out        = {sign[0], biased[7:0], 23'h0};
+      out[22:0]  = (mant - (longint'(1) << 23));     // strip implicit 1
+      real_to_f32 = out;
+    end
+  endfunction
+
   // round-half-to-even of a non-negative real to a longint (numpy rint)
   function automatic longint rint_ll(input real x);
     real     f, diff;
