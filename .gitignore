@@ -15,7 +15,8 @@ openlane/kv_cache_engine/runs/
 openlane/kv_cache_engine/src/*.sv
 !openlane/kv_cache_engine/src/kv_cache_engine.sv
 !openlane/kv_cache_engine/src/sram_controller.sv
-rtl/tb/testvectors/
+rtl/tb/testvectors/*
+!rtl/tb/testvectors/channelquant/
 *.swp
 *.swo
 *~

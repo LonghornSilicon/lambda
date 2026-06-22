@@ -27,19 +27,26 @@ realize it.
 
 ---
 
-## 1. Hard dependency (gates verification, not design)
+## 1. Hard dependency — **LANDED 2026-06-22** (verification unblocked)
 
 The RTL **design** below is startable now. RTL **verification** (3-way parity)
-is blocked on one artifact from the algorithm lane:
+was blocked on the algorithm lane's golden vectors + contract — **both have now
+landed, verified**, vendored at
+[`rtl/tb/testvectors/channelquant/`](../rtl/tb/testvectors/channelquant/README.md)
+(channelquant commit `08d5287`):
 
-- **ChannelQuant Phase 1 golden vectors** — `(input K/V, expected packed payload,
-  expected decompressed K/V)` for CQ-8 / CQ-4 / CQ-4+. Until these exist, build
-  and unit-test against the Python reference behaviorally; do final bit-exact SV
-  parity when the golden set lands.
-- **`HW_CONTRACT.md`** — pins the exact quant rule (rounding mode, clamp range),
-  scale numeric format, packing layout, group-flush semantics, outlier-mask
-  format. **Do not guess these** — implement against the contract; if the
-  contract is silent on a detail, raise it to the channelquant lane, don't invent.
+- **ChannelQuant Phase 1 golden vectors** — ✅ 9 vectors `(input K/V, expected
+  packed payload, expected decompressed K/V)` for CQ-8 / CQ-4 / CQ-4+, covering a
+  full key group (g=G), partial groups (g<G), and D ∈ {64,128}; CQ-4+ at k=2 with
+  the static mask. `.npz` (reference truth) + `$readmemh`-loadable `hex/`. The
+  reference reproduces c17 bit-exactly and `torch`==`numpy` per tier (details in
+  the vendored README). **P3 (3-way parity) is now startable.**
+- **`HW_CONTRACT.md`** — ✅ vendored. Pins the exact quant rule (round-half-to-
+  even, clamp INT4 [−8,7]/INT8 [−128,127], `EPS=2^-14`), fp16 scale format,
+  packing layout (§5), group-flush semantics (§3), outlier-mask format (§4).
+  **Do not guess these** — implement against the contract; if it is silent (e.g.
+  the decompress-bus product format, flagged open), raise it to the channelquant
+  lane, don't invent.
 
 ---
 

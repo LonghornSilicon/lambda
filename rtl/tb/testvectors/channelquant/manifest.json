@@ -1,0 +1,299 @@
+{
+  "contract": "docs/HW_CONTRACT.md",
+  "seed": 20260622,
+  "eps": 6.103515625e-05,
+  "rounding": "round-half-to-even",
+  "scale_dtype": "float16",
+  "vectors": [
+    {
+      "file": "d64_T128_G64__CQ8.npz",
+      "tier": "CQ-8",
+      "recipe": "per-token int8",
+      "D": 64,
+      "T": 128,
+      "G": null,
+      "key_groups": null,
+      "key_group_byte_offsets": null,
+      "outlier_idx": [],
+      "planted_outliers": [
+        24,
+        46
+      ],
+      "key_payload_bytes": 8192,
+      "val_payload_bytes": 8192,
+      "key_payload_sha16": "3a208e51383fb926",
+      "val_payload_sha16": "deb4c889c1434d47",
+      "Khat_rms_err": 0.027563326060771942,
+      "Vhat_rms_err": 0.005830693989992142
+    },
+    {
+      "file": "d64_T128_G64__CQ4.npz",
+      "tier": "CQ-4",
+      "recipe": "per-ch-K int4 (G=64) / per-tok-V int4",
+      "D": 64,
+      "T": 128,
+      "G": 64,
+      "key_groups": [
+        [
+          0,
+          64
+        ],
+        [
+          64,
+          128
+        ]
+      ],
+      "key_group_byte_offsets": [
+        [
+          0,
+          2048
+        ],
+        [
+          2048,
+          4096
+        ]
+      ],
+      "outlier_idx": [],
+      "planted_outliers": [
+        24,
+        46
+      ],
+      "key_payload_bytes": 4096,
+      "val_payload_bytes": 4096,
+      "key_payload_sha16": "856c5c0b54dc2a9d",
+      "val_payload_sha16": "aa4c5d607eb1aaa1",
+      "Khat_rms_err": 0.22164733707904816,
+      "Vhat_rms_err": 0.10475712269544601
+    },
+    {
+      "file": "d64_T128_G64__CQ4plus.npz",
+      "tier": "CQ-4+",
+      "recipe": "per-ch-K int4 (G=64) + top-2 fp16 / per-tok-V int4",
+      "D": 64,
+      "T": 128,
+      "G": 64,
+      "key_groups": [
+        [
+          0,
+          64
+        ],
+        [
+          64,
+          128
+        ]
+      ],
+      "key_group_byte_offsets": [
+        [
+          0,
+          1984
+        ],
+        [
+          1984,
+          3968
+        ]
+      ],
+      "outlier_idx": [
+        24,
+        46
+      ],
+      "planted_outliers": [
+        24,
+        46
+      ],
+      "key_payload_bytes": 3968,
+      "val_payload_bytes": 4096,
+      "key_payload_sha16": "10fdb9dee9479bb2",
+      "val_payload_sha16": "aa4c5d607eb1aaa1",
+      "Khat_rms_err": 0.10387745499610901,
+      "Vhat_rms_err": 0.10475712269544601
+    },
+    {
+      "file": "d64_T70_G64__CQ8.npz",
+      "tier": "CQ-8",
+      "recipe": "per-token int8",
+      "D": 64,
+      "T": 70,
+      "G": null,
+      "key_groups": null,
+      "key_group_byte_offsets": null,
+      "outlier_idx": [],
+      "planted_outliers": [
+        16,
+        28
+      ],
+      "key_payload_bytes": 4480,
+      "val_payload_bytes": 4480,
+      "key_payload_sha16": "5e1adc465c146f9f",
+      "val_payload_sha16": "b73180ee5ad4c388",
+      "Khat_rms_err": 0.028252068907022476,
+      "Vhat_rms_err": 0.006112484727054834
+    },
+    {
+      "file": "d64_T70_G64__CQ4.npz",
+      "tier": "CQ-4",
+      "recipe": "per-ch-K int4 (G=64) / per-tok-V int4",
+      "D": 64,
+      "T": 70,
+      "G": 64,
+      "key_groups": [
+        [
+          0,
+          64
+        ],
+        [
+          64,
+          70
+        ]
+      ],
+      "key_group_byte_offsets": [
+        [
+          0,
+          2048
+        ],
+        [
+          2048,
+          2240
+        ]
+      ],
+      "outlier_idx": [],
+      "planted_outliers": [
+        16,
+        28
+      ],
+      "key_payload_bytes": 2240,
+      "val_payload_bytes": 2240,
+      "key_payload_sha16": "664926dc8a0bc602",
+      "val_payload_sha16": "3a191f414c3df941",
+      "Khat_rms_err": 0.19978070259094238,
+      "Vhat_rms_err": 0.11241970956325531
+    },
+    {
+      "file": "d64_T70_G64__CQ4plus.npz",
+      "tier": "CQ-4+",
+      "recipe": "per-ch-K int4 (G=64) + top-2 fp16 / per-tok-V int4",
+      "D": 64,
+      "T": 70,
+      "G": 64,
+      "key_groups": [
+        [
+          0,
+          64
+        ],
+        [
+          64,
+          70
+        ]
+      ],
+      "key_group_byte_offsets": [
+        [
+          0,
+          1984
+        ],
+        [
+          1984,
+          2170
+        ]
+      ],
+      "outlier_idx": [
+        16,
+        28
+      ],
+      "planted_outliers": [
+        16,
+        28
+      ],
+      "key_payload_bytes": 2170,
+      "val_payload_bytes": 2240,
+      "key_payload_sha16": "c391d76ad018a75e",
+      "val_payload_sha16": "3a191f414c3df941",
+      "Khat_rms_err": 0.10332167148590088,
+      "Vhat_rms_err": 0.11241970956325531
+    },
+    {
+      "file": "d128_T100_G128__CQ8.npz",
+      "tier": "CQ-8",
+      "recipe": "per-token int8",
+      "D": 128,
+      "T": 100,
+      "G": null,
+      "key_groups": null,
+      "key_group_byte_offsets": null,
+      "outlier_idx": [],
+      "planted_outliers": [
+        2,
+        38
+      ],
+      "key_payload_bytes": 12800,
+      "val_payload_bytes": 12800,
+      "key_payload_sha16": "bf7a3d7ffececf2c",
+      "val_payload_sha16": "0000a1fa5a1f7f07",
+      "Khat_rms_err": 0.028150731697678566,
+      "Vhat_rms_err": 0.0064371367916464806
+    },
+    {
+      "file": "d128_T100_G128__CQ4.npz",
+      "tier": "CQ-4",
+      "recipe": "per-ch-K int4 (G=128) / per-tok-V int4",
+      "D": 128,
+      "T": 100,
+      "G": 128,
+      "key_groups": [
+        [
+          0,
+          100
+        ]
+      ],
+      "key_group_byte_offsets": [
+        [
+          0,
+          6400
+        ]
+      ],
+      "outlier_idx": [],
+      "planted_outliers": [
+        2,
+        38
+      ],
+      "key_payload_bytes": 6400,
+      "val_payload_bytes": 6400,
+      "key_payload_sha16": "555d005fc153a4a6",
+      "val_payload_sha16": "7a3ca51d943c5af3",
+      "Khat_rms_err": 0.16186004877090454,
+      "Vhat_rms_err": 0.11778362095355988
+    },
+    {
+      "file": "d128_T100_G128__CQ4plus.npz",
+      "tier": "CQ-4+",
+      "recipe": "per-ch-K int4 (G=128) + top-2 fp16 / per-tok-V int4",
+      "D": 128,
+      "T": 100,
+      "G": 128,
+      "key_groups": [
+        [
+          0,
+          100
+        ]
+      ],
+      "key_group_byte_offsets": [
+        [
+          0,
+          6300
+        ]
+      ],
+      "outlier_idx": [
+        2,
+        38
+      ],
+      "planted_outliers": [
+        2,
+        38
+      ],
+      "key_payload_bytes": 6300,
+      "val_payload_bytes": 6400,
+      "key_payload_sha16": "53de41513918d816",
+      "val_payload_sha16": "7a3ca51d943c5af3",
+      "Khat_rms_err": 0.11312422901391983,
+      "Vhat_rms_err": 0.11778362095355988
+    }
+  ]
+}

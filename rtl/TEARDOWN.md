@@ -2,8 +2,11 @@
 
 Tracks the datapath conversion of the KVCE block from the TurboQuant+ codec to
 ChannelQuant. Full plan: [`../findings/channelquant_block_revamp.md`](../findings/channelquant_block_revamp.md).
-Algorithm contract: `../../channelquant/docs/HW_CONTRACT.md` (authored in the
-channelquant lane). Golden vectors for parity: `../../channelquant/reference/testvectors/`.
+Algorithm contract + golden vectors **landed 2026-06-22** (channelquant commit
+`08d5287`), vendored hermetically at
+[`tb/testvectors/channelquant/`](tb/testvectors/channelquant/README.md) — the
+3-way parity dependency is unblocked. (Upstream source of truth:
+`../../channelquant/docs/HW_CONTRACT.md` + `../../channelquant/reference/testvectors/`.)
 
 > **No SV simulator is on this host's PATH.** Steps that change the elaborated
 > design (deletions, top-level rewiring, `RTL_SRC` edits) are **gated on a verified
