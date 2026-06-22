@@ -1,13 +1,50 @@
 # KV Cache Engine
 
+This is the **KV Cache Engine** block of the LonghornSilicon LLM inference
+accelerator — block 2 of four targeting TSMC 16FFC tape-out. It is a streaming
+compress-on-write / decompress-on-read engine for transformer KV-cache tensors,
+sitting between the ACU and the memory hierarchy.
+
+> ## 🔧 Revamp in progress — codec: TurboQuant+ → ChannelQuant
+>
+> **The block stays; the codec it implements is being replaced.** TurboQuant+
+> (PolarQuant + QJL + Walsh–Hadamard rotation) was **retired 2026-06-22**: it
+> reaches ~3.5× compression but with a **−0.10 HellaSwag acc_norm collapse on
+> GQA** models (0.316 vs 0.420 FP16 on Qwen2-0.5B). Root cause: KV quant error
+> on GQA is dominated by a few fixed high-magnitude **key channels**, and the
+> rotation step delocalizes that error so no per-token protection catches it.
+>
+> The successor codec is **ChannelQuant** — per-channel-key INT4 / per-token-value
+> INT4 / static outlier-channel isolation (the KIVI/KVQuant recipe). It reaches
+> **~3.6–3.8× near-lossless** (7B: 0.604 vs 0.612 FP16) where naive INT4 collapses
+> to chance. The algorithm is prior art (KIVI ICML'24, KVQuant 2024); **the
+> contribution of this block is the streaming silicon implementation.**
+>
+> | | |
+> |---|---|
+> | Revamp plan (this block) | [`findings/channelquant_block_revamp.md`](findings/channelquant_block_revamp.md) |
+> | Algorithm spec + reference model + golden vectors | `../channelquant/` |
+> | Retired TurboQuant+ datapath (archived, full history) | branch [`legacy/turboquant-plus`](../../tree/legacy/turboquant-plus) |
+>
+> **Status of the revamp:** datapath teardown started (new `amax_unit`,
+> `residual_buffer`, `scale_bank` skeletons added; `rotation_unit`/`qjl_unit`
+> scheduled for removal — see the manifest in [`rtl/TEARDOWN.md`](rtl/TEARDOWN.md)).
+> The TurboQuant+ documentation below the line is retained until the ChannelQuant
+> datapath replaces it.
+>
+> ⚠️ Everything below describes the **TurboQuant+ datapath now being torn down** —
+> compression figures, register map, and verified-FF counts are the predecessor's,
+> not yet ChannelQuant's.
+
+---
+
+## (predecessor) KV Cache Engine — TurboQuant+
+
 A hardware-verified KV cache compression engine using
 [TurboQuant+](https://github.com/themoddedcube/turboquant-plus)
 that compresses key vectors to **4.25 bits per value** and value vectors
 to **~3.0 bpv** at runtime, giving a **3--5x DRAM bandwidth reduction**
 for KV cache traffic with bounded reconstruction error.
-
-This is the **KV Cache Engine** block of the LonghornSilicon
-LLM inference accelerator — block 2 of four targeting TSMC 16FFC tape-out.
 
 ---
 
