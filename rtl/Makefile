@@ -2,8 +2,10 @@ IVERILOG ?= iverilog
 VVP      ?= vvp
 PYTHON   ?= python3
 
-RTL_SRC := kv_cache_engine.sv norm_unit.sv rotation_unit.sv quantizer.sv \
-           qjl_unit.sv packer.sv sram_controller.sv decompressor.sv
+# ChannelQuant datapath: top + SRAM shell + the verified compute cores.
+# (TurboQuant+ codec — rotation_unit/qjl_unit/quantizer/packer/decompressor/
+#  norm_unit — was deleted in the revamp; see legacy/turboquant-plus branch.)
+RTL_SRC := kv_cache_engine.sv sram_controller.sv cq_units.sv
 
 TB_DIR  := tb
 TV_DIR  := $(TB_DIR)/testvectors

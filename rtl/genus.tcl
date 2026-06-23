@@ -30,15 +30,13 @@ set LIB_FF_M40C   "$TSMC_LIB_DIR/tcbn16ffcllbwp7t30p140lvtffg0p88vm40c.lib"
 # Project setup
 # ---------------------------------------------------------------------------
 set TOP "kv_cache_engine"
+# Synthesizable shell (top FSM + SRAM). The ChannelQuant datapath cores in
+# cq_units.sv are a behavioral (real-valued) golden-equivalent model used for
+# bit-exact parity, NOT synthesizable as-is; the fp16 fixed-function lowering is
+# the P4 synthesis phase (see TEARDOWN.md / findings/channelquant_block_revamp.md).
 set RTL_FILES [list \
     kv_cache_engine.sv \
-    norm_unit.sv \
-    rotation_unit.sv \
-    quantizer.sv \
-    qjl_unit.sv \
-    packer.sv \
     sram_controller.sv \
-    decompressor.sv \
 ]
 set SDC_FILE  "constraints/timing.sdc"
 

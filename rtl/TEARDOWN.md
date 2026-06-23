@@ -19,41 +19,51 @@ Algorithm contract + golden vectors **landed 2026-06-22** (channelquant commit
 ## Status legend
 `[ ]` not started · `[~]` skeleton added (inert) · `[x]` done & verified
 
-## Delete (TurboQuant+-only, remove during the verified rewire step)
-- [ ] `rotation_unit.sv` — Walsh–Hadamard butterfly. No rotation in ChannelQuant.
-- [ ] `qjl_unit.sv` — 1-bit JL sign projection. No residual sketch.
+## Delete (TurboQuant+-only) — DONE
+- [x] `rotation_unit.sv` — deleted (commit on master). Archived on legacy branch.
+- [x] `qjl_unit.sv` — deleted. Archived on legacy branch.
 
 ## Repurpose / replace
-- [ ] `norm_unit.sv` → folded into **`amax_unit.sv`** (per-axis amax, not L2 norm).
-- [ ] `quantizer.sv` — replace 3-bit Lloyd-Max nearest-centroid with uniform
-      signed INT4/INT8 round+clamp (drops the centroid ROM).
-- [ ] `decompressor.sv` — simplify to `q * scale` (+ re-insert FP16 outlier
-      channels); remove inverse-WHT and JL reconstruction.
-- [ ] `packer.sv` — re-lane to 4/8-bit + per-axis scale sidecar + FP16 outlier lane.
-- [ ] `sram_controller.sv` — add scale storage + residual-group buffer management.
-- [ ] `kv_cache_engine.sv` (top) — rewire datapath; new CSR fields (see below).
+- [x] `norm_unit.sv` → deleted; per-axis amax→scale is **`cq_scale_unit`** (cq_units.sv).
+- [x] `quantizer.sv` — deleted; uniform signed INT4/INT8 round-half-even+clamp is
+      **`cq_quant_unit`** (cq_units.sv). No centroid ROM.
+- [x] `decompressor.sv` — deleted; `q*scale` (+ FP16 outlier passthrough) is
+      **`cq_dequant_unit`**. No inverse-WHT / JL.
+- [x] `packer.sv` — deleted; INT4 nibble lane is **`cq_pack2`** (INT8 = raw byte).
+- [~] `sram_controller.sv` — unchanged shell; scale storage + residual-group buffer
+      management is the streaming P2 work (behavioral cores exist; not yet streamed).
+- [x] `kv_cache_engine.sv` (top) — CSR map swapped to ChannelQuant; codec files
+      removed from `RTL_SRC`. (Datapath is still the passthrough store as on the
+      predecessor; streaming the cq cores through the FSM is P2.)
 
 ## Add (new ChannelQuant blocks)
-- [~] `amax_unit.sv` — per-token (V) / per-channel (K) amax. Skeleton added.
-- [~] `residual_buffer.sv` — FP16 hold for the in-flight key group. Skeleton added.
-- [~] `scale_bank.sv` — per-channel K scales + per-token V scale FIFO. Skeleton added.
-- [ ] outlier-mask ROM — static per-layer top-k key-channel indices (CQ-4+).
+- [x] datapath compute cores `cq_units.sv` (+ `cq_fp_pkg.sv`) — scale/quant/dequant/
+      pack, **bit-exact vs golden vectors** (tb_channelquant.sv, all 9, all tiers).
+- [~] `amax_unit.sv` / `residual_buffer.sv` / `scale_bank.sv` — streaming wrappers
+      around the cores; still skeletons (P2 — the per-channel group FSM + SRAM).
+- [ ] outlier-mask ROM — static per-layer top-k key-channel indices (CQ-4+). The
+      mask format is exercised by the parity TB; the ROM load IF is P2.
 
-## CSR / ISA changes (top-level + docs/isa)
-- [ ] REMOVE `INFO_PQ_BITS`, `INFO_QJL_BITS`.
-- [ ] ADD `INFO_GROUP_SIZE` (G), `INFO_OUTLIER_K` (k; 0 ⇒ CQ-4), `INFO_SCALE_FMT`,
-      `INFO_HEAD_DIM` (D, parameterized), `CFG_TIER` (0=CQ-8,1=CQ-4,2=CQ-4+).
-- [ ] BUMP `INFO_VERSION` (incompatible codec — ISA major).
-- [ ] ADD outlier-mask load interface.
+## CSR / ISA changes (top-level + docs/isa) — DONE
+- [x] REMOVED `INFO_PQ_BITS`, `INFO_QJL_BITS`.
+- [x] ADDED `INFO_TIER` (0=CQ-8,1=CQ-4,2=CQ-4+), `INFO_GROUP` (G), `INFO_OUTLIER_K`,
+      `INFO_SCALE_DEPTH` (=D), `INFO_RESID_DEPTH` (=G). `INFO_DIM` already exposes D.
+- [x] BUMPED `INFO_VERSION` → v0.2.0.0 (incompatible codec — ISA major).
+- [ ] outlier-mask load interface — P2 (with the streaming key path).
 
 ## Build / CI
-- [ ] Add the new modules to `RTL_SRC` (Makefile) only when they elaborate clean.
-- [ ] Update `synth.ys`, OpenLane `config.json` top/IO if ports change.
+- [x] `RTL_SRC` = top + sram + `cq_units.sv`; deleted codec removed. `make sim`
+      green (17/17), `make sim_cq` green (9/9 bit-exact), `make sim_realdata` green.
+- [x] `genus.tcl` / `synth.ys` file lists + notes updated (cores are behavioral —
+      synthesizable fp16 lowering is P4; OpenLane top/IO unchanged for the shell).
 - [ ] Update expected FF-count assertions (CI gate 3) after synth lands.
 
-## Verification (golden vectors landed; gated only on an SV simulator on PATH)
-- [ ] Unit-test each new block vs the Python reference (behavioral).
-- [ ] 3-way Python ↔ C++ ↔ SV bit-exact parity, compress + decompress, all tiers.
+## Verification (golden vectors landed; SV simulator now local — see eda-env.sh)
+- [x] SV parity vs the Python reference: **all 9 golden vectors bit-exact** (scales,
+      packed payload, and reconstructed K/V_hat), CQ-8/CQ-4/CQ-4+, D∈{64,128}, full
+      and partial key groups, CQ-4+ outlier lane. `make sim_cq`.
+- [ ] 3-way Python ↔ C++ ↔ SV: Python↔SV done; the C++ leg (sw/reference_model) is
+      pending a ChannelQuant port.
 - [ ] `tb_realdata.sv`: captured Qwen2 K/V trace, reconstructed rMSE within tol.
 - [ ] Synth (Sky130 → 16FFC); compare area/Fmax vs the TurboQuant+ baseline on
       `legacy/turboquant-plus` (expect smaller — no WHT, no JL).

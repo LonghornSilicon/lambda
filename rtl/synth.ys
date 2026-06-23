@@ -9,15 +9,14 @@
 #
 # Estimated area budget (current hierarchy):
 #   sram_controller: ~200 FFs (behavioral reg array, SRAM_DEPTH=16)
-#   norm_unit:       ~400 FFs
 #   top-level FSM:   ~400 FFs
-#   Total:           ~1000 FFs (top-level only; sub-modules with unpacked
-#                     array ports need Yosys SV workarounds for full synth)
+#   Total:           ~600 FFs (synthesizable shell only)
 #
-# Sub-modules with unpacked array ports (rotation_unit, quantizer, qjl_unit,
-# packer, decompressor) are not yet wired into the top-level FSM. They
-# synthesize correctly under Genus/DC but Yosys doesn't support SV unpacked
-# array ports. Include them here once the full compression pipeline is wired.
+# ChannelQuant datapath cores (cq_units.sv: scale/quant/dequant/pack) are a
+# behavioral, real-valued golden-equivalent model — proven bit-exact vs the
+# golden vectors by tb_channelquant.sv, but NOT synthesizable as-is. Their fp16
+# fixed-function lowering (reciprocal+rounder, residual-group buffer, scale bank)
+# is the P4 synthesis phase; add the lowered modules here once they land.
 
 read_verilog -sv kv_cache_engine.sv
 read_verilog -sv sram_controller.sv

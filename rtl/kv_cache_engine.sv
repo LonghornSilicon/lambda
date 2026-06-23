@@ -1,8 +1,11 @@
-// kv_cache_engine.sv — Top-level KV Cache Engine (TurboQuant+ turbo4)
+// kv_cache_engine.sv — Top-level KV Cache Engine (ChannelQuant codec)
 //
-// Asymmetric compression:
-//   K path: PolarQuant (3-bit) + QJL (1-bit) = 4.25 bpv
-//   V path: PolarQuant (3-bit) only = ~3.0 bpv
+// Asymmetric uniform-integer KV compression (docs/HW_CONTRACT.md):
+//   K path: per-channel INT4 over a group of G tokens (+ optional top-k FP16
+//           outlier channels in CQ-4+); CQ-8 keys are per-token INT8.
+//   V path: per-token INT4 (CQ-4/CQ-4+) or INT8 (CQ-8).
+// Datapath compute cores: cq_units.sv (scale / quant / dequant / pack), proven
+// bit-exact vs the golden vectors by tb_channelquant.sv (contract §8).
 //
 // Interfaces:
 //   - AXI-Lite control (register window)
@@ -10,16 +13,13 @@
 //   - AXI-Stream read (decompressed KV vectors for attention)
 
 module kv_cache_engine #(
-    parameter integer VECTOR_DIM    = 64,
-    parameter integer PQ_BITS       = 3,
-    parameter integer QJL_BITS      = 1,
-    parameter integer NUM_CENTROIDS = 8,
+    parameter integer VECTOR_DIM    = 64,   // D: head dim (64 or 128)
+    parameter integer TIER          = 1,    // 0 = CQ-8, 1 = CQ-4, 2 = CQ-4+
+    parameter integer KEY_GROUP     = 128,  // G: tokens per per-channel key group
+    parameter integer OUTLIER_K     = 0,    // top-k FP16 key channels (CQ-4+)
+    parameter integer SCALE_WIDTH   = 16,   // fp16 per-axis scale width
     parameter integer SRAM_DEPTH    = 16,
-    parameter integer NORM_WIDTH    = 16,
-    parameter integer NORM_FRAC     = 8,
-    parameter integer COORD_WIDTH   = 16,
-    parameter integer COORD_FRAC    = 12,
-    parameter integer ROTATION_SEED = 42
+    parameter integer COORD_WIDTH   = 16    // fp16 element width
 ) (
     input  wire                    clk,
     input  wire                    rst_n,
@@ -66,33 +66,41 @@ module kv_cache_engine #(
 
     localparam integer LOG2_DIM    = $clog2(VECTOR_DIM);
     localparam integer ADDR_WIDTH  = $clog2(SRAM_DEPTH);
-    localparam integer KEY_BITS    = NORM_WIDTH + VECTOR_DIM * PQ_BITS +
-                                     NORM_WIDTH + VECTOR_DIM * QJL_BITS;
-    localparam integer VAL_BITS    = NORM_WIDTH + VECTOR_DIM * PQ_BITS;
-    localparam integer SRAM_WIDTH  = KEY_BITS > VAL_BITS ? KEY_BITS : VAL_BITS;
 
-    // ISA version
-    localparam [31:0] ISA_VERSION  = 32'h00_01_00_00; // v0.1.0.0
+    // bits-per-value in the packed payload, by tier
+    localparam integer VAL_BPV     = (TIER == 0) ? 8 : 4;   // per-token V
+    localparam integer KEY_BPV     = (TIER == 0) ? 8 : 4;   // K (per-token CQ-8 / per-channel int4)
+
+    // The FSM stores a raw fp16 vector for passthrough; payload sizing for the
+    // compressed banks is reported via the CR_* info registers below.
+    localparam integer SRAM_WIDTH  = VECTOR_DIM * COORD_WIDTH;
+
+    // ISA version — codec change vs TurboQuant+ is incompatible (major bump).
+    localparam [31:0] ISA_VERSION  = 32'h00_02_00_00; // v0.2.0.0 (ChannelQuant)
 
     // -----------------------------------------------------------------------
     // Register map (AXI-Lite)
     // -----------------------------------------------------------------------
 
-    localparam [7:0] REG_CTRL           = 8'h00;
-    localparam [7:0] REG_STATUS         = 8'h04;
-    localparam [7:0] REG_INFO_DIM       = 8'h08;
-    localparam [7:0] REG_INFO_PQ_BITS   = 8'h0C;
-    localparam [7:0] REG_INFO_QJL_BITS  = 8'h10;
-    localparam [7:0] REG_INFO_SRAM_DEPTH = 8'h14;
-    localparam [7:0] REG_INFO_CR_K      = 8'h18;
-    localparam [7:0] REG_INFO_CR_V      = 8'h1C;
-    localparam [7:0] REG_INFO_VERSION   = 8'h20;
-    localparam [7:0] REG_OCCUPANCY      = 8'h24;
-    localparam [7:0] REG_WRITE_ADDR     = 8'h28;
-    localparam [7:0] REG_READ_ADDR      = 8'h2C;
-    localparam [7:0] REG_KV_SELECT      = 8'h30;
-    localparam [7:0] REG_IRQ_MASK       = 8'h34;
-    localparam [7:0] REG_IRQ_STATUS     = 8'h38;
+    localparam [7:0] REG_CTRL             = 8'h00;
+    localparam [7:0] REG_STATUS           = 8'h04;
+    localparam [7:0] REG_INFO_DIM         = 8'h08;
+    localparam [7:0] REG_INFO_TIER        = 8'h0C;  // ChannelQuant tier (was PQ_BITS)
+    localparam [7:0] REG_INFO_GROUP       = 8'h10;  // G key group size (was QJL_BITS)
+    localparam [7:0] REG_INFO_SRAM_DEPTH  = 8'h14;
+    localparam [7:0] REG_INFO_CR_K        = 8'h18;
+    localparam [7:0] REG_INFO_CR_V        = 8'h1C;
+    localparam [7:0] REG_INFO_VERSION     = 8'h20;
+    localparam [7:0] REG_OCCUPANCY        = 8'h24;
+    localparam [7:0] REG_WRITE_ADDR       = 8'h28;
+    localparam [7:0] REG_READ_ADDR        = 8'h2C;
+    localparam [7:0] REG_KV_SELECT        = 8'h30;
+    localparam [7:0] REG_IRQ_MASK         = 8'h34;
+    localparam [7:0] REG_IRQ_STATUS       = 8'h38;
+    // ChannelQuant additions (contract §7)
+    localparam [7:0] REG_INFO_OUTLIER_K   = 8'h3C;  // k FP16 outlier key channels
+    localparam [7:0] REG_INFO_SCALE_DEPTH = 8'h40;  // per-channel key scale bank depth (= D)
+    localparam [7:0] REG_INFO_RESID_DEPTH = 8'h44;  // residual-buffer token capacity (= G)
 
     // Control registers
     reg        ctrl_enable;
@@ -273,9 +281,17 @@ module kv_cache_engine #(
     // AXI-Lite register interface
     // -----------------------------------------------------------------------
 
-    // Compression ratios as fixed-point (8.8)
-    localparam [31:0] CR_K_FIXED = (VECTOR_DIM * COORD_WIDTH * 256) / KEY_BITS;
-    localparam [31:0] CR_V_FIXED = (VECTOR_DIM * COORD_WIDTH * 256) / VAL_BITS;
+    // Compression ratios vs fp16 as fixed-point (8.8), per the configured tier.
+    //   value  : D*VAL_BPV payload bits + one fp16 scale per token (SCALE_WIDTH).
+    //   key    : D*KEY_BPV payload bits + per-channel scales amortized over G
+    //            tokens (CQ-8 keys are per-token: one scale per token, like V).
+    localparam integer VAL_EFF_DEN = VECTOR_DIM * VAL_BPV + SCALE_WIDTH;
+    localparam integer KEY_EFF_DEN = (TIER == 0)
+                                   ? (VECTOR_DIM * KEY_BPV + SCALE_WIDTH)
+                                   : (VECTOR_DIM * KEY_BPV +
+                                      (SCALE_WIDTH * VECTOR_DIM) / KEY_GROUP);
+    localparam [31:0] CR_V_FIXED = (VECTOR_DIM * COORD_WIDTH * 256) / VAL_EFF_DEN;
+    localparam [31:0] CR_K_FIXED = (VECTOR_DIM * COORD_WIDTH * 256) / KEY_EFF_DEN;
 
     // Write channel — always ready, single-cycle accept
     assign axil_awready = 1'b1;
@@ -329,8 +345,8 @@ module kv_cache_engine #(
                     REG_CTRL:            axil_rdata <= {30'b0, ctrl_enable, 1'b0};
                     REG_STATUS:          axil_rdata <= {28'b0, sram_full, 1'b0, 1'b0, idle};
                     REG_INFO_DIM:        axil_rdata <= VECTOR_DIM;
-                    REG_INFO_PQ_BITS:    axil_rdata <= PQ_BITS;
-                    REG_INFO_QJL_BITS:   axil_rdata <= QJL_BITS;
+                    REG_INFO_TIER:       axil_rdata <= TIER;
+                    REG_INFO_GROUP:      axil_rdata <= KEY_GROUP;
                     REG_INFO_SRAM_DEPTH: axil_rdata <= SRAM_DEPTH;
                     REG_INFO_CR_K:       axil_rdata <= CR_K_FIXED;
                     REG_INFO_CR_V:       axil_rdata <= CR_V_FIXED;
@@ -341,6 +357,9 @@ module kv_cache_engine #(
                     REG_KV_SELECT:       axil_rdata <= {31'b0, kv_select};
                     REG_IRQ_MASK:        axil_rdata <= {28'b0, irq_mask};
                     REG_IRQ_STATUS:      axil_rdata <= {28'b0, irq_status};
+                    REG_INFO_OUTLIER_K:  axil_rdata <= OUTLIER_K;
+                    REG_INFO_SCALE_DEPTH:axil_rdata <= VECTOR_DIM;   // scale bank depth = D
+                    REG_INFO_RESID_DEPTH:axil_rdata <= KEY_GROUP;    // residual buffer = G
                     default:             axil_rdata <= 32'hDEAD_BEEF;
                 endcase
             end

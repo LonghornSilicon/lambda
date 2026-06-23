@@ -4,9 +4,10 @@ module tb_kv_cache_engine;
 
     localparam integer VECTOR_DIM    = 64;
     localparam integer COORD_WIDTH   = 16;
-    localparam integer NORM_WIDTH    = 16;
-    localparam integer PQ_BITS       = 3;
-    localparam integer QJL_BITS      = 1;
+    localparam integer SCALE_WIDTH   = 16;
+    localparam integer TIER          = 1;    // CQ-4 (per-channel K int4 / per-token V int4)
+    localparam integer KEY_GROUP     = 128;  // G
+    localparam integer OUTLIER_K     = 0;
     localparam integer SRAM_DEPTH    = 16;
     localparam integer CLK_PERIOD    = 10;
 
@@ -46,10 +47,11 @@ module tb_kv_cache_engine;
 
     kv_cache_engine #(
         .VECTOR_DIM    (VECTOR_DIM),
-        .PQ_BITS       (PQ_BITS),
-        .QJL_BITS      (QJL_BITS),
+        .TIER          (TIER),
+        .KEY_GROUP     (KEY_GROUP),
+        .OUTLIER_K     (OUTLIER_K),
+        .SCALE_WIDTH   (SCALE_WIDTH),
         .SRAM_DEPTH    (SRAM_DEPTH),
-        .NORM_WIDTH    (NORM_WIDTH),
         .COORD_WIDTH   (COORD_WIDTH)
     ) dut (
         .clk             (clk),
@@ -172,16 +174,25 @@ module tb_kv_cache_engine;
         check("INFO_DIM == 64", read_data == VECTOR_DIM);
 
         axil_read(8'h0C, read_data);
-        check("INFO_PQ_BITS == 3", read_data == PQ_BITS);
+        check("INFO_TIER == CQ-4", read_data == TIER);
 
         axil_read(8'h10, read_data);
-        check("INFO_QJL_BITS == 1", read_data == QJL_BITS);
+        check("INFO_GROUP == 128", read_data == KEY_GROUP);
 
         axil_read(8'h14, read_data);
         check("INFO_SRAM_DEPTH == 16", read_data == SRAM_DEPTH);
 
         axil_read(8'h20, read_data);
-        check("INFO_VERSION", read_data == 32'h00010000);
+        check("INFO_VERSION == v0.2", read_data == 32'h00020000);
+
+        axil_read(8'h3C, read_data);
+        check("INFO_OUTLIER_K == 0", read_data == OUTLIER_K);
+
+        axil_read(8'h40, read_data);
+        check("INFO_SCALE_DEPTH == D", read_data == VECTOR_DIM);
+
+        axil_read(8'h44, read_data);
+        check("INFO_RESID_DEPTH == G", read_data == KEY_GROUP);
 
         // Test: STATUS idle
         $display("\n[Test: STATUS register]");
