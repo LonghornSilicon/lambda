@@ -23,8 +23,9 @@ jobs:
       # are combinational (0 FFs); the count is SRAM (16*272) + the serialized value
       # path + top FSM regs. Local yosys 0.65 reports 7626 (now the SRAM is *driven*,
       # so 0.65 no longer opt-strips it and should track CI's apt-yosys 0.33 closely).
-      # If CI's 0.33 count differs slightly, set this to the value CI reports.
-      expected-ff-count: 7626
+      # CI's apt-yosys 0.33 reports 7633 (local 0.65 gave 7626 — a 7-FF DFFE-mapping
+      # delta); 0.33 is the gate arbiter.
+      expected-ff-count: 7633
       has-reference-model: true
       has-paper: false
       has-coverage-gate: false
