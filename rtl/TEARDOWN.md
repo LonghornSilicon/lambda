@@ -40,8 +40,13 @@ Algorithm contract + golden vectors **landed 2026-06-22** (channelquant commit
 ## Add (new ChannelQuant blocks)
 - [x] datapath compute cores `cq_units.sv` (+ `cq_fp_pkg.sv`) — scale/quant/dequant/
       pack, **bit-exact vs golden vectors** (tb_channelquant.sv, all 9, all tiers).
-- [~] `amax_unit.sv` / `residual_buffer.sv` / `scale_bank.sv` — streaming wrappers
-      around the cores; still skeletons (P2 — the per-channel group FSM + SRAM).
+- [x] `amax_unit.sv` — **implemented + verified** (P2). Synthesizable per-axis amax
+      (value per-token / key per-channel over a group, partial finals); no `real` —
+      max|fp16| is an unsigned max on the 15-bit magnitude field. Its amax → the
+      proven `cq_scale_unit` reproduces the golden scales bit-exactly, all 9 vectors
+      (`make sim_amax`, tb_amax_unit.sv).
+- [~] `residual_buffer.sv` / `scale_bank.sv` — still skeletons (P2 — the group
+      buffer + scale storage + FSM integration; next).
 - [ ] outlier-mask ROM — static per-layer top-k key-channel indices (CQ-4+). The
       mask format is exercised by the parity TB; the ROM load IF is P2.
 

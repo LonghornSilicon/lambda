@@ -13,8 +13,9 @@ TV_DIR  := $(TB_DIR)/testvectors
 SIM_BIN     := $(TB_DIR)/tb_kv_cache_engine.out
 SIM_REAL_BIN := $(TB_DIR)/tb_realdata.out
 SIM_CQ_BIN  := $(TB_DIR)/tb_channelquant.out
+SIM_AMAX_BIN := $(TB_DIR)/tb_amax_unit.out
 
-.PHONY: all sim sim_realdata sim_cq testvectors clean
+.PHONY: all sim sim_realdata sim_cq sim_amax testvectors clean
 
 all: sim
 
@@ -29,6 +30,14 @@ sim_cq: $(SIM_CQ_BIN)
 
 $(SIM_CQ_BIN): $(TB_DIR)/tb_channelquant.sv cq_fp_pkg.sv cq_units.sv
 	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_channelquant.sv cq_units.sv
+
+# Streaming amax_unit scale parity vs the golden scales (P2 front-end). Drives
+# the synthesizable amax reduction; amax->scale via the proven cq_scale_unit.
+sim_amax: $(SIM_AMAX_BIN)
+	$(VVP) $(SIM_AMAX_BIN)
+
+$(SIM_AMAX_BIN): $(TB_DIR)/tb_amax_unit.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv
+	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_amax_unit.sv amax_unit.sv cq_units.sv
 
 $(SIM_BIN): $(RTL_SRC) $(TB_DIR)/tb_kv_cache_engine.sv
 	$(IVERILOG) -g2012 -o $@ $(TB_DIR)/tb_kv_cache_engine.sv $(RTL_SRC)

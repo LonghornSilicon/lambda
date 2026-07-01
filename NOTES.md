@@ -168,3 +168,26 @@ guidance (a config default — the bypassable outlier lane covers both).
 
 Next: **P2 streaming datapath** — residual buffer (G=128), per-channel scale bank
 (depth D), outlier-mask ROM load, and streaming the cq cores through the top FSM.
+
+---
+
+## 2026-07-01 — P2 [1/n]: amax_unit implemented + verified
+
+First P2 module. `amax_unit.sv` is now a real **synthesizable** streaming reduction
+(replacing the inert skeleton): value path = per-token amax over D elements; key
+path = per-channel running max over a group of tokens, frozen on `group_done`
+(handles partial final groups). No `real` arithmetic — exploits that for finite
+fp16 the magnitude (sign cleared) is monotonic in the unsigned 15-bit {exp,man}
+field, so amax is a plain unsigned-integer max.
+
+Verified by `tb_amax_unit.sv` (`make sim_amax`): drives the DUT token-by-token
+and routes its amax through the P3-proven `cq_scale_unit`; the resulting fp16
+scales match the golden `val_scales`/`key_scales` **bit-exact on all 9 vectors**
+(V + K, CQ-8 per-token keys, CQ-4/4+ per-channel groups, full g=G and partial g<G).
+TB gotcha fixed: stimulus must change on negedge, else the TB deasserting in_valid
+in the DUT's posedge active-region races and the DUT misses the token.
+
+Full board green: sim 17/17, sim_cq 9/9, sim_realdata PASS, sim_amax 9/9. amax_unit
+is verified standalone but not yet in RTL_SRC/top (FSM integration is a later P2
+step). Next P2 module: `scale_bank` (per-channel + per-token scale storage), then
+`residual_buffer` (G=128 group hold), then stream the cores through the top FSM.
