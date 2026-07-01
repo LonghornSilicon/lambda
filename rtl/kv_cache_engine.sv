@@ -112,7 +112,7 @@ module kv_cache_engine #(
     // -----------------------------------------------------------------------
     // Input token assembly
     // -----------------------------------------------------------------------
-    reg  [VECTOR_DIM*COORD_WIDTH-1:0] tok_vec;   // assembled token (fp16 elems)
+    reg  [VECTOR_DIM*COORD_WIDTH-1:0] tok_vec;   // assembled token (fp16 elems), shift-filled
     reg  [$clog2(VECTOR_DIM):0]       in_count;
     reg                               input_is_key;
 
@@ -238,7 +238,8 @@ module kv_cache_engine #(
                     end else if (s_axis_kv_tvalid && s_axis_kv_tready) begin
                         state        <= ST_COLLECT;
                         idle         <= 1'b0;
-                        tok_vec[0 +: COORD_WIDTH] <= s_axis_kv_tdata;
+                        // shift-fill (no indexed write): element k lands at [k*DW +: DW]
+                        tok_vec      <= {s_axis_kv_tdata, tok_vec[VECTOR_DIM*COORD_WIDTH-1:COORD_WIDTH]};
                         in_count     <= 1;
                         input_is_key <= ~s_axis_kv_tuser;
                     end
@@ -246,7 +247,7 @@ module kv_cache_engine #(
 
                 ST_COLLECT: begin
                     if (s_axis_kv_tvalid && s_axis_kv_tready) begin
-                        tok_vec[in_count*COORD_WIDTH +: COORD_WIDTH] <= s_axis_kv_tdata;
+                        tok_vec  <= {s_axis_kv_tdata, tok_vec[VECTOR_DIM*COORD_WIDTH-1:COORD_WIDTH]};
                         in_count <= in_count + 1;
                         if (s_axis_kv_tlast || in_count == VECTOR_DIM - 1) begin
                             state            <= ST_COMPRESS;

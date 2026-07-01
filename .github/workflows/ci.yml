@@ -23,9 +23,11 @@ jobs:
       # are combinational (0 FFs); the count is SRAM (16*272) + the serialized value
       # path + top FSM regs. Local yosys 0.65 reports 7626 (now the SRAM is *driven*,
       # so 0.65 no longer opt-strips it and should track CI's apt-yosys 0.33 closely).
-      # CI's apt-yosys 0.33 reports 7633 (local 0.65 gave 7626 — a 7-FF DFFE-mapping
-      # delta); 0.33 is the gate arbiter.
-      expected-ff-count: 7633
+      # Token/code assembly uses shift registers (not indexed part-select writes) so
+      # LibreLane's Yosys synth-check stays clean; that keeps more shift-stage FFs
+      # live. Local yosys 0.65 = 8138; CI apt-yosys 0.33 (arbiter) ~= 8145. If 0.33
+      # differs, set this to the value it reports (synth.log artifact).
+      expected-ff-count: 8145
       has-reference-model: true
       has-paper: false
       has-coverage-gate: false

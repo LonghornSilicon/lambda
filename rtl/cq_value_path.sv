@@ -46,7 +46,7 @@ module cq_value_path #(
     // ---- FSM ----------------------------------------------------------------
     localparam [1:0] S_IDLE = 2'd0, S_WAIT = 2'd1, S_QUANT = 2'd2, S_EMIT = 2'd3;
     reg [1:0]   state;
-    reg [CW:0]  ch;
+    reg [CW:0]  ch;        // channel counter (0..D-1); indexes only reads
     reg [3:0]   bits_r;
     assign busy = (state != S_IDLE);
 
@@ -76,6 +76,7 @@ module cq_value_path #(
         .code(q_code)
     );
 
+    integer j;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             state <= S_IDLE; ch <= '0; bits_r <= 4'd8;
@@ -92,20 +93,28 @@ module cq_value_path #(
                 S_WAIT: if (amax_valid) begin      // amax ready 1 cycle after start
                     scale_reg <= scale;
                     ch        <= '0;
-                    out_pay   <= '0;               // int4 leaves the upper half 0
                     state     <= S_QUANT;
                 end
                 S_QUANT: begin
-                    // full 8-bit code (for decompress) + packed nibble/byte in place:
-                    // contract §5 puts code ch at nibble ch -> bit ch*4 (int4).
-                    out_codes[ch*8 +: 8] <= q_code;
-                    if (bits_r == 4) out_pay[ch*4 +: 4] <= q_code[3:0];
-                    else             out_pay[ch*8 +: 8] <= q_code;
+                    // shift the code in (no indexed write -> checker-clean): after D
+                    // shifts, channel k sits at out_codes[k*8 +: 8].
+                    out_codes <= {q_code, out_codes[D*8-1:8]};
                     if (ch == D-1) state <= S_EMIT;
                     else           ch    <= ch + 1'b1;
                 end
                 S_EMIT: begin
                     out_scale <= scale_reg;
+                    // pack payload from the collected codes with STATIC indices
+                    // (contract §5): int4 -> nibble k at bit k*4; int8 -> byte per code.
+                    if (bits_r == 4) begin
+                        out_pay <= '0;                  // int4 uses the low D/2 bytes
+                        for (j = 0; j < D/2; j = j + 1)
+                            out_pay[j*8 +: 8] <= {out_codes[(2*j+1)*8 +: 4],
+                                                  out_codes[(2*j)*8   +: 4]};
+                    end else begin
+                        for (j = 0; j < D; j = j + 1)
+                            out_pay[j*8 +: 8] <= out_codes[j*8 +: 8];
+                    end
                     out_valid <= 1'b1;
                     state     <= S_IDLE;
                 end
