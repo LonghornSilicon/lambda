@@ -50,8 +50,17 @@ Algorithm contract + golden vectors **landed 2026-06-22** (channelquant commit
       → pack (compress) + D× cq_dequant_unit (decompress). Streams whole value
       tensors bit-exact vs golden `val_scales` + `val_payload` + `expected_v_hat`,
       all 9 vectors (`make sim_vpath`, tb_value_path.sv). The top will instantiate it.
-- [~] `residual_buffer.sv` / `scale_bank.sv` — still skeletons (P2 — the KEY path:
-      group buffer + per-channel scale bank + outlier ROM; next), then top FSM wiring.
+- [x] `residual_buffer.sv` / `scale_bank.sv` — **implemented** (P2). Real modules:
+      residual_buffer = indexed fp16 group hold (G tokens); scale_bank = D-wide
+      parallel per-channel scale register bank. Instantiated by cq_key_path.
+- [x] `cq_key_path.sv` — **implemented + verified** (P2). Per-channel grouped KEY
+      datapath with the group FSM (COLLECT→SCALE→EMIT→DONE): residual_buffer +
+      amax_unit(key) + D× cq_scale_unit + scale_bank + D× cq_quant_unit + INT4 pack
+      (with the outlier-mask keep/exclude), + D× cq_dequant_unit decompress. Streams
+      whole key tensors bit-exact vs golden `key_scales` + `key_payload` +
+      `expected_k_hat` + `sidecar`, full g=G and partial g<G groups, CQ-4/CQ-4+
+      (`make sim_kpath`, tb_key_path.sv). Outlier channels excluded from INT4; the
+      FP16 sidecar identity is the top's job. The top will instantiate it.
 - [ ] outlier-mask ROM — static per-layer top-k key-channel indices (CQ-4+). The
       mask format is exercised by the parity TB; the ROM load IF is P2.
 

@@ -214,3 +214,29 @@ Next: the KEY path (`cq_key_path`) — per-channel grouped scaling with the
 `residual_buffer` (G=128 fp16 hold) + `scale_bank` (D per-channel scales) +
 outlier lane (loads the vendored `masks/` ROM), verified vs golden key_scales/
 key_payload/expected_k_hat/sidecar. Then wire both paths + SRAM into the top FSM.
+
+---
+
+## 2026-07-01 — P2 [3/n]: KEY path integrated + verified (the crux)
+
+`cq_key_path.sv` — the per-channel grouped key datapath, the defining ChannelQuant
+mechanism. Group FSM **COLLECT → SCALE → EMIT → DONE**: buffer the group
+(`residual_buffer`, fp16), take the per-channel max (`amax_unit` key mode), freeze
+D per-channel fp16 scales (D× `cq_scale_unit` → `scale_bank`), then walk the
+buffered tokens one/cycle quantizing the keep channels (D× `cq_quant_unit`) and
+packing INT4 (outlier channels excluded via `outlier_mask`). Decompress is
+combinational (D× `cq_dequant_unit`); outlier channels are the top's FP16 sidecar.
+`residual_buffer` and `scale_bank` are now real modules (were skeletons).
+
+`tb_key_path.sv` (`make sim_kpath`) streams the 6 per-channel vectors group by
+group and checks **scales + INT4 payload + K_hat + sidecar bit-exact**, full g=G
+and partial g<G, CQ-4/CQ-4+. One D=128 DUT covers both head dims (D=64 vectors
+mask the upper 64 channels as outliers → keep == the real D=64 keep set). Two TB
+bugs fixed: streaming stimulus on negedge (edge race), and kc_arr sized to
+G·MD (was MD → tokens ≥1 read out-of-bounds → K_hat=0).
+
+Board green: sim/sim_cq/sim_realdata/sim_amax/sim_vpath/**sim_kpath** all pass.
+Both datapaths (value + key) now exist as verified modules. **Remaining P2:** wire
+cq_value_path + cq_key_path + scale/payload SRAM into the top FSM (replacing the
+passthrough store) — which also shrinks the inflated FF count — plus the
+outlier-mask ROM load from the vendored `masks/`. Then real-data + P4b lowering.

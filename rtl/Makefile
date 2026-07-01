@@ -15,8 +15,9 @@ SIM_REAL_BIN := $(TB_DIR)/tb_realdata.out
 SIM_CQ_BIN  := $(TB_DIR)/tb_channelquant.out
 SIM_AMAX_BIN := $(TB_DIR)/tb_amax_unit.out
 SIM_VPATH_BIN := $(TB_DIR)/tb_value_path.out
+SIM_KPATH_BIN := $(TB_DIR)/tb_key_path.out
 
-.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath testvectors clean
+.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath testvectors clean
 
 all: sim
 
@@ -47,6 +48,14 @@ sim_vpath: $(SIM_VPATH_BIN)
 
 $(SIM_VPATH_BIN): $(TB_DIR)/tb_value_path.sv cq_value_path.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv
 	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_value_path.sv cq_value_path.sv amax_unit.sv cq_units.sv
+
+# Streaming KEY-path parity vs golden (per-channel scales + INT4 payload + K_hat
+# + sidecar). Exercises residual_buffer + amax_unit + scale_bank + cq cores.
+sim_kpath: $(SIM_KPATH_BIN)
+	$(VVP) $(SIM_KPATH_BIN)
+
+$(SIM_KPATH_BIN): $(TB_DIR)/tb_key_path.sv cq_key_path.sv residual_buffer.sv scale_bank.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv
+	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_key_path.sv cq_key_path.sv residual_buffer.sv scale_bank.sv amax_unit.sv cq_units.sv
 
 $(SIM_BIN): $(RTL_SRC) $(TB_DIR)/tb_kv_cache_engine.sv
 	$(IVERILOG) -g2012 -o $@ $(TB_DIR)/tb_kv_cache_engine.sv $(RTL_SRC)

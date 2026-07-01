@@ -1,23 +1,14 @@
 // residual_buffer.sv — in-flight FP16 hold for the streaming per-channel KEY path
 //
-// SKELETON / WIP — not yet wired into RTL_SRC or the top-level. Part of the
-// TurboQuant+ -> ChannelQuant revamp. See findings/channelquant_block_revamp.md
-// (§3.2) and ../channelquant/REVAMP_SPEC.md (§3.1).
+// The defining new mechanism of ChannelQuant (contract §3.1): per-channel key
+// scaling needs the per-channel max over a GROUP of tokens, unknown until the
+// group fills. Incoming key vectors accumulate here in FP16; when the group
+// completes (full G or a partial final group) they are read back token-by-token
+// and quantized against the just-computed per-channel scales.
 //
-// THE defining new mechanism of the ChannelQuant block. Per-channel key scaling
-// needs the per-channel (column) max over a GROUP of G tokens, which is unknown
-// until the group fills. So incoming key vectors accumulate here in FP16 until
-// the group reaches G tokens; then the group is quantized as a block and this
-// buffer clears. On decompress, tokens in the current (not-yet-quantized) group
-// are served from this FP16 buffer directly, selected by token index.
-//
-// G (group size) is pinned by ../channelquant/docs/HW_CONTRACT.md (start 128).
-//
-// TODO(P2): ring/double-buffer storage, fill counter, group_full pulse, and the
-//           decompress-side index select between this buffer and the quantized
-//           SRAM payload. Mind the burst when a full group flushes vs the
-//           streaming value path (see revamp spec §7 risk 2 — may need
-//           double-buffering to avoid stalling writes / starving the ACU read).
+// Simple indexed store: write appends at `cnt`; `clear` starts a new group
+// (asserted with the group's first token); `rd_vec` is an async read by index.
+// Sized for G tokens x D fp16. Instantiated by cq_key_path.
 
 `default_nettype none
 
@@ -26,27 +17,37 @@ module residual_buffer #(
     parameter int DW  = 16,    // FP16 element width
     parameter int G   = 128    // key group size (tokens)
 ) (
-    input  wire                clk,
-    input  wire                rst_n,
+    input  wire                    clk,
+    input  wire                    rst_n,
 
-    // write side (compress): key vectors stream in
-    input  wire                wr_valid,
-    input  wire [DIM*DW-1:0]   wr_vec,
-    output wire                group_full,   // pulses when G tokens buffered -> quantize the group
+    // write side (compress): append a key token; clear starts a new group
+    input  wire                    wr_valid,
+    input  wire [DIM*DW-1:0]       wr_vec,
+    input  wire                    clear,
+    output wire [$clog2(G+1)-1:0]  fill,     // tokens currently buffered
 
-    // read side (decompress): serve an in-flight token by index
-    input  wire                rd_req,
-    input  wire [$clog2(G)-1:0] rd_idx,
-    output wire [DIM*DW-1:0]   rd_vec,
-    output wire                rd_in_flight  // 1 if rd_idx is still in this buffer (not yet quantized)
+    // read side (flush): async read a buffered token by index
+    input  wire [$clog2(G)-1:0]    rd_idx,
+    output wire [DIM*DW-1:0]       rd_vec
 );
 
-    // --- skeleton: defaults until P2 implements the buffer + group FSM ---
-    assign group_full   = 1'b0;
-    assign rd_vec       = '0;
-    assign rd_in_flight = 1'b0;
+    reg [DIM*DW-1:0]      mem [0:G-1];
+    reg [$clog2(G+1)-1:0] cnt;
 
-    // pragma: ChannelQuant residual_buffer is a skeleton; replace before RTL_SRC inclusion.
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            cnt <= '0;
+        end else if (clear) begin
+            if (wr_valid) begin mem[0] <= wr_vec; cnt <= 'd1; end
+            else                cnt <= '0;
+        end else if (wr_valid) begin
+            mem[cnt] <= wr_vec;
+            cnt      <= cnt + 'd1;
+        end
+    end
+
+    assign fill   = cnt;
+    assign rd_vec = mem[rd_idx];
 
 endmodule
 

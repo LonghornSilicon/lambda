@@ -1,50 +1,41 @@
-// scale_bank.sv — quantization-scale storage for ChannelQuant
+// scale_bank.sv — per-channel quantization-scale storage for ChannelQuant keys.
 //
-// SKELETON / WIP — not yet wired into RTL_SRC or the top-level. Part of the
-// TurboQuant+ -> ChannelQuant revamp. See findings/channelquant_block_revamp.md
-// (§2, §3) and ../channelquant/REVAMP_SPEC.md (§3).
-//
-// Holds the per-axis scales that decompress multiplies back in:
-//   - KEY path: DIM per-channel scales, frozen per group (written from amax_unit
-//     at group_done, read at decompress for the whole group).
-//   - VALUE path: one per-token scale, pushed per token (FIFO), popped at
-//     decompress in token order.
-//
-// Scale numeric format pinned by ../channelquant/docs/HW_CONTRACT.md.
-//
-// TODO(P1): per-token scale FIFO (value path).
-// TODO(P2): DIM-entry per-channel register bank with group double-buffer so the
-//           next group can accumulate while the current group decompresses.
+// Holds the DIM per-channel fp16 scales frozen for the current key group
+// (contract §3.1): written in one shot from the amax->scale conversion at group
+// flush, read in full (parallel) so every channel's dequant/quant lane sees its
+// scale at once. Depth = DIM (= D, contract §7 SCALE_BANK_DEPTH). Instantiated
+// by cq_key_path. (Per-token value scales are emitted directly by cq_value_path
+// and stored by the top, so they are not banked here.)
 
 `default_nettype none
 
 module scale_bank #(
-    parameter int DIM   = 64,   // head_dim D -> per-channel bank depth
-    parameter int DW    = 16,   // scale width
-    parameter int DEPTH = 16    // per-token scale FIFO depth (>= SRAM token capacity served)
+    parameter int DIM = 64,    // head_dim D -> per-channel bank depth
+    parameter int DW  = 16     // fp16 scale width
 ) (
     input  wire                clk,
     input  wire                rst_n,
-
-    // per-channel (KEY) write: frozen group scales from amax_unit
-    input  wire                chan_wr,
-    input  wire [DIM*DW-1:0]   chan_scales,
-    // per-channel read: indexed at decompress
-    input  wire [$clog2(DIM)-1:0] chan_rd_idx,
-    output wire [DW-1:0]       chan_scale,
-
-    // per-token (VALUE) push/pop
-    input  wire                tok_push,
-    input  wire [DW-1:0]       tok_scale_in,
-    input  wire                tok_pop,
-    output wire [DW-1:0]       tok_scale_out
+    input  wire                wr,           // latch all DIM channel scales
+    input  wire [DIM*DW-1:0]   scales_in,
+    output wire [DIM*DW-1:0]   scales_out    // parallel read (all channels)
 );
 
-    // --- skeleton: defaults until P1/P2 implements the banks ---
-    assign chan_scale    = '0;
-    assign tok_scale_out = '0;
+    reg [DW-1:0] bank [0:DIM-1];
+    integer i;
 
-    // pragma: ChannelQuant scale_bank is a skeleton; replace before RTL_SRC inclusion.
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            for (i = 0; i < DIM; i = i + 1) bank[i] <= '0;
+        else if (wr)
+            for (i = 0; i < DIM; i = i + 1) bank[i] <= scales_in[i*DW +: DW];
+    end
+
+    genvar g;
+    generate
+        for (g = 0; g < DIM; g = g + 1) begin : g_rd
+            assign scales_out[g*DW +: DW] = bank[g];
+        end
+    endgenerate
 
 endmodule
 
