@@ -5,7 +5,7 @@ accelerator — block 2 of four targeting TSMC 16FFC tape-out. It is a streaming
 compress-on-write / decompress-on-read engine for transformer KV-cache tensors,
 sitting between the ACU and the memory hierarchy.
 
-> ## 🔧 Revamp in progress — codec: TurboQuant+ → ChannelQuant
+> ## 🔧 Revamp underway — codec: TurboQuant+ → ChannelQuant (functional codec landed, parity-green)
 >
 > **The block stays; the codec it implements is being replaced.** TurboQuant+
 > (PolarQuant + QJL + Walsh–Hadamard rotation) was **retired 2026-06-22**: it
@@ -26,15 +26,22 @@ sitting between the ACU and the memory hierarchy.
 > | Algorithm spec + reference model + golden vectors | `../channelquant/` |
 > | Retired TurboQuant+ datapath (archived, full history) | branch [`legacy/turboquant-plus`](../../tree/legacy/turboquant-plus) |
 >
-> **Status of the revamp:** datapath teardown started (new `amax_unit`,
-> `residual_buffer`, `scale_bank` skeletons added; `rotation_unit`/`qjl_unit`
-> scheduled for removal — see the manifest in [`rtl/TEARDOWN.md`](rtl/TEARDOWN.md)).
-> The TurboQuant+ documentation below the line is retained until the ChannelQuant
-> datapath replaces it.
+> **Status of the revamp** (see the manifest in [`rtl/TEARDOWN.md`](rtl/TEARDOWN.md)):
+> - **Done & parity-green** — the TurboQuant+ datapath (`rotation_unit`, `qjl_unit`,
+>   `quantizer`, `decompressor`, `packer`, `norm_unit`) is deleted; the ChannelQuant
+>   compute cores (`cq_units.sv` + `cq_fp_pkg.sv`: scale / quant / dequant / pack)
+>   are **bit-exact vs all 9 golden vectors** (`make sim_cq`), CQ-8/CQ-4/CQ-4+,
+>   D∈{64,128}, full+partial key groups, outlier lane. The top-level CSR map is
+>   swapped to the ChannelQuant contract and the ISA bumped to v0.2.
+> - **Remaining** — P2 streaming integration (`amax_unit`/`residual_buffer`/
+>   `scale_bank` FSM + SRAM, outlier-mask ROM load); the C++ reference leg for
+>   3-way parity; ChannelQuant real-data trace; P4 synth (Sky130→16FFC) + FF-count
+>   gates. The live datapath is still the passthrough store until P2 streams the
+>   cores through the FSM.
 >
-> ⚠️ Everything below describes the **TurboQuant+ datapath now being torn down** —
-> compression figures, register map, and verified-FF counts are the predecessor's,
-> not yet ChannelQuant's.
+> ⚠️ The register map / compression figures / verified-FF counts **below the line**
+> still describe the **predecessor TurboQuant+ datapath** and are retained until the
+> ChannelQuant streaming datapath and its synth numbers land.
 
 ---
 

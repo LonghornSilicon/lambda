@@ -8,13 +8,14 @@ Algorithm contract + golden vectors **landed 2026-06-22** (channelquant commit
 3-way parity dependency is unblocked. (Upstream source of truth:
 `../../channelquant/docs/HW_CONTRACT.md` + `../../channelquant/reference/testvectors/`.)
 
-> **Simulator now available locally (2026-06-22).** iverilog/vvp 12.0 built from
-> source + verilator via micromamba on this aarch64 host — `. rtl/eda-env.sh` puts
-> them on PATH. Baseline `make sim` is green (14/14 on the TurboQuant+ TB), so the
-> verified-build gate is **cleared**. Steps that change the elaborated design
-> (deletions, top rewiring, `RTL_SRC` edits) may now proceed, each confirmed by
-> `make sim` + golden-vector parity before commit. As of this line the datapath is
-> still TurboQuant+ and the ChannelQuant blocks are still inert skeletons.
+> **Simulator available locally.** iverilog/vvp 12.0 (the tool of record) +
+> verilator, provisioned per-host into `<lhs>/.tools` — `. rtl/eda-env.sh` puts
+> them on PATH (portable: conda-forge on x86_64, from-source on aarch64; see
+> NOTES.md). All three testbenches are green: `make sim` 17/17, `make sim_cq`
+> **9/9 bit-exact**, `make sim_realdata` PASS. The verified-build gate is cleared,
+> and the ChannelQuant compute cores have replaced the TurboQuant+ codec. The
+> remaining teardown work is the P2 streaming FSM/SRAM and P4 synth — each step
+> confirmed by `make sim` + golden-vector parity before commit.
 
 ## Status legend
 `[ ]` not started · `[~]` skeleton added (inert) · `[x]` done & verified

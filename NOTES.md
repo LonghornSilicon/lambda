@@ -58,3 +58,28 @@ built into a repo-local prefix (`/home/chaithu/lhs/.tools`, git-ignored):
 Next: implement the value path first (P1 — per-token amax + uniform INT4/INT8) and
 stand up `tb_channelquant.sv` to parity-check it against the vendored CQ-8/CQ-4
 value vectors, before touching the key path / deleting rotation+qjl.
+
+---
+
+## 2026-07-01 — toolchain reprovisioned on x86_64 host (revamp re-verified green)
+
+Continuation of the ChannelQuant revamp on a **new host** (x86_64, `/home/shadeform`),
+so the prior aarch64 `.tools` prefix and the hard-coded path in `eda-env.sh` were
+both absent/dead. Reprovisioned and re-verified the full board:
+
+- **iverilog/vvp 12.0** — this time straight from **conda-forge** (`micromamba create
+  -n eda -c conda-forge iverilog verilator gperf`); the aarch64-only gap that forced
+  a from-source build does not exist on linux-64. apt's iverilog is only 11.0, which
+  rejects the parity TB's `localparam string` — **12.0 is the tool of record.**
+- **`eda-env.sh` made host-portable** — derives `<lhs>/.tools` from `BASH_SOURCE`
+  instead of hard-coding `/home/chaithu/...`; prepends the conda-forge env and/or a
+  from-source `iverilog/bin` if present, so it works on both hosts.
+
+**Validation (this host):** `. rtl/eda-env.sh` then —
+`make sim` → **17/17 PASS**, `make sim_cq` → **all 9 golden vectors bit-exact**
+(V+K, CQ-8/CQ-4/CQ-4+, D∈{64,128}, full+partial groups, outlier lane), and
+`make sim_realdata` → PASS. The revamped ChannelQuant codec is parity-green on
+x86_64, reproduced from a clean checkout.
+
+Next: P2 streaming integration (`amax_unit`/`residual_buffer`/`scale_bank` FSM +
+SRAM, outlier-mask ROM load IF), then the C++ reference leg for 3-way parity.
