@@ -11,7 +11,8 @@
 // hardware lowering of the cores is P4b. Verified end-to-end vs the golden
 // val_scales / val_payload / expected_v_hat by tb_value_path.sv (make sim_vpath).
 
-`include "cq_fp_pkg.sv"
+// (synthesizable: instantiates only the fp16 fixed-function cores in
+//  cq_units_syn.sv — no `real`, no cq_fp_pkg import here.)
 `default_nettype none
 
 module cq_value_path #(
@@ -47,7 +48,7 @@ module cq_value_path #(
     );
 
     wire [DW-1:0] scale;
-    cq_scale_unit u_scale (.amax_f16(amax), .bits(bits), .scale_f16(scale));
+    cq_scale_unit_syn u_scale (.amax_f16(amax), .bits(bits), .scale_f16(scale));
 
     // Register the token so it stays aligned with its (1-cycle-late) scale — the
     // producer presents each token exactly once (no 2-cycle hold requirement).
@@ -59,7 +60,7 @@ module cq_value_path #(
     genvar i;
     generate
         for (i = 0; i < D; i = i + 1) begin : g_quant
-            cq_quant_unit u_q (
+            cq_quant_unit_syn u_q (
                 .x_f16(vec_reg[i*DW +: DW]), .scale_f16(scale), .bits(bits),
                 .code(code[i])
             );
@@ -102,7 +103,7 @@ module cq_value_path #(
     // ---- decompress: D dequant units, combinational --------------------------
     generate
         for (i = 0; i < D; i = i + 1) begin : g_dequant
-            cq_dequant_unit u_d (
+            cq_dequant_unit_syn u_d (
                 .code(dec_codes[i*8 +: 8]), .scale_f16(dec_scale),
                 .xhat_f32(dec_hat[i*32 +: 32])
             );

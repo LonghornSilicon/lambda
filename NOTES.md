@@ -6,6 +6,40 @@ hardware-evaluation section.
 
 ---
 
+## 2026-07-01 — P4b: synthesizable fp16 cores landed (bit-exact, no `real`)
+
+Lowered the three `real`-math behavioral cores to synthesizable fixed-function
+fp16 hardware in **`cq_units_syn.sv`** (`cq_dequant_unit_syn` / `cq_scale_unit_syn`
+/ `cq_quant_unit_syn`), same ports as the behavioral oracle:
+- **dequant** `code·s→fp32`: exact — the product is ≤19 sig-bits so it fits fp32's
+  mantissa with no rounding (fixed multiply + leading-one normalize).
+- **scale** `max(amax/qmax,EPS)→fp16`: fixed-point divide of the amax significand
+  by the constant qmax (7/127) with an exact remainder, round-half-even to the
+  10-bit mantissa; EPS clamp as an exact integer compare.
+- **quant** `clamp(round_half_even(x/s))`: sign-magnitude divide with one guard
+  bit + exact-remainder sticky (ties → even). Bounded to a **≤20-bit/11-bit**
+  divider by observing the clamp: `dexp≤−2 ⇒ 0`, `dexp≥9 ⇒ clamp`, so only
+  `dexp∈[−1,8]` divides. (First cut used a 45-bit divider → 138 s yosys; the
+  bounded form is **3.8 s / ~1514 cells**.)
+
+**Verification.** New `tb_cq_syn.sv` (`make sim_syn`) drives each behavioral core
+and its syn twin over a broad fp16 sweep — **dequant 71 424, scale 63 488 (full
+mantissa), quant 1 523 712 combos → 0 mismatches** (finite domain; fp16 inf/nan
+are out of contract). yosys: **0 inferred latches, 0 CHECK problems, no `real`.**
+Then swapped `cq_value_path`/`cq_key_path` to the syn cores (dropped their vestigial
+`cq_fp_pkg` include → now synthesizable) and re-ran the golden gates:
+**sim_vpath 9/9, sim_kpath 6/6, sim_cq 9/9, sim/realdata/amax all green** — so the
+syn cores are bit-exact vs the golden vectors end-to-end, not just vs the oracle.
+Behavioral cores + `cq_fp_pkg` retained as the oracle for `tb_channelquant` and the
+C++ reference. Master's synthesized top is untouched (still passthrough) so CI stays
+green; this lands the cores as verified, synthesizable library modules.
+
+Next: merge branch `feature/cq-top-integration` onto these cores (top instantiates
+cq_value_path → now synthesizable), retune the CI FF-count gate + `extra-rtl-sources`,
+confirm synth/formal/OpenLane green.
+
+---
+
 ## 2026-06-22 — ChannelQuant algorithm handoff landed (verification unblocked)
 
 The algorithm lane (`channelquant`) finished Phase 1 and handed over the contract
