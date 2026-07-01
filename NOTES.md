@@ -191,3 +191,26 @@ Full board green: sim 17/17, sim_cq 9/9, sim_realdata PASS, sim_amax 9/9. amax_u
 is verified standalone but not yet in RTL_SRC/top (FSM integration is a later P2
 step). Next P2 module: `scale_bank` (per-channel + per-token scale storage), then
 `residual_buffer` (G=128 group hold), then stream the cores through the top FSM.
+
+---
+
+## 2026-07-01 — P2 [2/n]: value path integrated + verified (integration-first)
+
+`cq_value_path.sv` — the reusable per-token VALUE datapath the top will
+instantiate: `amax_unit → cq_scale_unit → D× cq_quant_unit → pack` (compress) and
+`D× cq_dequant_unit` (decompress). `bits` runtime (8/4), D a parameter. A pipeline
+hazard was handled by registering the token internally (`vec_reg`) so it stays
+aligned with its 1-cycle-late scale — the producer presents each token once.
+
+`tb_value_path.sv` (`make sim_vpath`) streams whole value tensors through two DUTs
+(D=64, D=128) and checks **scale + packed payload + fp32 V_hat bit-exact vs golden**
+on all 9 vectors (per-token in every tier; bits 8 for CQ-8 else 4). Even D → each
+token is D/2 (int4) or D (int8) whole bytes, so per-token packing concatenates to
+the golden flat stream. Board: sim/sim_cq/sim_realdata/sim_amax/**sim_vpath** all
+green.
+
+This proves the streaming datapath architecture end-to-end for the simple path.
+Next: the KEY path (`cq_key_path`) — per-channel grouped scaling with the
+`residual_buffer` (G=128 fp16 hold) + `scale_bank` (D per-channel scales) +
+outlier lane (loads the vendored `masks/` ROM), verified vs golden key_scales/
+key_payload/expected_k_hat/sidecar. Then wire both paths + SRAM into the top FSM.

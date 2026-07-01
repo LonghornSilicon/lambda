@@ -14,8 +14,9 @@ SIM_BIN     := $(TB_DIR)/tb_kv_cache_engine.out
 SIM_REAL_BIN := $(TB_DIR)/tb_realdata.out
 SIM_CQ_BIN  := $(TB_DIR)/tb_channelquant.out
 SIM_AMAX_BIN := $(TB_DIR)/tb_amax_unit.out
+SIM_VPATH_BIN := $(TB_DIR)/tb_value_path.out
 
-.PHONY: all sim sim_realdata sim_cq sim_amax testvectors clean
+.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath testvectors clean
 
 all: sim
 
@@ -38,6 +39,14 @@ sim_amax: $(SIM_AMAX_BIN)
 
 $(SIM_AMAX_BIN): $(TB_DIR)/tb_amax_unit.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv
 	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_amax_unit.sv amax_unit.sv cq_units.sv
+
+# Streaming VALUE-path parity vs golden (scale + payload + V_hat). Integration
+# of amax_unit + cq cores as the reusable per-token value datapath.
+sim_vpath: $(SIM_VPATH_BIN)
+	$(VVP) $(SIM_VPATH_BIN)
+
+$(SIM_VPATH_BIN): $(TB_DIR)/tb_value_path.sv cq_value_path.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv
+	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_value_path.sv cq_value_path.sv amax_unit.sv cq_units.sv
 
 $(SIM_BIN): $(RTL_SRC) $(TB_DIR)/tb_kv_cache_engine.sv
 	$(IVERILOG) -g2012 -o $@ $(TB_DIR)/tb_kv_cache_engine.sv $(RTL_SRC)

@@ -45,8 +45,13 @@ Algorithm contract + golden vectors **landed 2026-06-22** (channelquant commit
       max|fp16| is an unsigned max on the 15-bit magnitude field. Its amax → the
       proven `cq_scale_unit` reproduces the golden scales bit-exactly, all 9 vectors
       (`make sim_amax`, tb_amax_unit.sv).
-- [~] `residual_buffer.sv` / `scale_bank.sv` — still skeletons (P2 — the group
-      buffer + scale storage + FSM integration; next).
+- [x] `cq_value_path.sv` — **implemented + verified** (P2, integration-first). The
+      reusable per-token VALUE datapath: amax_unit → cq_scale_unit → D× cq_quant_unit
+      → pack (compress) + D× cq_dequant_unit (decompress). Streams whole value
+      tensors bit-exact vs golden `val_scales` + `val_payload` + `expected_v_hat`,
+      all 9 vectors (`make sim_vpath`, tb_value_path.sv). The top will instantiate it.
+- [~] `residual_buffer.sv` / `scale_bank.sv` — still skeletons (P2 — the KEY path:
+      group buffer + per-channel scale bank + outlier ROM; next), then top FSM wiring.
 - [ ] outlier-mask ROM — static per-layer top-k key-channel indices (CQ-4+). The
       mask format is exercised by the parity TB; the ROM load IF is P2.
 
