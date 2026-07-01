@@ -27,21 +27,23 @@ module tb_value_path;
   reg  [3:0]        bits;
   reg               v64_iv;   reg [64*DW-1:0]  v64_ivec;  wire v64_ov;
   wire [DW-1:0]     v64_osc;  wire [64*8-1:0]  v64_ocode, v64_opay;
-  reg  [64*8-1:0]   v64_dc;   reg [DW-1:0]     v64_ds;    wire [64*32-1:0] v64_dh;
+  reg  [64*8-1:0]   v64_dc;   reg [DW-1:0]     v64_ds;
+  reg  [5:0]        v64_didx; wire [31:0]      v64_dh;
   cq_value_path #(.D(64)) dut64 (
     .clk(clk), .rst_n(rst_n), .bits(bits),
-    .in_valid(v64_iv), .in_vec(v64_ivec), .out_valid(v64_ov),
+    .in_valid(v64_iv), .in_vec(v64_ivec), .busy(), .out_valid(v64_ov),
     .out_scale(v64_osc), .out_codes(v64_ocode), .out_pay(v64_opay),
-    .dec_codes(v64_dc), .dec_scale(v64_ds), .dec_hat(v64_dh));
+    .dec_codes(v64_dc), .dec_scale(v64_ds), .dec_idx(v64_didx), .dec_hat(v64_dh));
 
   reg               v128_iv;  reg [128*DW-1:0] v128_ivec; wire v128_ov;
   wire [DW-1:0]     v128_osc; wire [128*8-1:0] v128_ocode, v128_opay;
-  reg  [128*8-1:0]  v128_dc;  reg [DW-1:0]     v128_ds;   wire [128*32-1:0] v128_dh;
+  reg  [128*8-1:0]  v128_dc;  reg [DW-1:0]     v128_ds;
+  reg  [6:0]        v128_didx; wire [31:0]     v128_dh;
   cq_value_path #(.D(128)) dut128 (
     .clk(clk), .rst_n(rst_n), .bits(bits),
-    .in_valid(v128_iv), .in_vec(v128_ivec), .out_valid(v128_ov),
+    .in_valid(v128_iv), .in_vec(v128_ivec), .busy(), .out_valid(v128_ov),
     .out_scale(v128_osc), .out_codes(v128_ocode), .out_pay(v128_opay),
-    .dec_codes(v128_dc), .dec_scale(v128_ds), .dec_hat(v128_dh));
+    .dec_codes(v128_dc), .dec_scale(v128_ds), .dec_idx(v128_didx), .dec_hat(v128_dh));
 
   // ---- vectors ----
   localparam int NVEC = 9;
@@ -70,7 +72,7 @@ module tb_value_path;
   // Run all T tokens of vector vi through the D=64 DUT; check scale/payload/hat.
   task automatic run64(input int vi, output int fails);
     int T, t, d, nb, pbyte; logic [15:0] sc;
-    reg [64*8-1:0] codes; reg [64*32-1:0] hat; logic [7:0] by;
+    reg [64*8-1:0] codes; logic [7:0] by;
     int pidx;
     begin
       T=vT[vi]; fails=0; pidx=0; nb=(vBits[vi]==4)?32:64;
@@ -92,19 +94,21 @@ module tb_value_path;
             $display("  [%s] V pay byte %0d: got %02h exp %02h", vname[vi], pidx, by, g_vpay[pidx]); end
           pidx++;
         end
-        // decompress this token's codes
-        v64_dc = codes; v64_ds = sc; #1; hat = v64_dh;
-        for (d=0; d<64; d=d+1)
-          if (hat[d*32 +: 32] !== g_vhat[t*64+d]) begin fails++; if (fails<=4)
+        // decompress this token's codes (one channel per dec_idx)
+        v64_dc = codes; v64_ds = sc;
+        for (d=0; d<64; d=d+1) begin
+          v64_didx = d[5:0]; #1;
+          if (v64_dh !== g_vhat[t*64+d]) begin fails++; if (fails<=4)
             $display("  [%s] V_hat (%0d,%0d): got %08h exp %08h", vname[vi], t, d,
-                     hat[d*32 +: 32], g_vhat[t*64+d]); end
+                     v64_dh, g_vhat[t*64+d]); end
+        end
       end
     end
   endtask
 
   task automatic run128(input int vi, output int fails);
     int T, t, d, nb, pbyte; logic [15:0] sc;
-    reg [128*8-1:0] codes; reg [128*32-1:0] hat; logic [7:0] by;
+    reg [128*8-1:0] codes; logic [7:0] by;
     int pidx;
     begin
       T=vT[vi]; fails=0; pidx=0; nb=(vBits[vi]==4)?64:128;
@@ -124,11 +128,13 @@ module tb_value_path;
             $display("  [%s] V pay byte %0d: got %02h exp %02h", vname[vi], pidx, by, g_vpay[pidx]); end
           pidx++;
         end
-        v128_dc = codes; v128_ds = sc; #1; hat = v128_dh;
-        for (d=0; d<128; d=d+1)
-          if (hat[d*32 +: 32] !== g_vhat[t*128+d]) begin fails++; if (fails<=4)
+        v128_dc = codes; v128_ds = sc;
+        for (d=0; d<128; d=d+1) begin
+          v128_didx = d[6:0]; #1;
+          if (v128_dh !== g_vhat[t*128+d]) begin fails++; if (fails<=4)
             $display("  [%s] V_hat (%0d,%0d): got %08h exp %08h", vname[vi], t, d,
-                     hat[d*32 +: 32], g_vhat[t*128+d]); end
+                     v128_dh, g_vhat[t*128+d]); end
+        end
       end
     end
   endtask
@@ -136,8 +142,8 @@ module tb_value_path;
   int vi, fv, n;
   initial begin
     rst_n=0; bits=4;
-    v64_iv=0; v64_ivec=0; v64_dc=0; v64_ds=0;
-    v128_iv=0; v128_ivec=0; v128_dc=0; v128_ds=0;
+    v64_iv=0; v64_ivec=0; v64_dc=0; v64_ds=0; v64_didx=0;
+    v128_iv=0; v128_ivec=0; v128_dc=0; v128_ds=0; v128_didx=0;
     repeat(3) @(posedge clk);
     rst_n=1; @(posedge clk);
     total_fail=0;

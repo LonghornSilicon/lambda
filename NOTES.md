@@ -40,6 +40,28 @@ confirm synth/formal/OpenLane green.
 
 ---
 
+## 2026-07-01 — P4b: serialized the value path (shared divider, ~4.5x smaller)
+
+The quant core carries the fp16 divider, so D parallel quant units = D dividers —
+`cq_value_path` synth was **429 s / ~97k cells** and would murder OpenLane. Rebuilt
+it to **share ONE quant unit across the D channels** (new COLLECT/WAIT/QUANT/EMIT
+FSM, D-cycle-per-token compress) and **one dequant unit indexed by `dec_idx`** on
+decompress (the top already streams the D reconstructed words out one per cycle, so
+this is free). Result: **20 s / ~21.5k cells, 0 latches, 0 CHECK problems**, and
+**sim_vpath still 9/9 bit-exact**. Interface change: `busy` output added, decompress
+is now `(dec_codes, dec_scale, dec_idx) -> dec_hat[31:0]` (one channel) — the branch
+top adapts to this on merge; `tb_value_path` updated (polls out_valid, walks dec_idx).
+
+`cq_key_path` stays parallel for now — it is NOT instantiated by the branch top yet
+(the top uses cq_value_path for per-token values and CQ-8 keys; grouped-INT4 keys are
+a later integration), so its dividers don't reach CI synth. It gets the same
+treatment when it's wired into the top.
+
+Next: adapt the branch top to the serialized value-path interface, synth the top,
+retune the FF-count gate + `extra-rtl-sources`, merge, confirm CI green.
+
+---
+
 ## 2026-06-22 — ChannelQuant algorithm handoff landed (verification unblocked)
 
 The algorithm lane (`channelquant`) finished Phase 1 and handed over the contract
