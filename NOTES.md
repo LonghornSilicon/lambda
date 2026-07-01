@@ -110,3 +110,30 @@ TurboQuant+ C++ tests still build/pass 64/64 (untouched); `test-cq` folded into
 is retained for now — retiring it (as the RTL codec was) is a later cleanup.
 
 Next: P2 streaming integration, or P4 synth (fp16-lowered cores → Sky130/16FFC).
+
+---
+
+## 2026-07-01 — CI synthesis gate fixed (was red on master 8 days) [P4a]
+
+Found via `gh run list`: CI gate 3 (Yosys FF-count) had been **failing on master
+since the top-swap commit** (be9a2ce, 8 days) — the crashed chat pushed it without
+seeing CI go red. Every other gate (functional TB, reference-model C++/Python,
+formal RTL≡netlist equivalence, OpenLane Sky130) was green; only the FF-count
+assertion failed.
+
+Root cause (not a bug): the reusable workflow runs `yosys synth -flatten` and
+asserts total FFs == `expected-ff-count`. The revamp set the top's `SRAM_WIDTH =
+VECTOR_DIM*COORD_WIDTH = 1024` (raw fp16 passthrough vector) vs the old 288-bit
+TurboQuant+ compressed word, so the behavioral SRAM (SRAM_DEPTH=16 → ~16384 FFs)
++ input_buf/wr_data/FSM synthesizes to **19559 FFs** (CI's apt yosys 0.33; exact
+awk sum `$_DFFE_PN0P_ 17488 + $_DFFE_PP_ 2052 + $_DFF_PN0_ 17 + $_DFFE_PN1P_ 2`).
+The gate still read the stale 5575. The revamped RTL itself synthesizes cleanly
+(Yosys CHECK: 0 problems).
+
+Fix: `expected-ff-count 5575 → 19559` in `.github/workflows/ci.yml` with a comment
+that this is a *transitional* count — P2's compressed streaming store shrinks
+SRAM_WIDTH and this number comes back down. Note: local yosys 0.65 (conda-forge)
+opt-strips the undriven behavioral SRAM to ~81 FFs, so it cannot reproduce the
+0.33 gate number — CI's apt-yosys is authoritative for this assertion.
+
+Next: P4b synthesizable fp16 core lowering (G-independent), and/or P2 streaming.

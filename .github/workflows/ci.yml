@@ -16,7 +16,14 @@ jobs:
     uses: LonghornSilicon/.github/.github/workflows/block-ci.yml@main
     with:
       block-name: kv_cache_engine
-      expected-ff-count: 5575
+      # FF-count gate (Yosys synth -flatten, gate 3). Jumped 5575 -> 19559 with the
+      # ChannelQuant revamp: the top is a *transitional passthrough store* holding a
+      # raw fp16 vector, so SRAM_WIDTH = VECTOR_DIM*COORD_WIDTH = 64*16 = 1024 bits
+      # (was the 288-bit TurboQuant+ compressed word). The behavioral SRAM
+      # (SRAM_DEPTH=16) synthesizes to ~16384 FFs + input_buf/wr_data/FSM. P2 will
+      # stream compressed payloads through the FSM, shrinking the stored word and
+      # this count back down — update this value when that lands (see rtl/TEARDOWN.md).
+      expected-ff-count: 19559
       has-reference-model: true
       has-paper: false
       has-coverage-gate: false

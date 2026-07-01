@@ -57,7 +57,12 @@ Algorithm contract + golden vectors **landed 2026-06-22** (channelquant commit
       green (17/17), `make sim_cq` green (9/9 bit-exact), `make sim_realdata` green.
 - [x] `genus.tcl` / `synth.ys` file lists + notes updated (cores are behavioral —
       synthesizable fp16 lowering is P4; OpenLane top/IO unchanged for the shell).
-- [ ] Update expected FF-count assertions (CI gate 3) after synth lands.
+- [x] Update expected FF-count assertion (CI gate 3): 5575 → **19559**. The revamped
+      top synthesizes cleanly (Yosys, 0 CHECK problems); the jump is the transitional
+      passthrough store holding a raw fp16 vector (SRAM_WIDTH = D·COORD_WIDTH = 1024
+      vs the old 288-bit compressed word). P2 (compressed streaming store) will
+      shrink it — revisit the gate then. (This gate had been red on master since the
+      top-swap commit; now green.)
 
 ## Verification (golden vectors landed; SV simulator now local — see eda-env.sh)
 - [x] SV parity vs the Python reference: **all 9 golden vectors bit-exact** (scales,
