@@ -55,18 +55,13 @@ module amax_unit #(
     reg [DW-1:0] chan_max    [0:DIM-1];   // accumulating group max
     reg [DW-1:0] chan_frozen [0:DIM-1];   // frozen at group_done
     reg [DW-1:0] tok_reg;                 // registered per-token amax
+    reg [DW-1:0] nm;                      // scratch: this channel's next max
     integer c;
 
-    // next per-channel max, combinational (includes the current token if valid)
-    reg [DW-1:0] next_max [0:DIM-1];
-    always @* begin
-        for (c = 0; c < DIM; c = c + 1) begin
-            if (in_valid && group_start) next_max[c] = magv[c];
-            else if (in_valid)           next_max[c] = (magv[c] > chan_max[c]) ? magv[c] : chan_max[c];
-            else                         next_max[c] = chan_max[c];
-        end
-    end
-
+    // The next-max is computed inline in the sequential block (a blocking scratch,
+    // not a combinational unpacked array) so yosys does not mem2reg it — that
+    // conversion left constant-conflicting DFF drivers that fail LibreLane's
+    // pre-opt synth-check (benign, but counted).
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             out_valid <= 1'b0;
@@ -85,11 +80,14 @@ module amax_unit #(
                 end
             end else begin
                 // key path: accumulate per-channel max; freeze + emit on group_done
-                for (c = 0; c < DIM; c = c + 1) chan_max[c] <= next_max[c];
-                if (group_done) begin
-                    for (c = 0; c < DIM; c = c + 1) chan_frozen[c] <= next_max[c];
-                    out_valid <= 1'b1;
+                for (c = 0; c < DIM; c = c + 1) begin
+                    if (in_valid && group_start) nm = magv[c];
+                    else if (in_valid)           nm = (magv[c] > chan_max[c]) ? magv[c] : chan_max[c];
+                    else                         nm = chan_max[c];
+                    chan_max[c] <= nm;
+                    if (group_done) chan_frozen[c] <= nm;
                 end
+                if (group_done) out_valid <= 1'b1;
             end
         end
     end
