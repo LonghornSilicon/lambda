@@ -63,8 +63,10 @@ Algorithm contract + golden vectors **landed 2026-06-22** (channelquant commit
 - [x] SV parity vs the Python reference: **all 9 golden vectors bit-exact** (scales,
       packed payload, and reconstructed K/V_hat), CQ-8/CQ-4/CQ-4+, D∈{64,128}, full
       and partial key groups, CQ-4+ outlier lane. `make sim_cq`.
-- [ ] 3-way Python ↔ C++ ↔ SV: Python↔SV done; the C++ leg (sw/reference_model) is
-      pending a ChannelQuant port.
+- [x] 3-way Python ↔ C++ ↔ SV: **all three legs bit-exact** on the 9 golden vectors.
+      C++ leg = `sw/reference_model/channelquant_ref.{hpp,cpp}` (1:1 port of the SV
+      cores), checked by `test_channelquant_ref.cpp` — `make -C sw/reference_model
+      test-cq`. Python verified upstream; SV via `make sim_cq`.
 - [ ] `tb_realdata.sv`: captured Qwen2 K/V trace, reconstructed rMSE within tol.
 - [ ] Synth (Sky130 → 16FFC); compare area/Fmax vs the TurboQuant+ baseline on
       `legacy/turboquant-plus` (expect smaller — no WHT, no JL).

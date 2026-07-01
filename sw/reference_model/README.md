@@ -1,5 +1,13 @@
 # Reference Model — API Reference
 
+> **Codec revamp (TurboQuant+ → ChannelQuant).** The block's codec is being
+> replaced (see [`../../README.md`](../../README.md)). The **ChannelQuant** C++
+> reference is `channelquant_ref.{hpp,cpp}` — a 1:1 port of the RTL cores, the C++
+> leg of 3-way Python↔C++↔SV parity. Run it with **`make test-cq`** (all 9 golden
+> vectors bit-exact). Everything else on this page documents the **legacy
+> TurboQuant+** model (`kv_cache_engine_ref.*`), retained until the ChannelQuant
+> API surface is finalized.
+
 Bit-accurate reference implementation of the LonghornSilicon KV cache
 engine, in **three** languages, all verified against the same test vectors.
 

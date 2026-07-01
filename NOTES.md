@@ -83,3 +83,30 @@ x86_64, reproduced from a clean checkout.
 
 Next: P2 streaming integration (`amax_unit`/`residual_buffer`/`scale_bank` FSM +
 SRAM, outlier-mask ROM load IF), then the C++ reference leg for 3-way parity.
+
+---
+
+## 2026-07-01 — C++ reference leg landed → 3-way parity closed (P3)
+
+Ported `sw/reference_model` to ChannelQuant: new `channelquant_ref.{hpp,cpp}` — a
+**1:1 port of the RTL behavioral cores** (`rtl/cq_fp_pkg.sv` + `rtl/cq_units.sv`),
+i.e. the same double-based fp16/fp32 helpers and quant/dequant/scale/pack math,
+plus `compress_*`/`decompress_*` mirroring the numpy reference
+(`ChannelQuant/reference/channelquant_ref.py`). New `test_channelquant_ref.cpp`
+loads the **same vendored golden hex** that `tb_channelquant.sv` drives and checks
+the same four surfaces bit-for-bit (fp16 scales, packed byte stream, fp32 K/V_hat,
+CQ-4+ fp16 sidecar).
+
+**Result:** `make -C sw/reference_model test-cq` → **all 9 vectors bit-exact**
+(V+K, CQ-8/CQ-4/CQ-4+, D∈{64,128}, full+partial key groups, outlier lane), exit
+code 0. With Python verified upstream (handoff) and SV via `make sim_cq`, the
+**3-way Python↔C++↔SV gate (contract §8) is closed.** Because the C++ core is a
+verbatim port of the SV core, C++≡SV by construction, not just coincidence on
+these vectors.
+
+Toolchain: g++ 13, `-std=c++17 -O2 -Wall -Wextra`, no warnings. Legacy
+TurboQuant+ C++ tests still build/pass 64/64 (untouched); `test-cq` folded into
+`make test-all`. The legacy TurboQuant+ reference model (`kv_cache_engine_ref.*`)
+is retained for now — retiring it (as the RTL codec was) is a later cleanup.
+
+Next: P2 streaming integration, or P4 synth (fp16-lowered cores → Sky130/16FFC).
