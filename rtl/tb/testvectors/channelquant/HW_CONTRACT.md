@@ -1,6 +1,13 @@
 # ChannelQuant → KVCE Hardware Contract
 
-**Status:** v0.1 (algorithm-side, pre-reference-model) · **Date:** 2026-06-22
+**Status:** v0.2 (P2 pins locked) · **Date:** 2026-07-01 · (v0.1: 2026-06-22)
+> **v0.2 (2026-07-01) — four P2 parameters pinned** for the KVCE streaming
+> datapath, all doc-level (no change to packing, dequant, or golden vectors —
+> the vectors are byte-identical since `08d5287`, so 3-way parity stays valid):
+> **(1)** group size **G=128 for all D** (§3.1); **(2)** outlier ROM format +
+> location + **k=2**, lane **optional at D=128** per the C16 headline finding
+> (§4.1); **(3)** decompress read bus **fp32** (§1); **(4)** **EPS=2⁻¹⁴ final**,
+> no regeneration (§1). See the resolved Open-items list at the foot.
 **Audience:** the KVCE silicon block (a block of the Longhorn chip) that
 implements ChannelQuant. **This document is a contract, not an implementation.**
 It specifies *exactly what the hardware must reproduce* so that KVCE RTL passes
@@ -54,11 +61,11 @@ x_hat   = q * s                            # dequant
   Ties are rare in practice but must match for bit-exact parity.
 - **Clamp** is applied *after* rounding, to the inclusive integer range
   `[qmin, qmax]`. Note the asymmetry: INT4 range is **[-8, 7]** (−8 is legal).
-- **`EPS = 2^-14`** floors the scale so an all-zero group does not divide by zero;
-  it matches the reference `clamp_min`. (The reference c17 used `1e-8`; the
-  contract pins `2^-14` so the float math is representable in fp16 — the reference
-  model will be updated to this value and the golden vectors regenerated. Until
-  then, treat the exact EPS as **TBD-pinned-by-reference**.)
+- **`EPS = 2^-14`** floors the scale so an all-zero group does not divide by zero.
+  **FINAL** — the reference model pins `2^-14` and the committed golden vectors
+  were generated with it (`reference/testvectors/manifest.json: eps =
+  6.103515625e-05`). The earlier `1e-8` (c17) is retired; no further EPS change or
+  vector regeneration is coming.
 
 ### Scale numeric format
 - Scales are stored as **IEEE-754 fp16** (binary16). Dequant `x_hat = q * s` is an
@@ -68,6 +75,14 @@ x_hat   = q * s                            # dequant
   `round_half_to_even(x * r)` equals `round_half_to_even(x / s)` for all golden
   vectors. **The golden vectors are the arbiter** — if a reciprocal approximation
   breaks parity, it is non-conformant.
+
+### Decompress output (read-side bus) — PINNED
+- The decompressed cache `x_hat = q * s` is emitted as **IEEE-754 fp32**. The
+  golden `expected_{K,V}_hat` are `float32` and 3-way parity is defined in fp32,
+  which the current C++/SV already match bit-exactly. **The codec read bus is
+  fp32.** If a downstream attention core wants fp16, apply a single narrowing
+  round **outside** the codec's parity boundary — that cast is not part of the
+  golden vectors and must not alter the packed stream or the fp32 `_hat` gold.
 
 ---
 
@@ -94,7 +109,17 @@ is full, the in-flight group is buffered in FP16.
 
 ### 3.1 Group size G and residual-buffer semantics
 - **G** (tokens per group) is a config register. Validated set {32, 64, 128, 256};
-  default chosen in Phase 2 (group-size Pareto). Parameterize.
+  **default G = 128** — pinned by the Phase-2 group-size Pareto (`analysis/
+  c22_group_size_sweep.py`, `analysis/fig_group_size_pareto.png`): acc_norm is
+  statistically flat in G (n=250, gaps ≪ Wilson CI) on Qwen2-{0.5B,1.5B,7B}, so
+  G=128 is the effective-bits floor that still streams cheaply (~4.13 combined
+  bits/value for CQ-4; G=256/full save <0.06 b but need a larger residual buffer).
+  Still parameterize — but ship G=128.
+- **G is independent of head dim D — ship G=128 for both D=64 and D=128.** The
+  D=64 golden vectors use G=64 only to exercise a second grouping and a
+  partial-group flush (test coverage), **not** as a shipped D=64 default.
+  Confirmed at headline n=1000: acceptance passes at G=128 on Qwen2-1.5B & 7B
+  (`analysis/c23_{q15,q7}_headline.json`).
 - The **residual buffer** holds the current, not-yet-full group of the most
   recent keys in **FP16**: `≤ G tokens × D × 16 bits` per KV head. Fixed size.
 - **Flush (quantize a block) when EITHER:**
@@ -133,14 +158,30 @@ The top-k key channels (by magnitude) are held in **FP16** instead of INT4.
   {0.5B/1.5B/7B}; layer-0 perfectly pinned). **No runtime top-k, no argsort in
   silicon.**
 - KVCE ships a **static per-(layer, KV-head) outlier mask**:
-  - **k** = number of outlier channels (config; default **k=2** at D=64). k scales
-    with D — parameterize.
+  - **k** = number of outlier channels (config). **Default k=2 at both D=64 and
+    D=128** (as calibrated for every shipped model). Parameterize k.
   - Format: **k channel indices** per (layer, head), each `ceil(log2(D))` bits,
     stored in a **ROM**. (Equivalently a D-wide bitmask; the reference emits both
-    the index list and the bitmask in the golden vectors — KVCE may use either,
-    but the *selected channel set* must match exactly.)
+    the index list and the bitmask — KVCE may use either, but the *selected
+    channel set* must match exactly.)
+- **Committed ROM artifact (P2 loads this, not the mask embedded in the vectors):**
+  `reference/masks/<tag>_k<k>.npz` (+ a `.json` summary), one per model. The `.npz`
+  carries:
+  - `outlier_idx` — `int64 [L, n_kv, k]`, the k channel indices per (layer, KV head).
+  - `outlier_bitmask` — `uint8 [L, n_kv, D]`, the same selection as a D-wide mask.
+  - scalars `n_layers, n_kv_heads, head_dim, topk`.
+  Committed: Qwen2 `q05_k2` (D=64), `q15_k2`/`q7_k2` (D=128); plus `mistral_k2`
+  (D=128, the non-Qwen generalization ROM). The mask is model-weight-specific:
+  each deployed model needs its own calibration run.
 - The calibrator (`analysis/outlier_calibration.py`, Phase 2) produces this ROM
-  content per model/layer/head and commits it as a data artifact.
+  content per model/layer/head deterministically (n_calib=128, dataset order).
+- **When to enable the lane (Phase-3 finding, C16).** At **D=64** the "+" lane
+  helps (0.5B: 0.428 vs CQ-4 0.408, n=250 screening). At **D=128** the paired
+  headline run (n=1000, `analysis/c23_*_headline.json`) finds **no significant
+  CQ-4+ vs CQ-4 difference** (1.5B Δ=+0.012 CI[−0.001,0.025] p=0.09; 7B Δ=−0.002
+  CI[−0.017,0.013] p=0.90 — both span 0). So **the D=128 default is CQ-4** (lane
+  disabled → drop the ROM+sidecar, an area win); build the outlier lane as an
+  **optional/bypassable** datapath needed for D=64 and any explicit CQ-4+ config.
 
 ### 4.2 Datapath
 - **Outlier channels** (in the mask): stored in **FP16** in a sidecar lane, NOT
@@ -238,7 +279,14 @@ layout is **non-conformant** — the byte stream is part of the contract.
 ---
 
 ## Open items (pinned as the reference model lands)
-- Final **EPS** value (§1) — pin to the reference, regenerate vectors.
+- ~~Final **EPS** value~~ — **RESOLVED: `2^-14`, final** (§1); vectors already
+  generated with it (`manifest.eps = 6.103515625e-05`). No regeneration coming.
+- ~~Decompress bus dtype~~ — **RESOLVED: fp32** (§1, read-side bus); C++/SV parity
+  already matches the fp32 `_hat` gold.
+- ~~Final group size G~~ — **RESOLVED: G=128, all D** (§3.1); Phase-2 knee,
+  confirmed at headline n=1000.
+- ~~Outlier k / ROM~~ — **RESOLVED: k=2 all D; lane optional at D=128** (§4.1, C16);
+  ROM at `reference/masks/<tag>_k2.npz`.
 - Reciprocal-vs-divide equivalence (§1) — confirmed only by passing golden vectors.
 - CQ-8 keys per-token vs per-channel (§5) — chosen per-token for the simple floor;
   revisit only if a CQ-8-per-channel tier is ever requested.

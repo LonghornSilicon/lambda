@@ -1,0 +1,25 @@
+{
+  "model": "Qwen/Qwen2-0.5B",
+  "tag": "q05",
+  "topk": 2,
+  "n_calib": 128,
+  "n_layers": 24,
+  "n_kv_heads": 2,
+  "head_dim": 64,
+  "max_ctx_tokens": 160,
+  "concentration_median": 5.43,
+  "concentration_p10": 3.45,
+  "concentration_p90": 25.14,
+  "layer0_idx_per_head": [
+    [
+      62,
+      63
+    ],
+    [
+      31,
+      63
+    ]
+  ],
+  "artifact": "reference/masks/q05_k2.npz",
+  "wall_s": 1.7
+}

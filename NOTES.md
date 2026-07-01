@@ -137,3 +137,34 @@ opt-strips the undriven behavioral SRAM to ~81 FFs, so it cannot reproduce the
 0.33 gate number — CI's apt-yosys is authoritative for this assertion.
 
 Next: P4b synthesizable fp16 core lowering (G-independent), and/or P2 streaming.
+
+---
+
+## 2026-07-01 — re-vendored ChannelQuant contract 08d5287 → 7f5a1e1 (P2 unblocked)
+
+The ChannelQuant lane pinned the four P2 datapath parameters and pushed contract
+**v0.2** at `7f5a1e1`. Re-vendored `rtl/tb/testvectors/channelquant/`:
+`HW_CONTRACT.md` + new `masks/` (calibrated outlier ROMs) + `SOURCE_COMMIT`.
+
+Pinned for P2:
+- **G = 128 for all D** (§3.1) — Phase-2 Pareto; acc_norm flat in G, G=128 is the
+  eff-bits floor that still streams cheaply. D=64 golden vectors keep G=64 only as
+  extra grouping/partial-flush coverage, not a shipped default. So the residual
+  buffer is sized for **G=128 tokens**.
+- **Outlier ROM** (§4.1): `masks/<tag>_k2.npz` — `outlier_idx` int64 `[L,n_kv,k]` +
+  `outlier_bitmask` uint8 `[L,n_kv,D]`, **k=2** both D, lane **optional at D=128**
+  (build it bypassable). P2's outlier lane loads this, not the vector-embedded mask.
+  Vendored: `q05_k2`(D64), `q15_k2`/`q7_k2`(D128), `mistral_k2`(D128).
+- **Decompress read bus = fp32** (§1) — matches what C++/SV already emit; no change.
+- **EPS = 2⁻¹⁴ final** (§1) — already what we implement.
+
+**Golden vectors are byte-identical to 08d5287** (unchanged `.npz`/`hex/`), so the
+3-way parity carries over — re-ran both legs anyway as a hermetic check: C++ and SV
+both still all-9 bit-exact. No re-run of parity was required.
+
+Not P2 blockers (per the lane): Phase-3 Mistral×ARC/HellaSwag generalization (feeds
+the paper's accuracy column, still running) and the C16 "+lane-optional-at-D=128"
+guidance (a config default — the bypassable outlier lane covers both).
+
+Next: **P2 streaming datapath** — residual buffer (G=128), per-channel scale bank
+(depth D), outlier-mask ROM load, and streaming the cq cores through the top FSM.

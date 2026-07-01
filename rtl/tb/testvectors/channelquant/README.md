@@ -1,10 +1,19 @@
 # ChannelQuant → KVCE handoff: contract + golden vectors
 
-**Vendored from the `channelquant` lane @ commit `08d5287` (see `SOURCE_COMMIT`).**
+**Vendored from the `channelquant` lane @ commit `7f5a1e1` (see `SOURCE_COMMIT`).**
 This is the verified algorithm handoff that unblocks KVCE verification
 (`findings/channelquant_block_revamp.md` §1, P3 — 3-way parity). The
 `channelquant` repo remains the source of truth; this is a pinned copy so the
 parity harness is hermetic. Re-sync only on a contract/vector version bump.
+
+**Re-vendored `08d5287` → `7f5a1e1` (contract v0.2, P2 unblock).** The four P2
+datapath parameters are now pinned in `HW_CONTRACT.md`: **(1)** key group
+**G=128 for all D** (§3.1); **(2)** outlier ROM format/location + **k=2**, lane
+optional at D=128 (§4.1) — calibrated ROMs vendored under `masks/`; **(3)**
+decompress read bus **fp32** (§1); **(4)** **EPS=2⁻¹⁴ final** (§1). The **golden
+vectors are byte-identical** to `08d5287` (unchanged `.npz`/`hex/`), so the 3-way
+parity result carries over — no re-run required. (The D=64 vectors keep G=64 only
+to exercise a second grouping + partial flush; the shipped default is G=128.)
 
 ## What landed
 
@@ -13,6 +22,7 @@ parity harness is hermetic. Re-sync only on a contract/vector version bump.
 | `HW_CONTRACT.md` | Algorithm→silicon interface contract: exact quant rule (round-half-to-even, clamp INT4 [−8,7] / INT8 [−128,127]), `EPS=2^-14`, fp16 scales, per-tier bit/packing layout (§5), group-flush semantics (§3), static outlier-mask format (§4), parity acceptance (§8). **Implement against this; if it is silent, ask the channelquant lane — do not invent.** |
 | `*.npz` (9) | Golden vectors: `input_K/V`, expected packed payload (`key/val_payload`, `*_scales`, `sidecar`, `outlier_*`), expected reconstructed `expected_K/V_hat`. Source of truth. |
 | `manifest.json` | Per-vector tier/recipe/D/T/G, group byte offsets, payload SHAs, rms. |
+| `masks/<tag>_k2.{npz,json}` | Calibrated static outlier-channel ROMs (CQ-4+, §4.1): Qwen2 `q05_k2` (D=64), `q15_k2`/`q7_k2` (D=128), plus `mistral_k2` (D=128). `.npz` carries `outlier_idx` int64 `[L, n_kv, k]` + `outlier_bitmask` uint8 `[L, n_kv, D]`. **P2 loads this ROM** (not the mask embedded in the vectors). Model-weight-specific. |
 | `hex/<vector>/*.hex` | The same data as flat `$readmemh`-loadable images (one value/line, MSB-first; `u8`=2, `f16`=4 raw half, `f32`=8 raw single hex). See `hex/INDEX.md`, checksums in `hex/SHA256SUMS`. |
 
 ## Coverage (contract §8 — all required cases present)
