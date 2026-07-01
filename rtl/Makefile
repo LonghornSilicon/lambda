@@ -5,7 +5,7 @@ PYTHON   ?= python3
 # ChannelQuant datapath: top + SRAM shell + the verified compute cores.
 # (TurboQuant+ codec — rotation_unit/qjl_unit/quantizer/packer/decompressor/
 #  norm_unit — was deleted in the revamp; see legacy/turboquant-plus branch.)
-RTL_SRC := kv_cache_engine.sv sram_controller.sv cq_units.sv cq_value_path.sv amax_unit.sv
+RTL_SRC := kv_cache_engine.sv sram_controller.sv cq_units.sv cq_units_syn.sv cq_value_path.sv amax_unit.sv
 
 TB_DIR  := tb
 TV_DIR  := $(TB_DIR)/testvectors
@@ -17,8 +17,9 @@ SIM_AMAX_BIN := $(TB_DIR)/tb_amax_unit.out
 SIM_VPATH_BIN := $(TB_DIR)/tb_value_path.out
 SIM_KPATH_BIN := $(TB_DIR)/tb_key_path.out
 SIM_TOP_BIN := $(TB_DIR)/tb_top_stream.out
+SIM_SYN_BIN := $(TB_DIR)/tb_cq_syn.out
 
-.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top testvectors clean
+.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top sim_syn testvectors clean
 
 all: sim
 
@@ -47,16 +48,24 @@ $(SIM_AMAX_BIN): $(TB_DIR)/tb_amax_unit.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv
 sim_vpath: $(SIM_VPATH_BIN)
 	$(VVP) $(SIM_VPATH_BIN)
 
-$(SIM_VPATH_BIN): $(TB_DIR)/tb_value_path.sv cq_value_path.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv
-	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_value_path.sv cq_value_path.sv amax_unit.sv cq_units.sv
+$(SIM_VPATH_BIN): $(TB_DIR)/tb_value_path.sv cq_value_path.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv cq_units_syn.sv
+	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_value_path.sv cq_value_path.sv amax_unit.sv cq_units.sv cq_units_syn.sv
 
 # Streaming KEY-path parity vs golden (per-channel scales + INT4 payload + K_hat
 # + sidecar). Exercises residual_buffer + amax_unit + scale_bank + cq cores.
 sim_kpath: $(SIM_KPATH_BIN)
 	$(VVP) $(SIM_KPATH_BIN)
 
-$(SIM_KPATH_BIN): $(TB_DIR)/tb_key_path.sv cq_key_path.sv residual_buffer.sv scale_bank.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv
-	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_key_path.sv cq_key_path.sv residual_buffer.sv scale_bank.sv amax_unit.sv cq_units.sv
+$(SIM_KPATH_BIN): $(TB_DIR)/tb_key_path.sv cq_key_path.sv residual_buffer.sv scale_bank.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv cq_units_syn.sv
+	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_key_path.sv cq_key_path.sv residual_buffer.sv scale_bank.sv amax_unit.sv cq_units.sv cq_units_syn.sv
+
+# P4b equivalence: synthesizable cores (cq_units_syn.sv) vs behavioral oracle
+# (cq_units.sv), bit-exact over an fp16 sweep. See rtl/P4B_PLAN.md.
+sim_syn: $(SIM_SYN_BIN)
+	$(VVP) $(SIM_SYN_BIN)
+
+$(SIM_SYN_BIN): $(TB_DIR)/tb_cq_syn.sv cq_units_syn.sv cq_fp_pkg.sv cq_units.sv
+	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_cq_syn.sv cq_units_syn.sv cq_units.sv
 
 # Top-level end-to-end parity through the AXI interfaces (per-token codec in the
 # top FSM + SRAM). CQ-8 K+V vs golden expected_*_hat.

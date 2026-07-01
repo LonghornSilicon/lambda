@@ -14,9 +14,8 @@
 //
 // Verified vs golden key_scales/key_payload/expected_k_hat/sidecar (full g=G and
 // partial g<G groups, CQ-4/CQ-4+) by tb_key_path.sv (make sim_kpath). The cq
-// cores are behavioral golden-equivalents (fp16 hardware lowering is P4b).
+// cores are the synthesizable fp16 fixed-function units in cq_units_syn.sv (P4b).
 
-`include "cq_fp_pkg.sv"
 `default_nettype none
 
 module cq_key_path #(
@@ -85,7 +84,7 @@ module cq_key_path #(
     genvar c;
     generate
         for (c = 0; c < D; c = c + 1) begin : g_scale
-            cq_scale_unit u_sc (
+            cq_scale_unit_syn u_sc (
                 .amax_f16(amax_chan[c*DW +: DW]), .bits(4'd4),
                 .scale_f16(csc[c*DW +: DW])
             );
@@ -102,7 +101,7 @@ module cq_key_path #(
     wire signed [7:0] code_c [0:D-1];
     generate
         for (c = 0; c < D; c = c + 1) begin : g_quant
-            cq_quant_unit u_q (
+            cq_quant_unit_syn u_q (
                 .x_f16(rb_rdvec[c*DW +: DW]), .scale_f16(scales_bus[c*DW +: DW]),
                 .bits(4'd4), .code(code_c[c])
             );
@@ -176,7 +175,7 @@ module cq_key_path #(
     // ---- decompress: per-channel dequant (outlier channels handled by the top) ----
     generate
         for (c = 0; c < D; c = c + 1) begin : g_dequant
-            cq_dequant_unit u_d (
+            cq_dequant_unit_syn u_d (
                 .code(dec_codes[c*8 +: 8]), .scale_f16(dec_scales[c*DW +: DW]),
                 .xhat_f32(dec_hat[c*32 +: 32])
             );

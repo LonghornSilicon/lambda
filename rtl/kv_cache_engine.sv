@@ -126,15 +126,19 @@ module kv_cache_engine #(
     wire [VECTOR_DIM*8-1:0]    cqv_pay;
     reg  [VECTOR_DIM*8-1:0]    dec_codes;
     reg  [SCALE_WIDTH-1:0]     dec_scale;
-    wire [VECTOR_DIM*32-1:0]   dec_hat;
+    wire [$clog2(VECTOR_DIM)-1:0] dec_idx;
+    wire [31:0]                dec_hat;   // one reconstructed fp32 channel (dec_idx)
 
     cq_value_path #(.D(VECTOR_DIM), .DW(COORD_WIDTH)) u_vpath (
         .clk(clk), .rst_n(rst_n), .bits(VAL_BPV[3:0]),
-        .in_valid(cqv_in_valid), .in_vec(tok_vec),
+        .in_valid(cqv_in_valid), .in_vec(tok_vec), .busy(),
         .out_valid(cqv_out_valid), .out_scale(cqv_scale),
         .out_codes(cqv_codes), .out_pay(cqv_pay),
-        .dec_codes(dec_codes), .dec_scale(dec_scale), .dec_hat(dec_hat)
+        .dec_codes(dec_codes), .dec_scale(dec_scale),
+        .dec_idx(dec_idx), .dec_hat(dec_hat)
     );
+    // decompress streams one channel per output beat; select the current one.
+    assign dec_idx = out_count[$clog2(VECTOR_DIM)-1:0];
 
     // -----------------------------------------------------------------------
     // FSM
@@ -253,7 +257,7 @@ module kv_cache_engine #(
                 end
 
                 ST_COMPRESS: begin
-                    // wait for the 2-cycle value-path pipeline
+                    // wait for the value-path to finish (serial: ~D+2 cycles)
                     if (cqv_out_valid) state <= ST_STORE;
                 end
 
@@ -283,7 +287,7 @@ module kv_cache_engine #(
 
                 ST_OUTPUT: begin
                     // one fp32 beat per cycle (consumer holds tready; see IDLE clear)
-                    m_axis_kv_tdata  <= dec_hat[out_count*32 +: 32];
+                    m_axis_kv_tdata  <= dec_hat;   // channel dec_idx = out_count
                     m_axis_kv_tvalid <= 1'b1;
                     m_axis_kv_tlast  <= (out_count == VECTOR_DIM - 1);
                     if (out_count == VECTOR_DIM - 1) begin

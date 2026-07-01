@@ -150,9 +150,9 @@ module tb_realdata;
                  num_elements, num_elements / VECTOR_DIM);
 
         rst_n = 0;
-        repeat (10) @(posedge clk);
+        repeat (VECTOR_DIM+16) @(posedge clk);
         rst_n = 1;
-        repeat (5) @(posedge clk);
+        repeat (VECTOR_DIM+16) @(posedge clk);
 
         axil_write(8'h00, 32'h0000_0002);
 
@@ -163,7 +163,7 @@ module tb_realdata;
                 vec_buf[jj] = input_vectors[t * VECTOR_DIM + jj];
 
             stream_vec_buf(0);
-            repeat (5) @(posedge clk);
+            repeat (VECTOR_DIM+16) @(posedge clk);
         end
 
         axil_read(8'h24, rd);

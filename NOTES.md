@@ -6,6 +6,98 @@ hardware-evaluation section.
 
 ---
 
+## 2026-07-01 — P2/P4b COMPLETE: integrated top synthesizes, branch merged, full board green
+
+Merged `feature/cq-top-integration` onto the synthesizable serialized cores and
+adapted the top to the new value-path interface (compress polls `out_valid` — now
+~D+2 cycles; decompress drives `dec_idx = out_count` into the one shared dequant,
+`m_axis <= dec_hat`). The integrated top now **synthesizes clean** — no `real`,
+which was the whole reason it was parked on a branch.
+
+**Full verification (this host, iverilog/vvp 12.0, yosys 0.65):**
+- `make sim`            → **17/17** (directed top TB; stale short waits bumped to
+                           D+16 for the serialized compress latency)
+- `make sim_cq`         → **9/9 bit-exact** (V+K, all tiers — behavioral oracle)
+- `make sim_realdata`   → **PASS**
+- `make sim_amax`       → **9/9 bit-exact** (per-axis scales)
+- `make sim_vpath`      → **9/9 bit-exact** (serialized value path, scale+pay+V̂)
+- `make sim_kpath`      → **6/6 bit-exact** (key path, still parallel — not in top)
+- `make sim_syn`        → **0 mismatches** over dequant 71 424 / scale 63 488 /
+                           quant 1 523 712 combos (syn cores == behavioral oracle)
+- `make sim_top`        → **CQ-8 K+V bit-exact through the AXI FSM+SRAM** (D=64,T=128)
+- **top synth**: `yosys synth -flatten kv_cache_engine` → **25.7 s, 0 latches,
+  0 CHECK problems, no `real`**; **FF count 7626** (0.65) — down from the 19 559
+  passthrough because SRAM_WIDTH shrank 1024→272 b (compressed store). CI's
+  apt-yosys 0.33 count is the gate arbiter; `ci.yml expected-ff-count` set to 7626
+  and `extra-rtl-sources` now lists cq_value_path/amax_unit/cq_units_syn (finalize
+  the number if 0.33 differs slightly).
+
+Area note (P4b serialization): the value path went **429 s / ~97 k cells → 20 s /
+~21.5 k cells** by sharing one quant divider across the D channels + one indexed
+dequant. `cq_key_path` stays parallel until it is wired into the top (grouped-INT4
+keys — next integration); it then gets the same serialization.
+
+Next: push + confirm CI (synth/formal/OpenLane/reference) green; then grouped-key
+top routing + outlier-mask ROM, and the real-data ChannelQuant trace.
+
+---
+
+## 2026-07-01 — P4b: synthesizable fp16 cores landed (bit-exact, no `real`)
+
+Lowered the three `real`-math behavioral cores to synthesizable fixed-function
+fp16 hardware in **`cq_units_syn.sv`** (`cq_dequant_unit_syn` / `cq_scale_unit_syn`
+/ `cq_quant_unit_syn`), same ports as the behavioral oracle:
+- **dequant** `code·s→fp32`: exact — the product is ≤19 sig-bits so it fits fp32's
+  mantissa with no rounding (fixed multiply + leading-one normalize).
+- **scale** `max(amax/qmax,EPS)→fp16`: fixed-point divide of the amax significand
+  by the constant qmax (7/127) with an exact remainder, round-half-even to the
+  10-bit mantissa; EPS clamp as an exact integer compare.
+- **quant** `clamp(round_half_even(x/s))`: sign-magnitude divide with one guard
+  bit + exact-remainder sticky (ties → even). Bounded to a **≤20-bit/11-bit**
+  divider by observing the clamp: `dexp≤−2 ⇒ 0`, `dexp≥9 ⇒ clamp`, so only
+  `dexp∈[−1,8]` divides. (First cut used a 45-bit divider → 138 s yosys; the
+  bounded form is **3.8 s / ~1514 cells**.)
+
+**Verification.** New `tb_cq_syn.sv` (`make sim_syn`) drives each behavioral core
+and its syn twin over a broad fp16 sweep — **dequant 71 424, scale 63 488 (full
+mantissa), quant 1 523 712 combos → 0 mismatches** (finite domain; fp16 inf/nan
+are out of contract). yosys: **0 inferred latches, 0 CHECK problems, no `real`.**
+Then swapped `cq_value_path`/`cq_key_path` to the syn cores (dropped their vestigial
+`cq_fp_pkg` include → now synthesizable) and re-ran the golden gates:
+**sim_vpath 9/9, sim_kpath 6/6, sim_cq 9/9, sim/realdata/amax all green** — so the
+syn cores are bit-exact vs the golden vectors end-to-end, not just vs the oracle.
+Behavioral cores + `cq_fp_pkg` retained as the oracle for `tb_channelquant` and the
+C++ reference. Master's synthesized top is untouched (still passthrough) so CI stays
+green; this lands the cores as verified, synthesizable library modules.
+
+Next: merge branch `feature/cq-top-integration` onto these cores (top instantiates
+cq_value_path → now synthesizable), retune the CI FF-count gate + `extra-rtl-sources`,
+confirm synth/formal/OpenLane green.
+
+---
+
+## 2026-07-01 — P4b: serialized the value path (shared divider, ~4.5x smaller)
+
+The quant core carries the fp16 divider, so D parallel quant units = D dividers —
+`cq_value_path` synth was **429 s / ~97k cells** and would murder OpenLane. Rebuilt
+it to **share ONE quant unit across the D channels** (new COLLECT/WAIT/QUANT/EMIT
+FSM, D-cycle-per-token compress) and **one dequant unit indexed by `dec_idx`** on
+decompress (the top already streams the D reconstructed words out one per cycle, so
+this is free). Result: **20 s / ~21.5k cells, 0 latches, 0 CHECK problems**, and
+**sim_vpath still 9/9 bit-exact**. Interface change: `busy` output added, decompress
+is now `(dec_codes, dec_scale, dec_idx) -> dec_hat[31:0]` (one channel) — the branch
+top adapts to this on merge; `tb_value_path` updated (polls out_valid, walks dec_idx).
+
+`cq_key_path` stays parallel for now — it is NOT instantiated by the branch top yet
+(the top uses cq_value_path for per-token values and CQ-8 keys; grouped-INT4 keys are
+a later integration), so its dividers don't reach CI synth. It gets the same
+treatment when it's wired into the top.
+
+Next: adapt the branch top to the serialized value-path interface, synth the top,
+retune the FF-count gate + `extra-rtl-sources`, merge, confirm CI green.
+
+---
+
 ## 2026-06-22 — ChannelQuant algorithm handoff landed (verification unblocked)
 
 The algorithm lane (`channelquant`) finished Phase 1 and handed over the contract

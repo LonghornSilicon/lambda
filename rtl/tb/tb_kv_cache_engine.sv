@@ -163,9 +163,9 @@ module tb_kv_cache_engine;
         s_axis_kv_tuser  = 0;
         m_axis_kv_tready = 1;
 
-        repeat (10) @(posedge clk);
+        repeat (VECTOR_DIM+16) @(posedge clk);
         rst_n = 1;
-        repeat (5) @(posedge clk);
+        repeat (VECTOR_DIM+16) @(posedge clk);
 
         // Test: INFO register reads
         $display("\n[Test: INFO registers]");
@@ -207,7 +207,7 @@ module tb_kv_cache_engine;
         for (ii = 0; ii < VECTOR_DIM; ii = ii + 1)
             test_vec[ii] = 0;
         stream_from_buf(0);
-        repeat (10) @(posedge clk);
+        repeat (VECTOR_DIM+16) @(posedge clk);
 
         axil_read(8'h24, read_data);
         check("Occupancy >= 1", read_data >= 1);
@@ -219,7 +219,7 @@ module tb_kv_cache_engine;
         for (ii = 0; ii < VECTOR_DIM; ii = ii + 1)
             test_vec[ii] = (ii - VECTOR_DIM/2) * 100;
         stream_from_buf(0);
-        repeat (10) @(posedge clk);
+        repeat (VECTOR_DIM+16) @(posedge clk);
 
         axil_read(8'h24, read_data);
         check("Occupancy >= 2", read_data >= 2);
@@ -234,7 +234,7 @@ module tb_kv_cache_engine;
             test_vec[ii] = lcg_state[63:48];
         end
         stream_from_buf(1);
-        repeat (10) @(posedge clk);
+        repeat (VECTOR_DIM+16) @(posedge clk);
 
         axil_read(8'h24, read_data);
         check("Occupancy >= 3", read_data >= 3);
@@ -242,7 +242,7 @@ module tb_kv_cache_engine;
         // Test: Soft reset
         $display("\n[Test: Soft reset]");
         axil_write(8'h00, 32'h0000_0001);
-        repeat (5) @(posedge clk);
+        repeat (VECTOR_DIM+16) @(posedge clk);
         axil_read(8'h04, read_data);
         check("idle after reset", read_data[0] == 1'b1);
 
@@ -267,7 +267,7 @@ module tb_kv_cache_engine;
                 end
             end
             stream_from_buf(0);
-            repeat (5) @(posedge clk);
+            repeat (VECTOR_DIM+16) @(posedge clk);
         end
 
         axil_read(8'h24, read_data);

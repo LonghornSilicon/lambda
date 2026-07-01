@@ -16,16 +16,17 @@ jobs:
     uses: LonghornSilicon/.github/.github/workflows/block-ci.yml@main
     with:
       block-name: kv_cache_engine
-      # FF-count gate (Yosys synth -flatten, gate 3). Jumped 5575 -> 19559 with the
-      # ChannelQuant revamp: the top is a *transitional passthrough store* holding a
-      # raw fp16 vector, so SRAM_WIDTH = VECTOR_DIM*COORD_WIDTH = 64*16 = 1024 bits
-      # (was the 288-bit TurboQuant+ compressed word). The behavioral SRAM
-      # (SRAM_DEPTH=16) synthesizes to ~16384 FFs + input_buf/wr_data/FSM. P2 will
-      # stream compressed payloads through the FSM, shrinking the stored word and
-      # this count back down — update this value when that lands (see rtl/TEARDOWN.md).
-      expected-ff-count: 19559
+      # FF-count gate (Yosys synth -flatten, gate 3). P2/P4b landed the real
+      # ChannelQuant codec in the top: cq_value_path compresses each token and SRAM
+      # now stores {fp16 scale, packed payload}, so SRAM_WIDTH = SCALE_WIDTH+D*VAL_BPV
+      # = 16 + 64*4 = 272 bits (was the 1024-bit raw-fp16 passthrough). The synth cores
+      # are combinational (0 FFs); the count is SRAM (16*272) + the serialized value
+      # path + top FSM regs. Local yosys 0.65 reports 7626 (now the SRAM is *driven*,
+      # so 0.65 no longer opt-strips it and should track CI's apt-yosys 0.33 closely).
+      # If CI's 0.33 count differs slightly, set this to the value CI reports.
+      expected-ff-count: 7626
       has-reference-model: true
       has-paper: false
       has-coverage-gate: false
       has-formal-equivalence: true
-      extra-rtl-sources: "sram_controller.sv"
+      extra-rtl-sources: "sram_controller.sv cq_value_path.sv amax_unit.sv cq_units_syn.sv"
