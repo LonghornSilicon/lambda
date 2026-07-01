@@ -240,3 +240,18 @@ Both datapaths (value + key) now exist as verified modules. **Remaining P2:** wi
 cq_value_path + cq_key_path + scale/payload SRAM into the top FSM (replacing the
 passthrough store) — which also shrinks the inflated FF count — plus the
 outlier-mask ROM load from the vendored `masks/`. Then real-data + P4b lowering.
+
+---
+
+## 2026-07-01 — top FSM integration done + verified, parked on a branch (P4b-gated)
+
+The per-token top integration is built and **sim-verified** (`make sim_top`:
+CQ-8 K+V bit-exact end-to-end through the AXI FSM + SRAM), but it lives on branch
+**`feature/cq-top-integration`**, NOT master. Reason: the integrated top
+instantiates the behavioral cq cores (`real` math) and **yosys cannot synthesize
+`real`** (`cq_fp_pkg.sv:24` TOK_REAL), which would red the synth/formal/OpenLane
+CI gates. So master keeps the synthesizable passthrough top (green) until **P4b**
+lowers the cores to fp16 fixed-function hardware; then the branch merges. Full
+detail in the branch's NOTES entry. Master datapath modules (cq_value_path,
+cq_key_path, amax_unit, residual_buffer, scale_bank) remain verified library
+modules, not yet in the synthesized top. **Next: P4b.**
