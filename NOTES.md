@@ -240,3 +240,31 @@ Both datapaths (value + key) now exist as verified modules. **Remaining P2:** wi
 cq_value_path + cq_key_path + scale/payload SRAM into the top FSM (replacing the
 passthrough store) — which also shrinks the inflated FF count — plus the
 outlier-mask ROM load from the vendored `masks/`. Then real-data + P4b lowering.
+
+---
+
+## 2026-07-01 — P2 [4/n]: top FSM integration (per-token) — verified, P4b-gated
+
+Rewrote `kv_cache_engine.sv` to stream the **per-token** codec through the FSM:
+COLLECT a token → `cq_value_path` compress → store `{fp16 scale, packed payload}`
+in SRAM (SRAM_WIDTH shrinks from the 1024-bit raw-vector passthrough to
+`SCALE_WIDTH + D*VAL_BPV`); reads (triggered by writing `READ_ADDR`) unpack →
+dequant → stream the **fp32** reconstruction out (`m_axis` widened 16→32, contract
+§1). This is the full codec for **CQ-8 (per-token K and V)** and every tier's
+value stream. `tb_top_stream.sv` (`make sim_top`) drives the AXI interfaces
+end-to-end and gets **CQ-8 K+V bit-exact vs golden expected_*_hat** (D=64, T=128).
+Existing plumbing TBs still pass (17/17, realdata) with the widened output.
+FSM bugs fixed en route: negedge-driven AXI master (else a held tvalid injects a
+spurious beat after the store), and the output-valid clear conflicting with the
+per-beat set (dropped beats).
+
+**Why this is on branch `feature/cq-top-integration`, not master:** the top now
+instantiates the behavioral cq cores, which use `real` — **yosys can't synthesize
+`real`** (`cq_fp_pkg.sv:24 ERROR: unexpected TOK_REAL`). Landing this on master
+would break CI gates 3 (synth FF-count), 4 (formal equivalence), 6 (OpenLane).
+So the synthesizable top integration is **gated on P4b** (fp16 fixed-function
+lowering of cq_scale/quant/dequant). The functional integration is done and
+sim-verified; it merges to master once P4b makes the cores synthesizable.
+
+Next: **P4b** — synthesizable fp16 cores (bit-exact vs golden), then merge this
+branch (top integration + grouped-key routing) and re-tune the FF-count gate.

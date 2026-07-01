@@ -37,7 +37,7 @@ module tb_kv_cache_engine;
     reg                    s_axis_kv_tlast;
     reg                    s_axis_kv_tuser;
 
-    wire [COORD_WIDTH-1:0] m_axis_kv_tdata;
+    wire [31:0]            m_axis_kv_tdata;   // fp32 decompressed output (contract §1)
     wire                   m_axis_kv_tvalid;
     reg                    m_axis_kv_tready;
     wire                   m_axis_kv_tlast;

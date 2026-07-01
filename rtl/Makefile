@@ -5,7 +5,7 @@ PYTHON   ?= python3
 # ChannelQuant datapath: top + SRAM shell + the verified compute cores.
 # (TurboQuant+ codec — rotation_unit/qjl_unit/quantizer/packer/decompressor/
 #  norm_unit — was deleted in the revamp; see legacy/turboquant-plus branch.)
-RTL_SRC := kv_cache_engine.sv sram_controller.sv cq_units.sv
+RTL_SRC := kv_cache_engine.sv sram_controller.sv cq_units.sv cq_value_path.sv amax_unit.sv
 
 TB_DIR  := tb
 TV_DIR  := $(TB_DIR)/testvectors
@@ -16,8 +16,9 @@ SIM_CQ_BIN  := $(TB_DIR)/tb_channelquant.out
 SIM_AMAX_BIN := $(TB_DIR)/tb_amax_unit.out
 SIM_VPATH_BIN := $(TB_DIR)/tb_value_path.out
 SIM_KPATH_BIN := $(TB_DIR)/tb_key_path.out
+SIM_TOP_BIN := $(TB_DIR)/tb_top_stream.out
 
-.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath testvectors clean
+.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top testvectors clean
 
 all: sim
 
@@ -56,6 +57,14 @@ sim_kpath: $(SIM_KPATH_BIN)
 
 $(SIM_KPATH_BIN): $(TB_DIR)/tb_key_path.sv cq_key_path.sv residual_buffer.sv scale_bank.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv
 	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_key_path.sv cq_key_path.sv residual_buffer.sv scale_bank.sv amax_unit.sv cq_units.sv
+
+# Top-level end-to-end parity through the AXI interfaces (per-token codec in the
+# top FSM + SRAM). CQ-8 K+V vs golden expected_*_hat.
+sim_top: $(SIM_TOP_BIN)
+	$(VVP) $(SIM_TOP_BIN)
+
+$(SIM_TOP_BIN): $(TB_DIR)/tb_top_stream.sv $(RTL_SRC)
+	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_top_stream.sv $(RTL_SRC)
 
 $(SIM_BIN): $(RTL_SRC) $(TB_DIR)/tb_kv_cache_engine.sv
 	$(IVERILOG) -g2012 -o $@ $(TB_DIR)/tb_kv_cache_engine.sv $(RTL_SRC)
