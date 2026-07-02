@@ -23,11 +23,12 @@ jobs:
       # are combinational (0 FFs); the count is SRAM (16*272) + the serialized value
       # path + top FSM regs. Local yosys 0.65 reports 7626 (now the SRAM is *driven*,
       # so 0.65 no longer opt-strips it and should track CI's apt-yosys 0.33 closely).
-      # Token/code assembly uses shift registers (not indexed part-select writes) so
-      # LibreLane's Yosys synth-check stays clean; that keeps more shift-stage FFs
-      # live. Local yosys 0.65 = 8138; CI apt-yosys 0.33 (arbiter) ~= 8145. If 0.33
-      # differs, set this to the value it reports (synth.log artifact).
-      expected-ff-count: 8145
+      # The quant core's divide is now bit-serial (sequential), so no 443-level
+      # combinational divide cone -> it place-and-routes without hanging the timing
+      # resizer. That adds ~68 divider-state FFs. Local yosys 0.65 = 8206; CI
+      # apt-yosys 0.33 (arbiter) ~= 8213. If 0.33 differs, set this to the value it
+      # reports (synth.log artifact).
+      expected-ff-count: 8213
       has-reference-model: true
       has-paper: false
       has-coverage-gate: false

@@ -101,7 +101,9 @@ module cq_key_path #(
     wire signed [7:0] code_c [0:D-1];
     generate
         for (c = 0; c < D; c = c + 1) begin : g_quant
-            cq_quant_unit_syn u_q (
+            // combinational quant (parallel key path is not yet serialized; when
+            // it is, this moves to the shared sequential cq_quant_unit_syn).
+            cq_quant_comb u_q (
                 .x_f16(rb_rdvec[c*DW +: DW]), .scale_f16(scales_bus[c*DW +: DW]),
                 .bits(4'd4), .code(code_c[c])
             );

@@ -44,8 +44,9 @@ module cq_value_path #(
     localparam int CW = $clog2(D);
 
     // ---- FSM ----------------------------------------------------------------
-    localparam [1:0] S_IDLE = 2'd0, S_WAIT = 2'd1, S_QUANT = 2'd2, S_EMIT = 2'd3;
-    reg [1:0]   state;
+    localparam [2:0] S_IDLE = 3'd0, S_WAIT = 3'd1, S_QSTART = 3'd2,
+                     S_QWAIT = 3'd3, S_EMIT = 3'd4;
+    reg [2:0]   state;
     reg [CW:0]  ch;        // channel counter (0..D-1); indexes only reads
     reg [3:0]   bits_r;
     assign busy = (state != S_IDLE);
@@ -68,12 +69,17 @@ module cq_value_path #(
     reg [DW-1:0]   scale_reg;
 
     // ---- one shared quantizer, walked across the D channels -----------------
-    // Codes accumulate directly into the flat out_codes vector (no reg-array ->
-    // no memory inference); out_pay is packed from it in S_EMIT.
+    // The quant core is multi-cycle (bit-serial divide): pulse q_start with the
+    // channel's operand, wait q_done, shift the code into out_codes. Codes
+    // accumulate directly into the flat out_codes vector (no reg-array -> no
+    // memory inference); out_pay is packed from it in S_EMIT.
+    reg               q_start;
+    wire              q_done;
     wire signed [7:0] q_code;
     cq_quant_unit_syn u_q (
+        .clk(clk), .rst_n(rst_n), .start(q_start),
         .x_f16(vec_reg[ch*DW +: DW]), .scale_f16(scale_reg), .bits(bits_r),
-        .code(q_code)
+        .code(q_code), .done(q_done)
     );
 
     integer j;
@@ -81,9 +87,10 @@ module cq_value_path #(
         if (!rst_n) begin
             state <= S_IDLE; ch <= '0; bits_r <= 4'd8;
             out_valid <= 1'b0; out_scale <= '0; out_codes <= '0; out_pay <= '0;
-            vec_reg <= '0; scale_reg <= '0;
+            vec_reg <= '0; scale_reg <= '0; q_start <= 1'b0;
         end else begin
             out_valid <= 1'b0;
+            q_start   <= 1'b0;
             case (state)
                 S_IDLE: if (start) begin
                     vec_reg <= in_vec;
@@ -93,14 +100,18 @@ module cq_value_path #(
                 S_WAIT: if (amax_valid) begin      // amax ready 1 cycle after start
                     scale_reg <= scale;
                     ch        <= '0;
-                    state     <= S_QUANT;
+                    state     <= S_QSTART;
                 end
-                S_QUANT: begin
+                S_QSTART: begin
+                    q_start <= 1'b1;               // kick the quant core for channel `ch`
+                    state   <= S_QWAIT;
+                end
+                S_QWAIT: if (q_done) begin
                     // shift the code in (no indexed write -> checker-clean): after D
                     // shifts, channel k sits at out_codes[k*8 +: 8].
                     out_codes <= {q_code, out_codes[D*8-1:8]};
                     if (ch == D-1) state <= S_EMIT;
-                    else           ch    <= ch + 1'b1;
+                    else begin ch <= ch + 1'b1; state <= S_QSTART; end
                 end
                 S_EMIT: begin
                     out_scale <= scale_reg;

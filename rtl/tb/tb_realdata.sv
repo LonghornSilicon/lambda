@@ -6,6 +6,8 @@ module tb_realdata;
     localparam integer COORD_WIDTH = 16;
     localparam integer SRAM_DEPTH  = 16;
     localparam integer CLK_PERIOD  = 10;
+    // per-token compress latency: value path bit-serially divides D channels.
+    localparam integer TOKWAIT     = 26*VECTOR_DIM + 128;
 
     reg  clk = 0;
     reg  rst_n = 0;
@@ -150,9 +152,9 @@ module tb_realdata;
                  num_elements, num_elements / VECTOR_DIM);
 
         rst_n = 0;
-        repeat (VECTOR_DIM+16) @(posedge clk);
+        repeat (TOKWAIT) @(posedge clk);
         rst_n = 1;
-        repeat (VECTOR_DIM+16) @(posedge clk);
+        repeat (TOKWAIT) @(posedge clk);
 
         axil_write(8'h00, 32'h0000_0002);
 
@@ -163,7 +165,7 @@ module tb_realdata;
                 vec_buf[jj] = input_vectors[t * VECTOR_DIM + jj];
 
             stream_vec_buf(0);
-            repeat (VECTOR_DIM+16) @(posedge clk);
+            repeat (TOKWAIT) @(posedge clk);
         end
 
         axil_read(8'h24, rd);

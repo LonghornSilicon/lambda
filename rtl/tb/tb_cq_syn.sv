@@ -10,6 +10,11 @@
 
 module tb_cq_syn;
 
+    // clock/reset for the sequential quant core
+    reg clk = 1'b0;
+    reg rst_n = 1'b0;
+    always #5 clk = ~clk;
+
     // representative fp16 mantissas (corners + spread)
     integer mans [0:8];
     integer nman;
@@ -82,13 +87,17 @@ module tb_cq_syn;
     // ---- quant -----------------------------------------------------------
     reg  [15:0] qz_x, qz_scl;
     reg  [3:0]  qz_bits;
+    reg         qz_start;
+    wire        qz_done;
     wire signed [7:0] qz_beh, qz_syn;
     cq_quant_unit     u_qz_b (.x_f16(qz_x), .scale_f16(qz_scl), .bits(qz_bits), .code(qz_beh));
-    cq_quant_unit_syn u_qz_s (.x_f16(qz_x), .scale_f16(qz_scl), .bits(qz_bits), .code(qz_syn));
+    cq_quant_unit_syn u_qz_s (.clk(clk), .rst_n(rst_n), .start(qz_start),
+                              .x_f16(qz_x), .scale_f16(qz_scl), .bits(qz_bits),
+                              .code(qz_syn), .done(qz_done));
 
     // realistic scales (exp_s in [1,30], several mantissas) to sweep x against
     integer scls [0:11];
-    integer nscl, qi, qb, qx;
+    integer nscl, qi, qb, qx, qstride;
 
     task run_quant;
         begin
@@ -105,10 +114,14 @@ module tb_cq_syn;
                 qz_bits = (qb == 0) ? 4'd4 : 4'd8;
                 for (qi = 0; qi < nscl; qi = qi + 1) begin
                     qz_scl = scls[qi][15:0];
-                    for (qx = 0; qx < 65536; qx = qx + 1) begin
+                    for (qx = 0; qx < 65536; qx = qx + qstride) begin
                         if (qx[14:10] != 5'd31) begin   // skip inf/nan (contract: finite inputs)
-                            qz_x = qx[15:0];
-                            #1;
+                            // clocked handshake to the sequential syn core; the
+                            // behavioral oracle qz_beh is combinational from the
+                            // same inputs, sampled once qz_done asserts.
+                            @(negedge clk); qz_x = qx[15:0]; qz_start = 1'b1;
+                            @(negedge clk); qz_start = 1'b0;
+                            while (!qz_done) @(negedge clk);
                             t = t + 1;
                             if (qz_beh !== qz_syn) begin
                                 e = e + 1;
@@ -130,6 +143,12 @@ module tb_cq_syn;
         mans[5]=682; mans[6]=1000; mans[7]=1023; mans[8]=768;
         nman = 9;
         errs_total = 0;
+        qz_start = 1'b0;
+        qstride  = 1;          // full x sweep; raise for a quick smoke run
+        // release reset (only the sequential quant core needs it)
+        repeat (3) @(negedge clk);
+        rst_n = 1'b1;
+        @(negedge clk);
 
         $display("============================================================");
         $display("CQ-SYN equivalence: synthesizable cores vs behavioral oracle");
