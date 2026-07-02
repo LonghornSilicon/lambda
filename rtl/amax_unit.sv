@@ -43,13 +43,27 @@ module amax_unit #(
     endgenerate
 
     // ---- combinational per-token amax over DIM elements ----------------------
-    reg [DW-1:0] tok_amax_c;
-    integer j;
-    always @* begin
-        tok_amax_c = magv[0];
-        for (j = 1; j < DIM; j = j + 1)
-            if (magv[j] > tok_amax_c) tok_amax_c = magv[j];
-    end
+    // Balanced max-reduction tree (log2(DIM) deep) instead of a linear scan, so
+    // the single-cycle path is short enough to close timing / place-and-route
+    // cleanly. Continuous-assign wire array (not a procedural reg array) -> no
+    // memory inference. Requires power-of-2 DIM (D in {64,128}).
+    localparam int LV = $clog2(DIM);
+    wire [DIM*DW-1:0] ml [0:LV];      // ml[level]: (DIM>>level) live entries, low bits
+    genvar gl, gi;
+    generate
+        for (gi = 0; gi < DIM; gi = gi + 1) begin : g_leaf
+            assign ml[0][gi*DW +: DW] = magv[gi];
+        end
+        for (gl = 0; gl < LV; gl = gl + 1) begin : g_lvl
+            for (gi = 0; gi < (DIM >> (gl+1)); gi = gi + 1) begin : g_node
+                assign ml[gl+1][gi*DW +: DW] =
+                    (ml[gl][(2*gi)*DW +: DW] > ml[gl][(2*gi+1)*DW +: DW])
+                        ? ml[gl][(2*gi)*DW   +: DW]
+                        : ml[gl][(2*gi+1)*DW +: DW];
+            end
+        end
+    endgenerate
+    wire [DW-1:0] tok_amax_c = ml[LV][DW-1:0];
 
     // ---- per-channel running max (key path) ----------------------------------
     reg [DW-1:0] chan_max    [0:DIM-1];   // accumulating group max
