@@ -2,7 +2,7 @@
     "DESIGN_NAME": "kv_cache_engine",
     "VERILOG_FILES": "dir::src/*.sv",
     "CLOCK_PORT": "clk",
-    "CLOCK_PERIOD": 12.5,
+    "CLOCK_PERIOD": 50.0,
     "IO_DELAY_CONSTRAINT": 5,
     "CLOCK_UNCERTAINTY_CONSTRAINT": 0.1,
     "PDN_MULTILAYER": false,
