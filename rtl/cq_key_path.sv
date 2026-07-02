@@ -1,16 +1,26 @@
 // cq_key_path.sv — streaming per-channel grouped KEY codec (contract §3-§4).
 //
-// The key datapath the top will instantiate. Keys can't be scaled until their
-// whole group is seen, so this buffers the group (residual_buffer, fp16), takes
-// the per-channel max over the group (amax_unit, key mode), converts to fp16
+// The key datapath the top instantiates. Keys can't be scaled until their whole
+// group is seen, so this buffers the group (residual_buffer, fp16), takes the
+// per-channel max over the group (amax_unit, key mode), converts to fp16
 // per-channel scales (D× cq_scale_unit, banked in scale_bank), then walks the
-// buffered tokens quantizing each keep-channel (D× cq_quant_unit) and packing
-// the INT4 keep codes (contract §5). Outlier channels (outlier_mask) are excluded
-// from the INT4 path and carried FP16 in a sidecar by the top (contract §4).
+// buffered tokens quantizing each channel and packing the INT4 keep codes
+// (contract §5). Outlier channels (outlier_mask) are excluded from the INT4 path
+// and carried FP16 in a sidecar by the top (contract §4).
 //
 // Group FSM:  COLLECT (buffer + amax accumulate) -> SCALE (freeze per-channel
-// scales) -> EMIT (one buffered token per cycle: quantize keep channels + pack)
-// -> DONE. Decompress is combinational (D× cq_dequant_unit, per-channel scale).
+// scales) -> [per token: QSTART/QWAIT over D channels on ONE shared quant unit]
+// -> TEMIT (pulse tok_valid with the packed token) -> DONE. Decompress is
+// combinational (D× cq_dequant_unit, per-channel scale).
+//
+// AREA (P4b serialization): the quant core carries the fp16 divider, so instead
+// of D parallel combinational quant units (cq_quant_comb, D dividers -> a single
+// giant divide cone that hung OpenLane's resizer) this SERIALIZES one shared
+// cq_quant_unit_syn across the D channels of each buffered token — exactly like
+// cq_value_path's S_QSTART/S_QWAIT handshake. Per-channel codes shift into a flat
+// register (channel c -> byte c after D shifts, same trick as the value path),
+// then the keep-channel compaction packs INT4 from it. ~D fewer dividers, at
+// D-quant-cycles per emitted token.
 //
 // Verified vs golden key_scales/key_payload/expected_k_hat/sidecar (full g=G and
 // partial g<G groups, CQ-4/CQ-4+) by tb_key_path.sv (make sim_kpath). The cq
@@ -38,7 +48,7 @@ module cq_key_path #(
     output wire [D*DW-1:0]         scales_bus,     // D per-channel fp16 scales (keep valid)
     output reg  [$clog2(G+1)-1:0]  g_out,          // tokens in the group
 
-    // ---- per-token payload emit (during EMIT) ----
+    // ---- per-token payload emit (pulses once per token during TEMIT) ----
     output wire                    tok_valid,
     output wire [$clog2(G)-1:0]    tok_idx,
     output wire [(D/2)*8-1:0]      tok_pay,        // packed keep-channel INT4 codes (nk/2 bytes)
@@ -49,12 +59,16 @@ module cq_key_path #(
     input  wire [D*DW-1:0]         dec_scales,     // per original channel scale
     output wire [D*32-1:0]         dec_hat
 );
+    localparam int CW = $clog2(D);
 
-    localparam [1:0] S_COLLECT = 2'd0, S_SCALE = 2'd1, S_EMIT = 2'd2, S_DONE = 2'd3;
-    reg [1:0]                 state;
+    // ---- FSM ----
+    localparam [2:0] S_COLLECT = 3'd0, S_SCALE = 3'd1, S_QSTART = 3'd2,
+                     S_QWAIT   = 3'd3, S_TEMIT = 3'd4, S_DONE = 3'd5;
+    reg [2:0]                 state;
     reg [$clog2(G+1)-1:0]     icnt;      // tokens seen so far in the current group
     reg [$clog2(G+1)-1:0]     g_cnt;     // frozen group size
-    reg [$clog2(G)-1:0]       emit_cnt;
+    reg [$clog2(G)-1:0]       emit_cnt;  // current token being emitted
+    reg [CW:0]                ch;        // channel counter within the current token (0..D-1)
 
     wire collecting = (state == S_COLLECT);
 
@@ -97,20 +111,24 @@ module cq_key_path #(
         .wr(state == S_SCALE), .scales_in(csc), .scales_out(scales_bus)
     );
 
-    // ---- quantize the current buffered token's channels (parallel) ----
-    wire signed [7:0] code_c [0:D-1];
-    generate
-        for (c = 0; c < D; c = c + 1) begin : g_quant
-            // combinational quant (parallel key path is not yet serialized; when
-            // it is, this moves to the shared sequential cq_quant_unit_syn).
-            cq_quant_comb u_q (
-                .x_f16(rb_rdvec[c*DW +: DW]), .scale_f16(scales_bus[c*DW +: DW]),
-                .bits(4'd4), .code(code_c[c])
-            );
-        end
-    endgenerate
+    // ---- ONE shared quantizer, walked across the D channels of the current token.
+    // Per channel: pulse q_start with (rb_rdvec[ch], scales_bus[ch]); wait q_done;
+    // shift the code into codes_all. After D shifts channel c sits at byte c (same
+    // in-order shift alignment as cq_value_path). No indexed write -> checker-clean.
+    reg               q_start;
+    wire              q_done;
+    wire signed [7:0] q_code;
+    cq_quant_unit_syn u_q (
+        .clk(clk), .rst_n(rst_n), .start(q_start),
+        .x_f16(rb_rdvec[ch*DW +: DW]), .scale_f16(scales_bus[ch*DW +: DW]),
+        .bits(4'd4), .code(q_code), .done(q_done)
+    );
+
+    reg [D*8-1:0] codes_all;   // byte c holds channel c's INT4 code (all D channels)
 
     // ---- gather keep-channel codes + pack INT4 (little-endian nibble order) ----
+    // Combinational compaction of the registered per-channel codes: keep channel i
+    // -> byte i of tok_codes, nibble i of tok_pay. Outlier channels excluded.
     reg [(D/2)*8-1:0]     pay_c;
     reg [D*8-1:0]         codes_c;
     reg [$clog2(D):0]     kidx;
@@ -121,15 +139,15 @@ module cq_key_path #(
         kidx    = '0;
         for (cc = 0; cc < D; cc = cc + 1) begin
             if (!outlier_mask[cc]) begin
-                codes_c[kidx*8 +: 8] = code_c[cc];
-                if (kidx[0] == 1'b0) pay_c[(kidx>>1)*8     +: 4] = code_c[cc][3:0];
-                else                 pay_c[(kidx>>1)*8 + 4 +: 4] = code_c[cc][3:0];
+                codes_c[kidx*8 +: 8] = codes_all[cc*8 +: 8];
+                if (kidx[0] == 1'b0) pay_c[(kidx>>1)*8     +: 4] = codes_all[cc*8 +: 4];
+                else                 pay_c[(kidx>>1)*8 + 4 +: 4] = codes_all[cc*8 +: 4];
                 kidx = kidx + 1;
             end
         end
     end
 
-    assign tok_valid = (state == S_EMIT);
+    assign tok_valid = (state == S_TEMIT);   // one-cycle pulse per token
     assign tok_idx   = emit_cnt;
     assign tok_pay   = pay_c;
     assign tok_codes = codes_c;
@@ -141,10 +159,14 @@ module cq_key_path #(
             icnt        <= '0;
             g_cnt       <= '0;
             emit_cnt    <= '0;
+            ch          <= '0;
+            codes_all   <= '0;
+            q_start     <= 1'b0;
             group_valid <= 1'b0;
             g_out       <= '0;
         end else begin
             group_valid <= 1'b0;
+            q_start     <= 1'b0;
             case (state)
                 S_COLLECT: begin
                     if (in_valid) begin
@@ -156,14 +178,34 @@ module cq_key_path #(
                     end
                 end
                 S_SCALE: begin
-                    // csc valid (amax_ov), scale_bank latches this edge
+                    // csc valid (amax frozen), scale_bank latches this edge
                     emit_cnt <= '0;
                     g_out    <= g_cnt;
-                    state    <= S_EMIT;
+                    ch       <= '0;
+                    state    <= S_QSTART;
                 end
-                S_EMIT: begin
+                S_QSTART: begin
+                    q_start <= 1'b1;                 // kick the shared quant core for channel `ch`
+                    state   <= S_QWAIT;
+                end
+                S_QWAIT: if (q_done) begin
+                    codes_all <= {q_code, codes_all[D*8-1:8]};
+                    if (ch == D-1) begin
+                        ch    <= '0;
+                        state <= S_TEMIT;
+                    end else begin
+                        ch    <= ch + 1'b1;
+                        state <= S_QSTART;
+                    end
+                end
+                S_TEMIT: begin
+                    // tok_valid pulses this cycle (combinational); tok_pay/tok_codes
+                    // are packed from the now-complete codes_all.
                     if (emit_cnt == g_cnt - 'd1) state <= S_DONE;
-                    else                         emit_cnt <= emit_cnt + 'd1;
+                    else begin
+                        emit_cnt <= emit_cnt + 'd1;
+                        state    <= S_QSTART;         // next token, channels restart at 0
+                    end
                 end
                 S_DONE: begin
                     group_valid <= 1'b1;
