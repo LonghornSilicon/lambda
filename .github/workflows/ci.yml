@@ -23,11 +23,11 @@ jobs:
       # to the unified per-channel key layout {D fp16 field, D INT4 codes} =>
       # SRAM_WIDTH ~= 1281 b (was 272). Count = SRAM (16*1281) + residual_buffer
       # (16*1024, KEY_GROUP kept 16 for the flop-based gate) + scale_bank + two
-      # amax_units + value/key FSM regs. Local yosys 0.66 (memory_map+techmap):
-      # 26273 $_DFFE_PN0P_ + 3 $_DFFE_PN1P_ + 18902 $_DFFE_PP_ + 989 $_DFF_PN0_
-      # = 46167. CI apt-yosys 0.33 is the arbiter (differs by a few); if it mismatches,
-      # correct to the gate-3 log value.
-      expected-ff-count: 46167
+      # amax_units + value/key FSM regs. Local yosys 0.66 (memory_map+techmap) =
+      # 46167 (26273 $_DFFE_PN0P_ + 3 $_DFFE_PN1P_ + 18902 $_DFFE_PP_ + 989 $_DFF_PN0_);
+      # CI apt-yosys 0.33 (the arbiter) reports 46147 from the gate-3 log -- a 20-FF
+      # opt delta between the two yosys versions, as expected.
+      expected-ff-count: 46147
       has-reference-model: true
       has-paper: false
       has-coverage-gate: false
