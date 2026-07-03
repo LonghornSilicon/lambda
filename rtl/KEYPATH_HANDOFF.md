@@ -1,5 +1,14 @@
 # KVCE handoff — grouped per-channel key-path integration
 
+> **✅ DONE (master `4f92c9e`, 2026-07-03).** The grouped per-channel-INT4 key path
+> is serialized, wired into the top, and signed off — **all CI gates green**
+> (1 functional, 3 synth, 4 formal, 5 reference, 6 OpenLane). `make sim_top` is
+> bit-exact for per-token INT4 V and grouped CQ-4+ keys; `make sim_kpath` 6/6. See
+> the 2026-07-03 NOTES.md entry for the full record. The plan below is retained for
+> provenance. Only open follow-up: **partial-group flush (g<G)** — datapath supports
+> it; the top's stream framing auto-flushes at full G only.
+
+
 **Status at handoff (master `3537727`, 2026-07-02): CI fully green.** Gates green:
 1 functional, 3 synth (FF=8210), 4 formal (RTL≡netlist), 5 reference, 6 OpenLane
 Sky130 sign-off. The **value path** (per-token INT4/INT8 V + per-token CQ-8 K) is

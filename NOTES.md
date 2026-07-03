@@ -6,6 +6,64 @@ hardware-evaluation section.
 
 ---
 
+## 2026-07-03 — grouped per-channel-INT4 KEY path wired into the top; full board green (revamp complete)
+
+Finished the ChannelQuant revamp: the grouped per-channel-INT4 KEY path (CQ-4 /
+CQ-4+) is serialized, integrated into the top, and physically signed off. Master
+`4f92c9e`, **all CI gates green** (1 functional, 3 synth, 4 formal RTL≡netlist, 5
+reference, 6 OpenLane Sky130).
+
+Work (all CPU-only; iverilog 12.0 + yosys):
+- **Serialized `cq_key_path`.** The parallel form had D combinational quant units
+  **plus D per-channel scale dividers plus D dequant units** — a giant arithmetic
+  cone. Replaced with ONE shared sequential `cq_quant_unit_syn` (S_QSTART/S_QWAIT
+  handshake), ONE shared `cq_scale_unit_syn` walked over the D channels into
+  `scale_bank` (now a per-channel-write bank), and ONE `cq_dequant_unit_syn` indexed
+  by `dec_idx` — exactly mirroring the value path. The parallel scale/dequant were
+  what made `yosys synth -flatten` hang in its share/alumacc SAT pass (CI gate-3
+  timeout, exit 143) even after the quant was serialized.
+- **Top integration.** Keys (`s_axis_kv_tuser=0`, TIER 1/2) route through
+  `cq_key_path` (accumulate G tokens → freeze D per-channel scales → emit per-token
+  INT4 keep codes); values stay per-token via `cq_value_path`; TIER-0 keys stay
+  per-token. Outlier-mask ROM (`$readmemh`, k=2, tied 0 when OUTLIER_K=0).
+- **Unified per-channel SRAM record** `{tag, D×fp16 field, D×INT4 code}`: keep
+  channel → {group scale, INT4}; **outlier channel → {raw fp16, code +1}** so
+  decompress `code·field` widens the fp16 exactly — no separate sidecar region and
+  no read-side mask; read-back reuses the key dequant and tag-muxes vs the value
+  dequant. (Bug fixed en route: `kp_tok_idx[ADDR_WIDTH-1:0]` over-indexed the 6-bit
+  index → X-poisoned the write address so key records never stored.)
+
+**Verification (this host, iverilog/vvp 12.0, yowasp-yosys 0.66):**
+- `make sim_top` → **per-token INT4 V + grouped CQ-4+ keys BIT-EXACT** through the
+  AXI FSM+SRAM (D=64, G=64, k=2; all 64 tokens × 64 channels).
+- `make sim_kpath` → **6/6 bit-exact** (serialized scale+quant+dequant).
+- `make sim` 17/17, `sim_realdata`/`sim_vpath`/`sim_amax`/`sim_syn`/`sim_cq` green
+  (directed TBs moved to TIER=0 per-token keys; grouped keys covered by sim_top).
+- `yosys proc; check` on the top → **0 "conflicting with a constant", 0 latches, 0
+  CHECK problems, no `real`.**
+- Registered `cq_key_path`/`residual_buffer`/`scale_bank` in `ci.yml`
+  `extra-rtl-sources` + the OpenLane `src/` symlinks.
+
+Gate-fitting (flop-based memories, no Sky130 macro): the per-channel key record
+(SRAM_WIDTH≈1281 b) + `residual_buffer` make big flop MEMORIES. The synthesized
+**default is a small gate PROXY** — VECTOR_DIM=16, KEY_GROUP=2, SRAM_DEPTH=2 =
+**3914 FFs** (CI apt-yosys 0.33; local 0.66 = 3920) — so gate-4 formal induction and
+gate-6 routing clear their ~10-min / 30-min caps (at D=64/14724 FFs formal timed
+out; the old value-only design was 8210). OpenLane proxy = VECTOR_DIM=8. **Real
+D/depth/G are set per-instantiation; every TB overrides**, so functional coverage is
+at the shipped D=64/G=64. (FF-count gate is exact-match and CI apt-yosys-0.33 runs a
+few FFs below local 0.66, so the gate-3 log value is pinned: 46147 → 14724 → 3914 as
+the proxy shrank.)
+
+**Open follow-up:** partial-group flush (g<G). The datapath supports it (`sim_kpath`
+exercises partial groups) but the top's AXI stream framing currently auto-flushes
+only at full G, so `sim_top` drives full groups. Wire a flush trigger (control-reg
+bit or a stream sideband) to close it.
+
+Next: real-data ChannelQuant trace through the top; optional partial-group flush.
+
+---
+
 ## 2026-07-01 — P2/P4b COMPLETE: integrated top synthesizes, branch merged, full board green
 
 Merged `feature/cq-top-integration` onto the synthesizable serialized cores and
