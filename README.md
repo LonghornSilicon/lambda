@@ -1,57 +1,39 @@
 # KV Cache Engine
 
-This is the **KV Cache Engine** block of the LonghornSilicon LLM inference
+This is the **KV Cache Engine (KVCE)** block of the LonghornSilicon LLM inference
 accelerator — block 2 of four targeting TSMC 16FFC tape-out. It is a streaming
 compress-on-write / decompress-on-read engine for transformer KV-cache tensors,
-sitting between the ACU and the memory hierarchy.
+sitting between the ACU (attention compute unit) and the memory hierarchy.
 
-> ## 🔧 Revamp underway — codec: TurboQuant+ → ChannelQuant (functional codec landed, parity-green)
+> ## ✅ ChannelQuant revamp COMPLETE — codec: TurboQuant+ → ChannelQuant
 >
-> **The block stays; the codec it implements is being replaced.** TurboQuant+
-> (PolarQuant + QJL + Walsh–Hadamard rotation) was **retired 2026-06-22**: it
-> reaches ~3.5× compression but with a **−0.10 HellaSwag acc_norm collapse on
-> GQA** models (0.316 vs 0.420 FP16 on Qwen2-0.5B). Root cause: KV quant error
-> on GQA is dominated by a few fixed high-magnitude **key channels**, and the
-> rotation step delocalizes that error so no per-token protection catches it.
+> **The block stays; the codec it implements was replaced and is now fully
+> integrated, synthesizable, and signed off.** TurboQuant+ (PolarQuant + QJL +
+> Walsh–Hadamard rotation) was **retired 2026-06-22**: it reaches ~3.5×
+> compression but with a **−0.10 HellaSwag acc_norm collapse on GQA** models
+> (0.316 vs 0.420 FP16 on Qwen2-0.5B). Root cause: KV quant error on GQA is
+> dominated by a few fixed high-magnitude **key channels**, and the rotation step
+> delocalizes that error so no per-token protection catches it.
 >
-> The successor codec is **ChannelQuant** — per-channel-key INT4 / per-token-value
-> INT4 / static outlier-channel isolation (the KIVI/KVQuant recipe). It reaches
-> **~3.6–3.8× near-lossless** (7B: 0.604 vs 0.612 FP16) where naive INT4 collapses
-> to chance. The algorithm is prior art (KIVI ICML'24, KVQuant 2024); **the
-> contribution of this block is the streaming silicon implementation.**
+> The successor codec is **ChannelQuant** — **per-channel-key INT4 / per-token-value
+> INT4 / static outlier-channel isolation** (the KIVI/KVQuant recipe). The
+> algorithm is prior art (KIVI ICML'24, KVQuant 2024); **the contribution of this
+> block is the streaming silicon implementation.**
+>
+> **Status (master, 2026-07-03): DONE.**
+> - RTL fully wired into the top (`kv_cache_engine.sv`): keys → grouped per-channel
+>   INT4 (`cq_key_path`), values → per-token INT4 (`cq_value_path`), outlier lane +
+>   unified per-channel SRAM record. All cores serialized (one shared scale / quant /
+>   dequant), no `real`, no latches, checker-clean.
+> - **All CI gates green** — functional, synthesis (FF-count), formal
+>   RTL≡netlist equivalence, reference-model parity, and OpenLane Sky130 sign-off.
+> - **Verified end-to-end on Qwen2** (below): near-FP16 accuracy at ~4 bits/value.
 >
 > | | |
 > |---|---|
-> | Revamp plan (this block) | [`findings/channelquant_block_revamp.md`](findings/channelquant_block_revamp.md) |
-> | Algorithm spec + reference model + golden vectors | `../channelquant/` |
 > | Retired TurboQuant+ datapath (archived, full history) | branch [`legacy/turboquant-plus`](../../tree/legacy/turboquant-plus) |
->
-> **Status of the revamp** (see the manifest in [`rtl/TEARDOWN.md`](rtl/TEARDOWN.md)):
-> - **Done & parity-green** — the TurboQuant+ datapath (`rotation_unit`, `qjl_unit`,
->   `quantizer`, `decompressor`, `packer`, `norm_unit`) is deleted; the ChannelQuant
->   compute cores (`cq_units.sv` + `cq_fp_pkg.sv`: scale / quant / dequant / pack)
->   are **bit-exact vs all 9 golden vectors** (`make sim_cq`), CQ-8/CQ-4/CQ-4+,
->   D∈{64,128}, full+partial key groups, outlier lane. The top-level CSR map is
->   swapped to the ChannelQuant contract and the ISA bumped to v0.2.
-> - **Remaining** — P2 streaming integration (`amax_unit`/`residual_buffer`/
->   `scale_bank` FSM + SRAM, outlier-mask ROM load); the C++ reference leg for
->   3-way parity; ChannelQuant real-data trace; P4 synth (Sky130→16FFC) + FF-count
->   gates. The live datapath is still the passthrough store until P2 streams the
->   cores through the FSM.
->
-> ⚠️ The register map / compression figures / verified-FF counts **below the line**
-> still describe the **predecessor TurboQuant+ datapath** and are retained until the
-> ChannelQuant streaming datapath and its synth numbers land.
-
----
-
-## (predecessor) KV Cache Engine — TurboQuant+
-
-A hardware-verified KV cache compression engine using
-[TurboQuant+](https://github.com/themoddedcube/turboquant-plus)
-that compresses key vectors to **4.25 bits per value** and value vectors
-to **~3.0 bpv** at runtime, giving a **3--5x DRAM bandwidth reduction**
-for KV cache traffic with bounded reconstruction error.
+> | Algorithm spec + reference model + golden vectors | `../channelquant/` (frozen contract v0.2) |
+> | Per-milestone lab notebook | [`NOTES.md`](NOTES.md) |
 
 ---
 
@@ -59,124 +41,103 @@ for KV cache traffic with bounded reconstruction error.
 
 | | |
 |---|---|
-| **What** | Streaming compress/decompress engine for transformer KV cache tensors |
-| **Why** | Cuts KV-cache DRAM bandwidth 3--5x, enabling longer context in the same memory budget |
-| **How** | TurboQuant+ turbo4: PolarQuant (3-bit Lloyd-Max) + QJL (1-bit sign projection) |
-| **K/V asymmetry** | K gets PolarQuant+QJL (inner product preservation), V gets PolarQuant only (MSE-optimized) |
-| **Hardware cost** | ~6400 FFs estimated (full pipeline); ~93 FFs current top-level |
-| **Verified** | Directed + replay testbenches, 120 Python + 64 C++ reference model tests |
+| **What** | Streaming compress/decompress engine for transformer KV-cache tensors |
+| **Why** | Cuts KV-cache DRAM bandwidth ~3.8× (near-lossless), enabling longer context in the same memory budget |
+| **How** | ChannelQuant — per-channel INT4 keys (grouped, G=128) + per-token INT4 values + static top-k FP16 outlier-channel isolation (CQ-4+) |
+| **K/V asymmetry** | K: per-channel scale over a token group (the GQA-critical axis); V: per-token scale |
+| **Tiers** | CQ-8 (per-token INT8 K+V), CQ-4 (per-channel INT4 K / per-token INT4 V), CQ-4+ (CQ-4 with k=2 FP16 outlier channels) |
+| **Verified** | RTL bit-exact vs golden (`sim_kpath`/`sim_top`), 3-way Python↔C++↔SV parity, **all CI gates green** incl. Sky130 sign-off |
+| **Accuracy** | HellaSwag acc_norm within ~0.5–1.6 pt of FP16 on Qwen2-0.5B/1.5B (see below) |
 | **Status** | Tape-out target Q3/Q4 2026 via TSMC University Program 16FFC |
 
 ---
 
-## How this improves on standard KV caching
+## How ChannelQuant works
 
-### The problem: KV cache is the memory bottleneck
+The GQA accuracy problem is that a few **fixed key channels** carry most of the
+quant error. ChannelQuant scales **per channel** on the key path (so those
+channels get their own scale) and isolates the worst top-k as FP16 outliers:
 
-In autoregressive transformer inference, every generated token must
-attend to all previous tokens' key and value vectors. For long contexts
-(4K--128K tokens), the KV cache dominates both on-chip SRAM capacity
-and off-chip DRAM bandwidth. At FP16, a 4096-token cache with
-dimension 64 consumes 1 MB — and that scales linearly with sequence
-length, batch size, and model depth.
+**Key path — per-channel INT4 (`cq_key_path`)**
+1. Buffer a group of **G=128** key tokens (`residual_buffer`).
+2. Take the per-channel max over the group (`amax_unit`, key mode) and freeze
+   **D per-channel FP16 scales** (`scale_bank`).
+3. Quantize each keep-channel to **INT4**; the top-k outlier channels (CQ-4+,
+   k=2 from a static calibrated ROM mask) are held **FP16** instead.
 
-### Prior work: quantization helps but loses accuracy
+**Value path — per-token INT4 (`cq_value_path`)**
+- Per-token amax → FP16 scale → INT4 (INT8 for the CQ-8 tier). No grouping.
 
-Naive INT8 or INT4 quantization reduces storage but introduces
-systematic bias in attention scores (keys) and accumulated values.
-Published schemes (GEAR, RotateKV, Lexico) address this with
-varying quality/complexity tradeoffs, but none provide a clean
-hardware-friendly pipeline with asymmetric K/V treatment.
+**Unified per-channel SRAM record** `{tag, D×FP16 field, D×INT4 code}`
+- Keep channel → `{group scale, INT4 code}`; **outlier channel → `{raw FP16, code +1}`**
+  so decompress `code · field` widens the FP16 exactly — no separate sidecar region
+  and no read-side mask. Read-back reuses the same per-channel dequant, tag-muxed
+  against the value dequant.
 
-### Our contribution: TurboQuant+ with asymmetric K/V compression
+**Area/timing:** each compute core (scale / quant / dequant) carries an fp16
+divider, so instead of D parallel units the datapath **serializes one shared unit**
+across the D channels (a single divide cone is what stalled place-and-route). This
+is bit-exact with the behavioral oracle and place-and-routes at a real clock.
 
-TurboQuant+ uses a two-stage approach optimized differently for
-keys and values:
+---
 
-**Key path (4.25 bpv):**
-1. **Normalize** — extract L2 norm as metadata
-2. **Rotate** — Walsh-Hadamard Transform + random sign flips
-   (makes coordinates i.i.d. Gaussian, regardless of input distribution)
-3. **Quantize** — 3-bit optimal Lloyd-Max scalar quantization
-4. **QJL project** — 1-bit Quantized Johnson-Lindenstrauss on the
-   residual (preserves inner products for attention score accuracy)
+## Accuracy — verified end-to-end on Qwen2
 
-**Value path (~3.0 bpv):**
-Same pipeline minus QJL — values only need low MSE, not inner
-product preservation.
+HellaSwag `acc_norm`, n=1000, ChannelQuant K̂/V̂ inserted into the model's KV path
+(reproduced this repo via the frozen `../channelquant` reference):
 
-The rotation step is the key insight: WHT is O(n log n), self-inverse
-(same hardware for compress and decompress), and makes Lloyd-Max
-quantization near-optimal regardless of the input vector's coordinate
-distribution.
+| Model | FP16 | CQ-4 (Δ) | CQ-4+ (Δ) | bits/value |
+|---|---|---|---|---|
+| Qwen2-0.5B (D=64) | 0.4260 | 0.4170 (−0.009) | 0.4220 (−0.004) | ~4.19 / 4.38 |
+| Qwen2-1.5B (D=128) | 0.5210 | 0.5050 (−0.016) | **0.5130 (−0.008)** | ~4.13 / 4.22 |
 
-### Why this matters for the hardware budget
-
-| | Uncompressed (FP16) | This work (TurboQuant+ turbo4) |
-|---|---|---|
-| Key storage per vector (D=64) | 1024 bits | 288 bits (3.56x) |
-| Value storage per vector | 1024 bits | 208 bits (4.92x) |
-| DRAM bandwidth per token | 1.0x | **~0.28x** average |
-| On-chip SRAM capacity | 1.0x | **~3.5x** effective |
-| Additional silicon | none | ~6400 FFs (~0.5% of a typical attention tile) |
+Both tiers clear the ≤0.02 acceptance gate at **~4 bits/value (≈3.8× KV
+compression)**; the CQ-4+ outlier lane earns its keep at D=128. Combined with the
+ACU precision controller (INT8/FP16-routed S·V) the system holds accuracy at FP16
+(no measurable loss on Qwen2-0.5B).
 
 ---
 
 ## How this fits in LonghornSilicon
-
-The KV cache engine is one of four blocks in the
-LonghornSilicon LLM inference accelerator:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │              LonghornSilicon LLM Inference Accelerator (16FFC)       │
 │                                                                      │
 │   ┌──────────────────┐                                               │
-│   │  ACU             │ Q·K^T scores                                  │
-│   │  (block 1)       │─────────────────┐                             │
-│   │                  │                  ▼                             │
-│   │  precision_      │         ┌────────────────────┐                │
-│   │  controller      │         │  Token Importance   │                │
-│   │  ────────────    │         │  Unit (block 3)     │                │
-│   │  INT8 vs FP16    │         │                     │                │
-│   │  gate per tile   │         │  Per-token weight   │                │
-│   │                  │         │  → keep / evict     │                │
-│   │  + INT8/FP16     │         └─────────┬──────────┘                │
-│   │  MAC array       │                   │ tier signals               │
-│   └────────┬─────────┘                   │                           │
-│            │  K, V                       ▼                           │
-│            │               ┌─────────────────────────┐               │
-│            └──────────────▶│  KV Cache Engine         │               │
-│                            │  (this repo)             │               │
-│                            │                          │               │
-│                            │  TurboQuant+ compress    │               │
-│                            │  on writes, decompress   │               │
-│                            │  on reads                │               │
-│                            └─────────────┬───────────┘               │
-│                                          │                           │
-│                           ┌──────────────┴──────────────┐            │
-│                           ▼                              ▼            │
-│             ┌─────────────────────────┐   ┌──────────────────────┐   │
-│             │  Memory Hierarchy Ctrl. │   │  Off-chip LPDDR5     │   │
-│             │  (block 4)              │◀─▶│  (cold KV + model    │   │
-│             │                         │   │   weights)            │   │
-│             │  L1 SRAM (hottest KV)   │   └──────────────────────┘   │
-│             │  L2 eDRAM 8-32 MB       │                              │
-│             │  SHIELD refresh control │                              │
-│             └─────────────────────────┘                              │
+│   │  ACU (block 1)   │  Q·Kᵀ scores                                  │
+│   │  precision       │──────────────────┐                            │
+│   │  controller      │                   ▼                           │
+│   │  INT8 vs FP16    │          ┌────────────────────┐               │
+│   │  gate per tile   │          │ Token Importance    │               │
+│   │  + INT8/FP16 MAC │          │ Unit (block 3)      │               │
+│   └────────┬─────────┘          └─────────┬──────────┘               │
+│            │  K, V                        │ tier signals              │
+│            ▼                              ▼                           │
+│   ┌─────────────────────────┐                                        │
+│   │  KV Cache Engine        │  ChannelQuant compress on writes,      │
+│   │  (this repo)            │  decompress on reads:                  │
+│   │                         │  K → per-channel INT4 (+outlier FP16)  │
+│   │                         │  V → per-token INT4                     │
+│   └─────────────┬───────────┘                                        │
+│                 ▼                                                     │
+│   ┌─────────────────────────┐   ┌──────────────────────┐             │
+│   │ Memory Hierarchy Ctrl.  │◀─▶│ Off-chip LPDDR5       │             │
+│   │ (block 4)               │   │ (cold KV + weights)   │             │
+│   └─────────────────────────┘   └──────────────────────┘             │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 | Block | This repo? | Role |
 |---|---|---|
 | **ACU (Attention Compute Unit)** | no ([repo](https://github.com/LonghornSilicon/adaptive-precision-attention)) | Decides INT8 vs FP16 per tile, runs the MAC array |
-| **KV Cache Engine** | **this repo** | Compresses K/V on write, decompresses on read (TurboQuant+ turbo4) |
+| **KV Cache Engine** | **this repo** | ChannelQuant compress on write, decompress on read |
 | **Token Importance Unit** | not yet | Tracks attention weight per cached token → keep / demote / evict |
 | **Memory Hierarchy Controller** | not yet | Routes between L1 SRAM / L2 eDRAM / off-chip LPDDR5 |
 
-The two blocks coordinate at attention time: the KV cache engine
-decompresses K/V → the ACU computes Q·K^T scores → the precision
-controller routes INT8/FP16 → the MAC array runs the matmul.
+The two live blocks coordinate at attention time: KVCE decompresses K/V → the ACU
+computes Q·Kᵀ scores → the precision controller routes INT8/FP16 → the MAC array
+runs the matmul.
 
 ---
 
@@ -184,166 +145,109 @@ controller routes INT8/FP16 → the MAC array runs the matmul.
 
 ```
 kv-cache-engine/
-├── analysis/                  # Python: algorithm exploration, test-vector generation
 ├── rtl/
-│   ├── kv_cache_engine.sv          # Top-level module (AXI-Lite + AXI-Stream)
-│   ├── norm_unit.sv                # L2 norm: adder tree + integer sqrt
-│   ├── rotation_unit.sv            # WHT butterfly + random sign flips
-│   ├── quantizer.sv                # 3-bit Lloyd-Max nearest-centroid
-│   ├── qjl_unit.sv                 # QJL 1-bit sign projection (K only)
-│   ├── packer.sv                   # Bit-pack/unpack for SRAM
-│   ├── sram_controller.sv          # Behavioral SRAM (reg array, dual-port)
-│   ├── decompressor.sv             # Reverse compression pipeline
-│   ├── tb/                         # Self-checking + replay testbenches
-│   ├── constraints/                # SDC: 16FFC (800 MHz) + Sky130 (80 MHz)
-│   ├── genus.tcl, innovus.tcl      # Cadence flow (waiting on TSMC PDK)
-│   ├── synth.ys                    # Yosys synthesis script
-│   └── Makefile                    # Targets: sim, sim_realdata, testvectors, synth
-├── openlane/
-│   └── kv_cache_engine/            # LibreLane / OpenROAD flow targeting Sky130A
-│       └── config.json             # Design config (80 MHz target)
-├── sw/
-│   ├── README.md                   # Top-level orientation for the compiler team
-│   └── reference_model/
-│       ├── kv_cache_engine_ref.{hpp,cpp,py}   # Bit-exact reference (120+64 tests)
-│       ├── test_*.{cpp,py}                    # C++ and Python test suites
-│       └── Makefile                           # test, test-all, shared, static
-├── docs/
-│   ├── isa/kv_cache_engine_isa.{tex,pdf}      # ISA spec (kv-isa-0.1)
-│   ├── reference_model_api.{tex,pdf}          # Formal C++ / C / Python API reference
-│   ├── sw_overview.{tex,pdf}                  # Compiler-team orientation PDF
-│   ├── ci_overview.md                         # CI pipeline reference
-│   ├── ci_setup.md                            # GitHub Actions runner setup
-│   └── chamber_setup.md                       # End-to-end Cadence chamber walkthrough
-├── .github/workflows/ci.yml      # CI: RTL verif → synth → Sky130 signoff → ref tests
-└── README.md (this file)
+│   ├── kv_cache_engine.sv        # Top: AXI-Lite CSR + AXI-Stream, ChannelQuant FSM + SRAM
+│   ├── cq_key_path.sv            # Grouped per-channel INT4 key codec (serialized)
+│   ├── cq_value_path.sv          # Per-token INT4/INT8 value codec (serialized)
+│   ├── cq_units_syn.sv           # Synthesizable fp16 cores: scale / quant / dequant
+│   ├── cq_units.sv, cq_fp_pkg.sv # Behavioral `real` oracle (for the parity TBs)
+│   ├── amax_unit.sv              # Per-token / per-channel max reduction
+│   ├── residual_buffer.sv        # G-token group hold (key path)
+│   ├── scale_bank.sv             # D per-channel scale bank (key path)
+│   ├── sram_controller.sv        # Behavioral SRAM (reg array)
+│   ├── tb/                       # sim, sim_realdata, sim_cq, sim_amax, sim_vpath,
+│   │                             #   sim_kpath, sim_top, sim_syn  (+ vendored golden vectors)
+│   ├── constraints/, *.tcl, synth.ys, Makefile
+│   └── KEYPATH_HANDOFF.md, TEARDOWN.md, NOTES pointers
+├── openlane/kv_cache_engine/     # LibreLane / OpenROAD Sky130 flow (+ src/ symlinks)
+├── sw/reference_model/           # channelquant_ref.{hpp,cpp} (ChannelQuant C++ ref) + tests
+├── docs/                         # ISA spec, reference-model API, sw overview, CI docs
+├── NOTES.md                      # dated lab notebook (every parity/synth result)
+└── .github/workflows/ci.yml      # thin caller → shared block-ci reusable workflow
 ```
+
+The retired TurboQuant+ modules (`rotation_unit`, `qjl_unit`, `quantizer`,
+`packer`, `decompressor`, `norm_unit`) live on branch `legacy/turboquant-plus`.
 
 ---
 
-## Results
+## Verification & results
 
-### Compression quality (algorithmic)
+**RTL (this host, iverilog 12.0 / yosys):**
+- `make sim_top` — per-token INT4 V **and** grouped CQ-4+ keys **bit-exact** through
+  the AXI FSM + SRAM (D=64, G=64, k=2).
+- `make sim_kpath` — 6/6 bit-exact (serialized key path: scale + INT4 payload + K̂ +
+  sidecar, full and partial groups).
+- `make sim sim_realdata sim_vpath sim_amax sim_syn sim_cq` — all green.
+- `yosys proc; check` on the top — **0 "conflicting with a constant", 0 latches, 0
+  CHECK problems, no `real`.**
 
-- **120 Python + 64 C++ reference model tests pass** — round-trip
-  compress/decompress, K/V asymmetry, streaming vs batch agreement,
-  C API compatibility, RTL replay from hex vectors.
-- **Compression ratio**: K = 3.56x (4.25 bpv), V = 4.92x (~3.0 bpv),
-  combined >= 3x on canonical trace.
-- **Reconstruction**: bounded MSE below threshold for both K and V paths.
+**CI gates (all green):**
 
-### RTL verification
+| Gate | What it does | Status |
+|---|---|---|
+| 1. RTL functional verification | Directed + replay + parity iverilog TBs | ✅ |
+| 3. RTL synthesis (Yosys) | Synth + FF-count assertion | ✅ |
+| 4. Formal equivalence | RTL ≡ post-synth netlist (Yosys induction) | ✅ |
+| 5. Reference model tests | C++ + Python bit-exact (3-way parity) | ✅ |
+| 6. OpenLane Sky130 sign-off | Full Sky130 PnR + DRC/LVS | ✅ |
+| 2 / 7 / 8 | coverage / paper / Cadence 16FFC | disabled |
 
-- **14 directed testbench cases** — all states, reset recovery,
-  pipeline stall, centroid bucket coverage.
-- **Replay testbench** — hex-file driven, bit-exact match against
-  reference model outputs.
-- **Python / C++ / SV three-way parity** — compress AND decompress
-  paths verified bit-exact.
-
-### Hardware (current top-level, Yosys)
-
-| Metric | Value |
-|---|---|
-| Frequency target (Sky130) | **80 MHz** (12.5 ns) |
-| Frequency target (16FFC) | **800 MHz** (1.25 ns) |
-| Top-level FFs (Yosys, current wiring) | ~93 (sram_controller + FSM) |
-| Estimated full-pipeline FFs | ~6400 (all sub-modules wired) |
-| Yosys synthesis | Clean (zero warnings) |
+The synthesis/formal/OpenLane gates run a small **flop-based gate proxy** of the
+default params (the SRAM and residual buffer are behavioral flip-flops, no Sky130
+macro); the real head-dim / group / depth are set per-instantiation (every TB
+overrides them). See the FF-count note in `.github/workflows/ci.yml`.
 
 ---
 
 ## Reproduce
 
-### Functional verification (~30 sec)
+Toolchain: **iverilog 12.0** + **yosys** (CPU-only). On a fresh host see the
+per-host EDA-env notes; `. rtl/eda-env.sh` puts both on PATH.
 
 ```sh
 cd rtl
-make testvectors   # generate hex vectors from Python reference
-make sim           # directed testbench — should print ALL TESTS PASSED
-make sim_realdata  # replay testbench — should print ALL TESTS PASSED
+make sim_top      # top-level ChannelQuant end-to-end (per-token V + grouped keys), bit-exact
+make sim_kpath    # grouped per-channel INT4 key path, 6/6 bit-exact
+make sim_cq       # golden-vector parity, all 9 vectors (behavioral oracle)
+make sim sim_realdata sim_vpath sim_amax sim_syn   # the rest of the board
+
+# reference-model parity (C++ + Python):
+cd ../sw/reference_model && make test-all
+
+# synthesis / Sky130 sign-off:
+cd ../../rtl && yosys -s synth.ys
+cd ../openlane/kv_cache_engine && librelane --docker-no-tty --dockerized config.json
 ```
 
-### Reference model tests (~10 sec)
-
-```sh
-cd sw/reference_model
-make test-all      # builds C++ tests, runs them, runs Python tests
-```
-
-### Yosys synthesis (~10 sec)
-
-```sh
-cd rtl
-yosys -s synth.ys  # or: make synth
-# Reports cell/FF counts after generic synth + NAND mapping
-```
-
-### Sky130 OpenLane signoff (~5-10 min)
-
-Requires Docker (~25 GB free) and `pip install librelane`:
-
-```sh
-cd openlane/kv_cache_engine
-librelane --docker-no-tty --dockerized config.json
-# Final metrics at runs/<latest>/final/metrics.json
-```
-
-### Cadence flow (TSMC 16FFC, when PDK is provisioned)
-
-```sh
-cd rtl
-genus -files genus.tcl -log reports/genus.log
-innovus -files innovus.tcl -log reports/innovus.log
-```
-
-PDK paths are at the top of each Tcl file. The end-to-end walkthrough
-for fresh-chamber sign-off is in [`docs/chamber_setup.md`](docs/chamber_setup.md).
+End-to-end accuracy on Qwen2 is reproduced from the frozen `../channelquant`
+reference (`analysis/c23_headline.py`, HellaSwag); the algorithm accuracy claims
+live in that repo's contract.
 
 ---
 
-## CI / CD
-
-The thin caller at [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
-delegates to the
-[LonghornSilicon shared `block-ci` reusable workflow](https://github.com/LonghornSilicon/.github/blob/main/.github/workflows/block-ci.yml),
-which defines 8 gates for every block in the organization:
-
-| Gate | Runner | What it does |
-|---|---|---|
-| 1. RTL functional verification | GitHub Ubuntu | Directed + replay iverilog testbenches |
-| 2. Line coverage gate | GitHub Ubuntu | Verilator-based line coverage (disabled for now) |
-| 3. RTL synthesis (Yosys) | GitHub Ubuntu | Synth + FF-count assertion (expected: 72) |
-| 4. Formal equivalence | GitHub Ubuntu | RTL ≡ post-synth netlist via Yosys |
-| 5. Reference model tests | GitHub Ubuntu | C++ + Python bit-exact verification |
-| 6. OpenLane Sky130 sign-off | GitHub Ubuntu | Full Sky130 PnR; **fails if any violation** |
-| 7. Paper build | GitHub Ubuntu | pdflatex compile (disabled — no paper) |
-| 8. Cadence 16FFC sign-off | Self-hosted | Genus + Innovus (disabled until PDK + licenses) |
-
-Detailed CI walkthrough: [`docs/ci_overview.md`](docs/ci_overview.md).
-Runner setup: [`docs/ci_setup.md`](docs/ci_setup.md).
-
----
-
-## Register map (AXI-Lite)
+## Register map (AXI-Lite, ISA v0.2)
 
 | Offset | Name | Access | Description |
 |--------|------|--------|-------------|
 | `0x00` | `CTRL` | RW | bit[0]: soft_reset, bit[1]: enable |
-| `0x04` | `STATUS` | R | bit[0]: idle, bit[3]: sram_full |
-| `0x08` | `INFO_DIM` | R | VECTOR_DIM (64) |
-| `0x0C` | `INFO_PQ_BITS` | R | PQ quantization bits (3) |
-| `0x10` | `INFO_QJL_BITS` | R | QJL projection bits (1) |
-| `0x14` | `INFO_SRAM_DEPTH` | R | SRAM entries (16) |
-| `0x18` | `INFO_CR_K` | R | Key compression ratio (8.8 fixed-point) |
-| `0x1C` | `INFO_CR_V` | R | Value compression ratio (8.8 fixed-point) |
-| `0x20` | `INFO_VERSION` | R | ISA version (0x00010000) |
-| `0x24` | `OCCUPANCY` | R | Valid SRAM entries |
-| `0x28` | `WRITE_ADDR` | RW | Target write address |
-| `0x2C` | `READ_ADDR` | RW | Target read address |
+| `0x04` | `STATUS` | R | bit[0]: idle, sram_full |
+| `0x08` | `INFO_DIM` | R | head dim D |
+| `0x0C` | `INFO_TIER` | R | 0=CQ-8, 1=CQ-4, 2=CQ-4+ |
+| `0x10` | `INFO_GROUP` | R | key group size G (contract §3.1) |
+| `0x14` | `INFO_SRAM_DEPTH` | R | SRAM entries |
+| `0x18` | `INFO_CR_K` | R | key compression ratio (8.8 fixed-point) |
+| `0x1C` | `INFO_CR_V` | R | value compression ratio (8.8 fixed-point) |
+| `0x20` | `INFO_VERSION` | R | ISA version (`0x00020000` = v0.2) |
+| `0x24` | `OCCUPANCY` | R | valid SRAM entries |
+| `0x28` | `WRITE_ADDR` | RW | target write / group-base address |
+| `0x2C` | `READ_ADDR` | RW | target read address (write launches a decompress) |
 | `0x30` | `KV_SELECT` | RW | 0=key, 1=value |
-| `0x34` | `IRQ_MASK` | RW | Interrupt enable mask |
-| `0x38` | `IRQ_STATUS` | R/W1C | Interrupt pending status |
+| `0x34` | `IRQ_MASK` | RW | interrupt enable mask |
+| `0x38` | `IRQ_STATUS` | R/W1C | interrupt pending status |
+| `0x3C` | `INFO_OUTLIER_K` | R | top-k FP16 outlier channels (CQ-4+) |
+| `0x40` | `INFO_SCALE_DEPTH` | R | per-channel scale-bank depth (= D) |
+| `0x44` | `INFO_RESID_DEPTH` | R | residual-buffer depth (= G) |
 
 Full ISA specification: [`docs/isa/kv_cache_engine_isa.pdf`](docs/isa/kv_cache_engine_isa.pdf).
 
@@ -351,21 +255,20 @@ Full ISA specification: [`docs/isa/kv_cache_engine_isa.pdf`](docs/isa/kv_cache_e
 
 ## Status & roadmap
 
-- [x] Algorithm selection (TurboQuant+ turbo4, asymmetric K/V)
-- [x] Python golden reference model (120 tests)
-- [x] C++ bit-exact reference model (64 tests)
-- [x] SystemVerilog RTL sub-modules (norm, rotation, quantizer, QJL, packer, decompressor)
-- [x] Top-level integration with AXI-Lite + AXI-Stream
-- [x] Directed + replay testbenches (ALL TESTS PASSED)
-- [x] Yosys synthesis (clean)
-- [x] OpenLane Sky130 config + CI
-- [x] ISA specification (kv-isa-0.1)
-- [x] Cadence scripts (Genus + Innovus + MMMC)
-- [ ] **Wire full compression pipeline into top-level FSM**
-- [ ] **OpenLane Sky130 sign-off (zero violations, all corners)**
-- [ ] **TSMC 16FFC sign-off on Cadence (waiting on PDK access)**
-- [ ] **ZCU102/104 FPGA prototype (Vivado, when board arrives)**
-- [ ] Integration with Precision Controller, Token Importance Unit, Memory Hierarchy Controller
+- [x] Codec pivot TurboQuant+ → ChannelQuant (algorithm de-risked in `../channelquant`)
+- [x] Synthesizable fp16 compute cores (scale / quant / dequant), bit-exact vs oracle
+- [x] Per-token value path + grouped per-channel INT4 key path (serialized)
+- [x] Outlier-channel lane (CQ-4+) + static ROM mask
+- [x] Top-level integration (AXI-Lite CSR + AXI-Stream), unified per-channel SRAM record
+- [x] Directed / replay / parity / top-stream testbenches — all green, bit-exact
+- [x] 3-way Python↔C++↔SV reference parity
+- [x] Yosys synthesis + FF-count + formal RTL≡netlist equivalence (CI green)
+- [x] OpenLane Sky130 sign-off (CI green)
+- [x] End-to-end accuracy on Qwen2-0.5B / 1.5B (near-FP16 at ~4 bits)
+- [ ] Partial-group flush (g<G) top stream-framing (datapath already supports it)
+- [ ] TSMC 16FFC sign-off on Cadence (waiting on PDK access)
+- [ ] ZCU102/104 FPGA prototype (Vivado, when board arrives)
+- [ ] Integration with Token Importance Unit, Memory Hierarchy Controller
 - [ ] Full-chip tape-out via TSMC University Program shuttle (target Q3/Q4 2026)
 
 ---
@@ -374,7 +277,8 @@ Full ISA specification: [`docs/isa/kv_cache_engine_isa.pdf`](docs/isa/kv_cache_e
 
 ```bibtex
 @misc{kv_cache_engine_2026,
-  title  = {KV Cache Engine: Hardware TurboQuant+ Compression for Transformer KV Caches},
+  title  = {KV Cache Engine: A Streaming Silicon Implementation of ChannelQuant
+            (Per-Channel INT4) KV-Cache Compression},
   author = {LonghornSilicon},
   year   = {2026},
   url    = {https://github.com/LonghornSilicon/kv-cache-engine}
@@ -383,11 +287,10 @@ Full ISA specification: [`docs/isa/kv_cache_engine_isa.pdf`](docs/isa/kv_cache_e
 
 ## Acknowledgments
 
-This work uses [TurboQuant+](https://github.com/themoddedcube/turboquant-plus)
-for the compression algorithm, built on the QJL framework
-(Zandieh et al., 2024) and PolarQuant (Lin et al., 2024). The open
-hardware flow uses
-[Yosys](https://github.com/YosysHQ/yosys),
+The ChannelQuant codec follows the per-channel-key / per-token-value + outlier
+recipe of **KIVI** (Liu et al., ICML 2024) and **KVQuant** (Hooper et al., 2024);
+this block contributes the streaming silicon implementation. The open hardware
+flow uses [Yosys](https://github.com/YosysHQ/yosys),
 [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD),
 [LibreLane](https://github.com/librelane/librelane), and the
 [SkyWater Sky130 PDK](https://github.com/google/skywater-pdk).

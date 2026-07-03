@@ -22,7 +22,7 @@
   citecolor=black,
   pdftitle={KV Cache Engine --- Interface Specification},
   pdfauthor={LonghornSilicon},
-  pdfsubject={ISA Specification, Version kv-isa-0.1}
+  pdfsubject={ISA Specification, Version kv-isa-0.2}
 }
 
 % Headings
@@ -34,7 +34,7 @@
 \pagestyle{fancy}
 \fancyhf{}
 \lhead{\small KV Cache Engine ISA}
-\rhead{\small \texttt{kv-isa-0.1}}
+\rhead{\small \texttt{kv-isa-0.2}}
 \cfoot{\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
 
@@ -78,9 +78,9 @@
 \rule{0.7\textwidth}{0.4pt}\\[1em]
 
 \begin{tabular}{rl}
-\textbf{Version}:    & \texttt{kv-isa-0.1} (first public draft) \\
-\textbf{Date}:       & 2026-05-14 \\
-\textbf{Status}:     & Pre-tape-out stub for compiler integration \\
+\textbf{Version}:    & \texttt{kv-isa-0.2} (ChannelQuant codec) \\
+\textbf{Date}:       & 2026-07-03 \\
+\textbf{Status}:     & Codec integrated; RTL signed off (all CI gates green, Sky130) \\
 \textbf{Author}:     & Chaithu Talasila, The University of Texas at Austin \\
 \textbf{Reference}:  & \texttt{LonghornSilicon/kv-cache-engine} \\
 \end{tabular}\\[1em]
@@ -93,10 +93,13 @@
 \texttt{kv\_cache\_engine} block as it will appear on the chip, on an
 FPGA prototype, or in the bit-accurate software model.
 A compiler backend targeting the KV cache engine writes against this
-interface; the hardware implementation must conform to it. This specification
-is stable for the KV cache engine block only and will be unified
-with the rest of the LonghornSilicon ISA when the Token
-Importance Unit and Memory Hierarchy Controller blocks land.
+interface; the hardware implementation must conform to it. \textbf{v0.2} replaces
+the retired TurboQuant+ codec (PolarQuant + QJL + Walsh--Hadamard rotation) with
+\textbf{ChannelQuant} --- per-channel INT4 keys, per-token INT4 values, and static
+outlier-channel isolation --- following the algorithm contract frozen in the
+sibling \texttt{channelquant} repository. This specification is stable for the
+KV cache engine block only and will be unified with the rest of the LonghornSilicon
+ISA when the Token Importance Unit and Memory Hierarchy Controller blocks land.
 \end{minipage}
 
 \vspace{0.3in}
@@ -117,36 +120,51 @@ Importance Unit and Memory Hierarchy Controller blocks land.
 \label{sec:overview}
 
 The KV cache engine manages on-chip storage of key and value tensors for
-transformer attention, with lossy compression to reduce DRAM bandwidth.
-It implements TurboQuant+ (\texttt{turbo4} configuration):
+transformer attention, with lossy compression to reduce DRAM bandwidth. It
+implements \textbf{ChannelQuant}, which quantizes on the axis that dominates the
+KV error budget for grouped-query-attention (GQA) models --- a few fixed
+high-magnitude \emph{key channels}:
 
 \begin{itemize}
-\item \textbf{Key path}: PolarQuant (3-bit) + QJL (1-bit) = 4.25 bits per value (bpv)
-\item \textbf{Value path}: PolarQuant (3-bit) only $\approx$ 3.0 bpv
+\item \textbf{Key path (per-channel INT4)}: keys are scaled \emph{per channel}
+      over a group of \texttt{G} tokens, then quantized to INT4. The top-$k$
+      worst channels (tier CQ-4+) are held FP16 instead of INT4.
+\item \textbf{Value path (per-token INT4)}: values are scaled per token and
+      quantized to INT4 (INT8 for the CQ-8 tier).
 \end{itemize}
 
-\noindent The compression pipeline consists of:
+\noindent\textbf{Tiers} (\texttt{INFO\_TIER}):
+\begin{itemize}
+\item \textbf{CQ-8}: per-token INT8 for both K and V.
+\item \textbf{CQ-4}: per-channel INT4 keys, per-token INT4 values.
+\item \textbf{CQ-4+}: CQ-4 plus $k$ FP16 outlier key channels from a static
+      calibrated ROM mask.
+\end{itemize}
+
+\noindent The compression flow is:
 \begin{enumerate}
-\item \textbf{Norm extraction}: L2 norm of the input vector, stored as metadata.
-\item \textbf{Rotation}: Walsh-Hadamard Transform with random sign flips
-      (deterministic from seed). Self-inverse, $O(n \log n)$ butterfly structure.
-\item \textbf{Quantization}: 3-bit optimal Lloyd-Max scalar quantization on the
-      rotated coordinates, producing centroid indices.
-\item \textbf{QJL projection} (K path only): Quantized Johnson-Lindenstrauss
-      transform on the residual. Random $\pm 1$ projection matrix from seed,
-      producing 1-bit signs per dimension.
-\item \textbf{Packing}: Bit-packing of norm, indices, residual norm, and signs
-      into a compact SRAM word.
+\item \textbf{Key group buffer}: accumulate \texttt{G} key tokens
+      (\texttt{residual\_buffer}).
+\item \textbf{Per-channel scale}: take the per-channel max over the group
+      (\texttt{amax\_unit}, key mode) and freeze \texttt{D} per-channel FP16
+      scales (\texttt{scale\_bank}).
+\item \textbf{Quantize}: keep channels $\to$ INT4; outlier channels (CQ-4+) $\to$
+      FP16 (static ROM mask). Values quantize per token against a per-token FP16
+      scale.
+\item \textbf{Store}: a unified per-channel SRAM record (\S\ref{sec:algorithm}).
 \end{enumerate}
 
-\noindent Decompression reverses the pipeline: unpack, centroid lookup, QJL
-correction (K only), inverse WHT, norm rescaling.
+\noindent Decompression is per channel: \texttt{code $\cdot$ scale} reconstructs
+each keep channel; outlier channels replay their stored FP16 directly. The
+read-side bus is \textbf{IEEE-754 fp32} (contract \S1).
 
 \medskip
-\noindent\textbf{Compression ratio:} K = 3.56$\times$, V = 4.92$\times$, combined $\geq$ 3$\times$.\\
-\textbf{Footprint:} $\sim$6400 FFs estimated (full pipeline); $\sim$93 FFs current top-level.\\
-\textbf{Bit-exact reference:} \path{sw/reference_model/kv_cache_engine_ref.py}
-and \path{sw/reference_model/kv_cache_engine_ref.{hpp,cpp}}.
+\noindent\textbf{Compression:} $\approx$4 effective bits/value, $\approx$3.8$\times$
+vs.\ FP16, near-lossless.\\
+\textbf{Accuracy (HellaSwag acc\_norm, n=1000):} Qwen2-0.5B 0.417/0.422 (CQ-4/CQ-4+)
+vs.\ 0.426 FP16; Qwen2-1.5B 0.505/0.513 vs.\ 0.521 FP16.\\
+\textbf{Bit-exact reference:} \path{sw/reference_model/channelquant_ref.{hpp,cpp}}
+and the frozen Python reference in \path{../channelquant/reference/}.
 
 %==============================================================================
 % 2. Address space and memory map
@@ -160,27 +178,30 @@ are 32-bit, word-aligned. The base address is set at chip integration time.
 \begin{table}[h]
 \centering
 \small
-\caption{AXI-Lite register window (offsets relative to base address).}
+\caption{AXI-Lite register window (offsets relative to base address), ISA v0.2.}
 \label{tab:regs}
 \begin{tabular}{@{}l l c l p{6cm}@{}}
 \toprule
 Offset & Name & Access & Reset & Purpose \\
 \midrule
 \texttt{0x00} & \texttt{CTRL}              & RW    & 0x0   & bit[0]: \texttt{soft\_reset} (write-1 to pulse); bit[1]: \texttt{enable} \\
-\texttt{0x04} & \texttt{STATUS}            & R     & 0x1   & bit[0]: \texttt{idle}; bit[1]: reserved; bit[2]: reserved; bit[3]: \texttt{sram\_full} \\
-\texttt{0x08} & \texttt{INFO\_DIM}         & R     & (syn) & Synthesis-time \texttt{VECTOR\_DIM} \\
-\texttt{0x0C} & \texttt{INFO\_PQ\_BITS}    & R     & (syn) & PolarQuant quantization bits (3) \\
-\texttt{0x10} & \texttt{INFO\_QJL\_BITS}   & R     & (syn) & QJL projection bits (1) \\
+\texttt{0x04} & \texttt{STATUS}            & R     & 0x1   & bit[0]: \texttt{idle}; bit[3]: \texttt{sram\_full} \\
+\texttt{0x08} & \texttt{INFO\_DIM}         & R     & (syn) & Head dimension \texttt{VECTOR\_DIM} ($D$) \\
+\texttt{0x0C} & \texttt{INFO\_TIER}        & R     & (syn) & 0 = CQ-8, 1 = CQ-4, 2 = CQ-4+ \\
+\texttt{0x10} & \texttt{INFO\_GROUP}       & R     & (syn) & Key group size \texttt{G} (contract \S3.1) \\
 \texttt{0x14} & \texttt{INFO\_SRAM\_DEPTH} & R     & (syn) & Number of SRAM entries \\
 \texttt{0x18} & \texttt{INFO\_CR\_K}       & R     & (syn) & Key compression ratio, fixed-point 8.8 \\
 \texttt{0x1C} & \texttt{INFO\_CR\_V}       & R     & (syn) & Value compression ratio, fixed-point 8.8 \\
-\texttt{0x20} & \texttt{INFO\_VERSION}     & R     & 0x00010000 & bits[31:24] major, bits[23:16] minor, bits[15:8] patch, bits[7:0] build \\
+\texttt{0x20} & \texttt{INFO\_VERSION}     & R     & 0x00020000 & bits[31:24] major, [23:16] minor, [15:8] patch, [7:0] build \\
 \texttt{0x24} & \texttt{OCCUPANCY}         & R     & 0x0   & Number of valid entries in SRAM \\
-\texttt{0x28} & \texttt{WRITE\_ADDR}       & RW    & 0x0   & Target SRAM address for next write \\
-\texttt{0x2C} & \texttt{READ\_ADDR}        & RW    & 0x0   & Target SRAM address for next read \\
-\texttt{0x30} & \texttt{KV\_SELECT}        & RW    & 0x0   & bit[0]: 0 = key path, 1 = value path \\
+\texttt{0x28} & \texttt{WRITE\_ADDR}       & RW    & 0x0   & Target write / key-group-base address \\
+\texttt{0x2C} & \texttt{READ\_ADDR}        & RW    & 0x0   & Target read address (write launches a decompress) \\
+\texttt{0x30} & \texttt{KV\_SELECT}        & RW    & 0x0   & bit[0]: 0 = key, 1 = value \\
 \texttt{0x34} & \texttt{IRQ\_MASK}         & RW    & 0x0   & bits[3:0]: interrupt enable mask \\
 \texttt{0x38} & \texttt{IRQ\_STATUS}       & R/W1C & 0x0   & bits[3:0]: interrupt pending; write-1-to-clear \\
+\texttt{0x3C} & \texttt{INFO\_OUTLIER\_K}  & R     & (syn) & Top-$k$ FP16 outlier key channels (CQ-4+) \\
+\texttt{0x40} & \texttt{INFO\_SCALE\_DEPTH}& R     & (syn) & Per-channel scale-bank depth ($=D$) \\
+\texttt{0x44} & \texttt{INFO\_RESID\_DEPTH}& R     & (syn) & Residual-buffer depth ($=G$) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -210,8 +231,8 @@ Two AXI-Stream interfaces carry the vector data. The AXI-Lite window in
 \toprule
 Signal      & Width                  & Direction & Purpose \\
 \midrule
-\texttt{tdata}  & \texttt{COORD\_WIDTH} & in        & One signed two's-complement coordinate \\
-\texttt{tlast}  & 1                     & in        & Assert on the final coordinate of the vector \\
+\texttt{tdata}  & \texttt{COORD\_WIDTH} (16) & in    & One FP16 coordinate \\
+\texttt{tlast}  & 1                     & in        & Assert on the final coordinate of the token \\
 \texttt{tvalid} & 1                     & in        & Handshake: data is valid \\
 \texttt{tready} & 1                     & out       & Handshake: block is ready to accept \\
 \texttt{tuser}  & 1                     & in        & 0 = key vector, 1 = value vector \\
@@ -221,14 +242,18 @@ Signal      & Width                  & Direction & Purpose \\
 
 \noindent\textbf{Protocol:}
 \begin{itemize}
-\item A complete vector is exactly \texttt{VECTOR\_DIM} beats. \texttt{tlast}
+\item A complete token is exactly \texttt{VECTOR\_DIM} beats. \texttt{tlast}
   asserts on the final beat.
-\item The \texttt{tuser} field selects the compression path: key vectors receive
-  PolarQuant + QJL compression; value vectors receive PolarQuant only.
-\item The target SRAM address must be set via \texttt{WRITE\_ADDR} before
-  streaming begins.
-\item Backpressure: when the block is not ready (e.g., during compression or
-  SRAM write), \texttt{tready} deasserts. Upstream must hold signals stable.
+\item \texttt{tuser} selects the path: value tokens (and, in the CQ-8 tier, key
+  tokens) compress per token; key tokens in CQ-4/CQ-4+ enter the \emph{grouped}
+  per-channel path.
+\item \textbf{Key grouping.} Program \texttt{WRITE\_ADDR} to the group base, then
+  stream \texttt{G} key tokens back-to-back. The engine buffers the group, freezes
+  the per-channel scales, and emits the group's per-token records to
+  \texttt{base}, \texttt{base+1}, \dots. (Partial-group flush, $g<G$, is a
+  planned extension; the datapath already supports it.)
+\item Backpressure: \texttt{tready} deasserts during compression / SRAM write /
+  group emit. Upstream must hold signals stable.
 \end{itemize}
 
 \subsection{\texttt{m\_axis\_kv} --- Vector Read (Master)}
@@ -241,7 +266,7 @@ Signal      & Width                  & Direction & Purpose \\
 \toprule
 Signal      & Width                    & Direction & Purpose \\
 \midrule
-\texttt{tdata}  & \texttt{COORD\_WIDTH}   & out       & One signed two's-complement decompressed coordinate \\
+\texttt{tdata}  & \texttt{OUT\_WIDTH} (32) & out    & One IEEE-754 fp32 decompressed coordinate \\
 \texttt{tlast}  & 1                       & out       & Asserted on the final coordinate \\
 \texttt{tvalid} & 1                       & out       & Handshake: data is valid \\
 \texttt{tready} & 1                       & in        & Handshake: downstream is ready to accept \\
@@ -249,9 +274,10 @@ Signal      & Width                    & Direction & Purpose \\
 \end{tabular}
 \end{table}
 
-\noindent\textbf{Protocol.} One beat per coordinate, \texttt{VECTOR\_DIM} beats
-per vector. Set \texttt{READ\_ADDR} and \texttt{KV\_SELECT} before initiating
-a read. The decompression path is selected by \texttt{KV\_SELECT}.
+\noindent\textbf{Protocol.} Writing \texttt{READ\_ADDR} launches a decompress; the
+block then streams \texttt{VECTOR\_DIM} fp32 beats, one channel per beat. The
+read bus is fp32 (contract \S1); a downstream attention core may narrow to fp16
+outside the codec's parity boundary.
 
 \subsection{Eviction Interface}
 \label{sec:evict}
@@ -264,24 +290,18 @@ a read. The decompression path is selected by \texttt{KV\_SELECT}.
 Signal             & Width                         & Direction & Purpose \\
 \midrule
 \texttt{evict\_needed} & 1                         & out       & Asserted when SRAM is full \\
-\texttt{evict\_addr}   & $\lceil\log_2 D\rceil$    & out       & Address of entry to evict \\
+\texttt{evict\_addr}   & $\lceil\log_2 \texttt{SRAM\_DEPTH}\rceil$ & out & Address of entry to evict \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \noindent This interface connects to the Memory Hierarchy Controller (block~4).
-When \texttt{evict\_needed} asserts, the controller must either spill the entry
-at \texttt{evict\_addr} to DRAM or invalidate it before the next write.
 
 %==============================================================================
 % 4. Logical operations (compiler-facing)
 %==============================================================================
 \section{Logical Operations}
 \label{sec:ops}
-
-Below are the abstract operations a compiler emits. Each maps to a short
-sequence of register writes and stream beats; the C API in \S\ref{sec:capi}
-gives the concrete library calls.
 
 \begin{table}[h]
 \centering
@@ -293,10 +313,10 @@ Operation                     & Inputs             & Outputs          & Descript
 \texttt{KV\_QUERY}            & ---                & INFO struct      & Read all \texttt{INFO\_*} registers \\
 \texttt{KV\_RESET}            & ---                & ---              & Soft reset: clear SRAM, reset FSM \\
 \texttt{KV\_ENABLE}           & ---                & ---              & Set bit[1] of \texttt{CTRL} \\
-\texttt{KV\_COMPRESS\_KEY}    & addr, $D$ coords   & ---              & Compress and store a key vector at \texttt{addr} \\
-\texttt{KV\_COMPRESS\_VALUE}  & addr, $D$ coords   & ---              & Compress and store a value vector at \texttt{addr} \\
-\texttt{KV\_DECOMPRESS\_KEY}  & addr               & $D$ coords       & Read and decompress a key vector from \texttt{addr} \\
-\texttt{KV\_DECOMPRESS\_VALUE}& addr               & $D$ coords       & Read and decompress a value vector from \texttt{addr} \\
+\texttt{KV\_COMPRESS\_KEY}    & base, $G{\times}D$ coords & ---       & Buffer + compress a key \emph{group}; store $G$ per-token records \\
+\texttt{KV\_COMPRESS\_VALUE}  & addr, $D$ coords   & ---              & Compress and store a value token at \texttt{addr} \\
+\texttt{KV\_DECOMPRESS\_KEY}  & addr               & $D$ fp32 coords  & Read and decompress a key token from \texttt{addr} \\
+\texttt{KV\_DECOMPRESS\_VALUE}& addr               & $D$ fp32 coords  & Read and decompress a value token from \texttt{addr} \\
 \texttt{KV\_STATUS}           & ---                & STATUS bits      & Read the \texttt{STATUS} register \\
 \texttt{KV\_OCCUPANCY}        & ---                & count            & Read the \texttt{OCCUPANCY} register \\
 \bottomrule
@@ -306,70 +326,42 @@ Operation                     & Inputs             & Outputs          & Descript
 \subsection{Worked Lowering Example}
 \label{sec:lowering}
 
-This section walks through how a compiler lowers a transformer attention
-operation into KV cache engine operations.
-
-Suppose the compiler's IR contains:
-\begin{lstlisting}[basicstyle=\ttfamily\small\itshape]
-%out = transformer_block(%q, %k, %v, %kv_cache)
-    : tensor<S x D x f16>, tensor<S x D x f16>, tensor<S x D x f16>,
-      kv_cache_handle -> tensor<S x D x f16>
-\end{lstlisting}
-
 \textbf{Stage~1: setup.} Query hardware configuration once per compilation:
 
 \begin{lstlisting}[basicstyle=\ttfamily\small]
-info = KV_QUERY()       // -> dim=64, pq_bits=3, qjl_bits=1, sram_depth=16
-KV_RESET()
-KV_ENABLE()
+info = KV_QUERY()   // -> dim=64, tier=1(CQ-4), group=128, outlier_k=0, sram_depth=16
+KV_RESET(); KV_ENABLE()
 \end{lstlisting}
 
-\textbf{Stage~2: store phase.} For each new token, compress and store its K/V:
+\textbf{Stage~2: store phase.} Values are per-token; keys are grouped:
 
 \begin{lstlisting}[basicstyle=\ttfamily\small]
-for token_idx in new_tokens:
-    addr = token_idx % info.sram_depth
-    KV_COMPRESS_KEY(addr, k_vectors[token_idx])
-    KV_COMPRESS_VALUE(addr, v_vectors[token_idx])
+for token_idx in new_tokens:                       // values: per token
+    KV_COMPRESS_VALUE(token_idx % info.sram_depth, v_vectors[token_idx])
+
+for group in key_groups_of(new_tokens, info.group): // keys: per G-token group
+    KV_COMPRESS_KEY(group.base_addr, group.k_vectors)   // stream G*D coords
 \end{lstlisting}
 
 \textbf{Stage~3: attention phase.} Decompress cached K/V for attention:
 
 \begin{lstlisting}[basicstyle=\ttfamily\small]
 for cached_idx in range(num_cached):
-    k_hat = KV_DECOMPRESS_KEY(cached_idx)
+    k_hat = KV_DECOMPRESS_KEY(cached_idx)   // D fp32 coords
     v_hat = KV_DECOMPRESS_VALUE(cached_idx)
     score = dot(query, k_hat) / sqrt(D)
-
-    // Route through precision controller (block 1)
-    decision = PC_PUSH_TILE(score)
-    if decision == FP16:
-        out += fp16_matmul(softmax(score), v_hat)
-    else:
-        out += int8_matmul(softmax(score), v_hat)
+    decision = PC_PUSH_TILE(score)          // block 1: precision controller
+    out += (fp16_matmul if decision == FP16 else int8_matmul)(softmax(score), v_hat)
 \end{lstlisting}
-
-\noindent Note the interaction between block~1 (precision controller) and
-block~2 (KV cache engine): the decompressed K/V vectors feed into the
-attention score computation, which the precision controller routes.
 
 \subsection{Compiler Binding Patterns}
 \label{sec:bindings}
 
-\noindent\textbf{MLIR dialect.} Define \texttt{lhsi.kv.*} ops mirroring the
-table in \S\ref{sec:ops}. The lowering pass rewrites \texttt{linalg.attention}
-or vendor-equivalent ops to emit \texttt{lhsi.kv.compress\_key},
-\texttt{lhsi.kv.decompress\_key}, etc.
-
-\noindent\textbf{TVM Relax / TIR.} Register backend target \texttt{"lhsi-kv"},
-pattern-match KV cache operations in the attention sub-graph, emit calls to
-TVM-runtime extern functions named for each \texttt{KV\_*} operation.
-
-\noindent\textbf{ONNX.} Add \texttt{CustomOpDomain} with KV cache ops, graph
-transform inserts compression/decompression around attention.
-
-\noindent\textbf{Custom IR.} Replace KV cache codegen with \texttt{KV\_*}
-operation sequences targeting the C API.
+\noindent\textbf{MLIR dialect.} Define \texttt{lhsi.kv.*} ops mirroring
+\S\ref{sec:ops}; the lowering pass rewrites attention ops to emit
+\texttt{lhsi.kv.compress\_key} (grouped), \texttt{lhsi.kv.decompress\_key}, etc.
+\noindent\textbf{TVM Relax / TIR}, \textbf{ONNX CustomOp}, and \textbf{custom IR}
+backends bind analogously to the C API in \S\ref{sec:capi}.
 
 %==============================================================================
 % 5. C API stub
@@ -378,118 +370,123 @@ operation sequences targeting the C API.
 \label{sec:capi}
 
 \begin{lstlisting}[language=C]
-/* lhsi_kv_cache_engine.h --- LonghornSilicon KV Cache Engine driver API. */
+/* lhsi_kv_cache_engine.h --- LonghornSilicon KV Cache Engine driver API (v0.2). */
 
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
 
 typedef struct {
-    uint32_t vector_dim;
-    uint32_t pq_bits;
-    uint32_t qjl_bits;
+    uint32_t vector_dim;       /* head dim D                                  */
+    uint32_t tier;             /* 0=CQ-8, 1=CQ-4, 2=CQ-4+                      */
+    uint32_t key_group;        /* G: tokens per per-channel key group         */
+    uint32_t outlier_k;        /* top-k FP16 outlier key channels (CQ-4+)     */
+    uint32_t scale_depth;      /* per-channel scale-bank depth (= D)          */
+    uint32_t resid_depth;      /* residual-buffer depth (= G)                 */
     uint32_t sram_depth;
-    uint32_t cr_k_fixed;       /* compression ratio K, fixed-point 8.8 */
-    uint32_t cr_v_fixed;       /* compression ratio V, fixed-point 8.8 */
-    uint32_t version;
+    uint32_t cr_k_fixed;       /* compression ratio K, fixed-point 8.8        */
+    uint32_t cr_v_fixed;       /* compression ratio V, fixed-point 8.8        */
+    uint32_t version;          /* 0x00020000 = v0.2                           */
 } lhsi_kv_info_t;
 
 typedef struct lhsi_kv_handle lhsi_kv_handle_t;
 
-/* Open / close */
 int  lhsi_kv_open (const char *device, lhsi_kv_handle_t **out);
 void lhsi_kv_close(lhsi_kv_handle_t *h);
-
-/* Configuration queries */
 int  lhsi_kv_query(lhsi_kv_handle_t *h, lhsi_kv_info_t *out);
-
-/* Control */
 int  lhsi_kv_reset (lhsi_kv_handle_t *h);
 int  lhsi_kv_enable(lhsi_kv_handle_t *h, bool enable);
 
-/* Compress and store a key vector at the given SRAM address. */
-int  lhsi_kv_compress_key(lhsi_kv_handle_t *h, uint32_t addr,
-                          const int16_t *coords, size_t dim);
+/* Compress + store a KEY GROUP of `g` tokens (g <= key_group) at base_addr.
+ * coords is g*dim FP16 values, token-major. */
+int  lhsi_kv_compress_key_group(lhsi_kv_handle_t *h, uint32_t base_addr,
+                                const uint16_t *coords_f16, size_t g, size_t dim);
 
-/* Compress and store a value vector at the given SRAM address. */
+/* Compress + store a single VALUE token at addr (dim FP16 values). */
 int  lhsi_kv_compress_value(lhsi_kv_handle_t *h, uint32_t addr,
-                            const int16_t *coords, size_t dim);
+                            const uint16_t *coords_f16, size_t dim);
 
-/* Read and decompress a key vector from the given SRAM address. */
-int  lhsi_kv_decompress_key(lhsi_kv_handle_t *h, uint32_t addr,
-                            int16_t *coords, size_t dim);
-
-/* Read and decompress a value vector from the given SRAM address. */
+/* Read + decompress a key / value token: dim fp32 values out. */
+int  lhsi_kv_decompress_key  (lhsi_kv_handle_t *h, uint32_t addr,
+                              float *coords_f32, size_t dim);
 int  lhsi_kv_decompress_value(lhsi_kv_handle_t *h, uint32_t addr,
-                              int16_t *coords, size_t dim);
+                              float *coords_f32, size_t dim);
 
-/* Diagnostics. */
-typedef struct {
-    bool     idle;
-    bool     sram_full;
-    uint32_t occupancy;
-} lhsi_kv_status_t;
+typedef struct { bool idle; bool sram_full; uint32_t occupancy; } lhsi_kv_status_t;
 int  lhsi_kv_status(lhsi_kv_handle_t *h, lhsi_kv_status_t *out);
 \end{lstlisting}
 
-\noindent
-Return codes follow the standard Linux convention: \texttt{0} on success,
+\noindent Return codes follow the standard convention: \texttt{0} on success,
 \texttt{-errno} on failure.
 
 %==============================================================================
 % 6. Compression algorithm
 %==============================================================================
-\section{Compression Algorithm: TurboQuant+}
+\section{Compression Algorithm: ChannelQuant}
 \label{sec:algorithm}
 
-TurboQuant+ is a two-stage vector quantization scheme designed for KV cache
-compression in transformer inference. The \texttt{turbo4} configuration
-provides 4.25 bpv for keys and $\sim$3.0 bpv for values.
+ChannelQuant is a per-channel/per-token integer quantization scheme designed for
+KV-cache compression in GQA transformer inference. It follows the KIVI/KVQuant
+recipe; the algorithm contract, reference model, and golden vectors are frozen in
+the sibling \texttt{channelquant} repository (contract v0.2). Rounding is
+round-half-to-even; INT4 clamps to $[-8,7]$, INT8 to $[-128,127]$; scales are
+FP16 with $\text{EPS}=2^{-14}$.
 
-\subsection{PolarQuant (Both K and V)}
-
+\subsection{Key Path --- Per-Channel INT4}
+Keys are quantized on the \emph{channel} axis, because the KV error on GQA models
+is dominated by a few fixed high-magnitude key channels.
 \begin{enumerate}
-\item \textbf{Norm extraction}: Compute $\|x\|_2$ (L2 norm) and normalize:
-      $\hat{x} = x / \|x\|_2$.
-\item \textbf{Rotation}: Apply random sign flips $s_i \in \{-1, +1\}$ (from
-      LCG seed), then Walsh-Hadamard Transform:
-      $y = \mathrm{WHT}(\hat{x} \odot s)$.
-      This randomizes the coordinate distribution toward i.i.d.\ Gaussian.
-\item \textbf{Quantization}: 3-bit optimal Lloyd-Max scalar quantization of
-      each rotated coordinate $y_i$, using 8 centroids symmetric around zero:
-      $\pm 0.2451\sigma$, $\pm 0.7560\sigma$, $\pm 1.3439\sigma$,
-      $\pm 2.1520\sigma$ where $\sigma = 1/\sqrt{D}$.
+\item Buffer a group of \texttt{G} key tokens.
+\item For each channel $c$, take $a_c = \max_t |k_{t,c}|$ over the group and form
+      the FP16 scale $s_c = \max(a_c / q_{\max}, \text{EPS})$ with $q_{\max}=7$.
+\item Quantize each keep channel: $\hat{q}_{t,c} =
+      \mathrm{clamp}(\mathrm{round}(k_{t,c}/s_c))$ to INT4.
+\item \textbf{CQ-4+ outlier lane}: the top-$k$ channels from the static calibrated
+      ROM mask (\path{../channelquant/reference/masks/}, $k=2$) are stored FP16
+      rather than INT4.
 \end{enumerate}
 
-\subsection{QJL Correction (K Path Only)}
+\subsection{Value Path --- Per-Token INT4}
+Each value token is scaled by $s_t=\max(\max_c|v_{t,c}|/q_{\max},\text{EPS})$ and
+quantized to INT4 (INT8 with $q_{\max}=127$ for the CQ-8 tier). No grouping.
 
-After PolarQuant, the quantization residual $r = y - \hat{y}$ is projected
-through a random $\pm 1$ matrix $R \in \{-1,+1\}^{D \times D}$ (from
-seed + \texttt{0xDEADBEEF}):
-\[
-z_j = \mathrm{sign}\bigl(\textstyle\sum_{i=1}^{D} R_{ji} \cdot r_i\bigr)
-\]
-The 1-bit signs $z_j$ preserve inner products in expectation (Johnson-Lindenstrauss
-property). During decompression, the QJL correction is added back to the
-dequantized PolarQuant output, improving attention score accuracy for keys.
+\subsection{Unified Per-Channel SRAM Record}
+Each stored key token is a per-channel record
+$\{\text{tag},\ D\times\text{FP16 field},\ D\times\text{INT4 code}\}$:
+\begin{itemize}
+\item \textbf{keep channel} $\to$ $\{$group scale $s_c$, INT4 code$\}$;
+\item \textbf{outlier channel} $\to$ $\{$raw FP16 value, code $+1\}$, so that
+      decompress $\text{code}\cdot\text{field}$ widens the FP16 exactly --- no
+      separate sidecar region and no read-side mask.
+\end{itemize}
+Decompression is uniform per channel: $\hat{x}_c = \text{code}_c \cdot
+\text{field}_c$ in fp32. Value records store $\{$FP16 scale, packed INT4/INT8
+payload$\}$ and dequantize the same way.
 
-\subsection{Bit Layout}
-
+\subsection{Effective Bits and Compression}
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{@{}l l l l@{}}
+\begin{tabular}{@{}l l l@{}}
 \toprule
-Path & Fields & Bits & Compression \\
+Path & Per-value bits & Notes \\
 \midrule
-Key  & norm(16) + indices($D \times 3$) + res\_norm(16) + signs($D \times 1$) & $32 + 4D$ & 3.56$\times$ \\
-Value & norm(16) + indices($D \times 3$) & $16 + 3D$ & 4.92$\times$ \\
+Key (CQ-4)   & $4 + 16/G$        & INT4 code + amortized per-channel scale \\
+Key (CQ-4+)  & $4 + 16/G + \frac{k}{D}(16{-}4)$ & plus the FP16 outlier lane \\
+Value (INT4) & $4 + 16/D$        & INT4 code + per-token scale \\
 \bottomrule
 \end{tabular}
 \end{table}
+\noindent At $D{=}64$, $G{=}128$, $k{=}2$: mean $\approx$4.2 bits/value,
+$\approx$3.8$\times$ vs.\ FP16's 16 bits.
 
-\noindent For $D = 64$: key = 288 bits, value = 208 bits,
-vs.\ uncompressed $D \times 16 = 1024$ bits.
+\subsection{Serialized Datapath}
+Each compute core (scale / quant / dequant) carries an FP16 divider. Rather than
+$D$ parallel units (a single wide combinational divide cone that stalls
+place-and-route), the datapath \textbf{serializes one shared unit} walked across
+the $D$ channels, bit-exact with the behavioral oracle. This is what lets the
+block synthesize, pass formal RTL$\equiv$netlist equivalence, and place-and-route
+on Sky130 within the CI time budgets.
 
 %==============================================================================
 % 7. Synthesis-time configuration
@@ -504,17 +501,21 @@ vs.\ uncompressed $D \times 16 = 1024$ bits.
 \toprule
 Parameter             & Default & Range                   & Notes \\
 \midrule
-\texttt{VECTOR\_DIM}    & 64  & 16, 32, 64, 128          & Must be a power of two (WHT constraint) \\
-\texttt{PQ\_BITS}       & 3   & 2, 3, 4                  & Lloyd-Max quantization bits \\
-\texttt{QJL\_BITS}      & 1   & 1                        & Fixed at 1 in \texttt{kv-isa-0.1} \\
-\texttt{SRAM\_DEPTH}    & 16  & 4--4096                  & Behavioral reg array for Sky130; real macros at 16FFC \\
-\texttt{COORD\_WIDTH}   & 16  & 8, 12, 16                & Fixed-point coordinate width \\
-\texttt{COORD\_FRAC}    & 12  & 4--14                    & Fractional bits in coordinate representation \\
-\texttt{NORM\_WIDTH}    & 16  & 8, 12, 16                & Norm storage width \\
-\texttt{ROTATION\_SEED} & 42  & any 32-bit               & Deterministic LCG seed for sign flips and QJL matrix \\
+\texttt{VECTOR\_DIM}    & 64  & 16, 32, 64, 128          & Head dimension $D$ \\
+\texttt{TIER}           & 1   & 0, 1, 2                  & 0=CQ-8, 1=CQ-4, 2=CQ-4+ \\
+\texttt{KEY\_GROUP}     & 128 & $\geq 2$                 & Tokens per per-channel key group ($G$) \\
+\texttt{OUTLIER\_K}     & 0   & 0, 2                     & FP16 outlier key channels (CQ-4+) \\
+\texttt{SCALE\_WIDTH}   & 16  & 16                       & FP16 scale width \\
+\texttt{COORD\_WIDTH}   & 16  & 16                       & FP16 input coordinate width \\
+\texttt{OUT\_WIDTH}     & 32  & 32                       & fp32 decompressed output width \\
+\texttt{SRAM\_DEPTH}    & 16  & 2--4096                  & Behavioral reg array for Sky130; real macros at 16FFC \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\noindent\textbf{Gate proxy.} The synthesis / formal / OpenLane CI gates run a
+deliberately small default proxy (the SRAM and residual buffer are behavioral
+flip-flops, no Sky130 macro); the shipped $D$/$G$/depth are set per instantiation.
 
 %==============================================================================
 % 8. Bit-Accurate Reference
@@ -522,25 +523,19 @@ Parameter             & Default & Range                   & Notes \\
 \section{Bit-Accurate Reference}
 \label{sec:ref}
 
-Three implementations are provided, all bit-exact with each other:
-
+Three implementations are bit-exact with each other (3-way parity, contract \S8):
 \begin{enumerate}
-\item \textbf{Python}: \path{sw/reference_model/kv_cache_engine_ref.py} ---
-      golden reference with fixed-point arithmetic.
-\item \textbf{C++}: \path{sw/reference_model/kv_cache_engine_ref.{hpp,cpp}} ---
-      same fixed-point math, with \texttt{extern "C"} API using opaque handles.
-\item \textbf{SystemVerilog}: \path{rtl/kv_cache_engine.sv} + sub-modules ---
-      synthesizable RTL.
+\item \textbf{Python}: \path{../channelquant/reference/channelquant_ref.py} ---
+      the frozen algorithm reference + golden vectors.
+\item \textbf{C++}: \path{sw/reference_model/channelquant_ref.{hpp,cpp}} ---
+      a 1:1 port of the RTL behavioral cores.
+\item \textbf{SystemVerilog}: \path{rtl/kv_cache_engine.sv} + \path{cq_key_path.sv}
+      / \path{cq_value_path.sv} / \path{cq_units_syn.sv} + support --- synthesizable RTL.
 \end{enumerate}
 
-\noindent Usage:
-\begin{lstlisting}[language=Python]
-from kv_cache_engine_ref import KVCacheEngine, KVCacheEngineInfo
-
-engine = KVCacheEngine()
-ck = engine.compress_key(vector)
-reconstructed = engine.decompress_key(ck)
-\end{lstlisting}
+\noindent The RTL is verified bit-exact against the golden vectors by
+\path{make sim_cq} / \path{sim_kpath} / \path{sim_vpath} / \path{sim_top}, and the
+C++/Python legs by \path{make -C sw/reference_model test-all}.
 
 %==============================================================================
 % 9. Integration phases
@@ -556,7 +551,7 @@ reconstructed = engine.decompress_key(ck)
 \toprule
 Phase & Timeline & Compiler targets & We provide \\
 \midrule
-0 & now & Bit-accurate Python and C++ reference models & Models + ISA + tests \\
+0 & now & Bit-accurate Python and C++ reference models & Models + ISA + tests + Sky130 sign-off \\
 1 & when FPGA arrives & AXI-Lite + AXI-Stream on Zynq UltraScale+ & Vivado bitstream + driver \\
 2 & after all 4 blocks complete & Multi-block FPGA project & Integrated attention pipeline \\
 3 & post-tape-out (2027+) & PCIe-attached custom chip & TSMC 16FFC silicon + Linux driver \\
@@ -571,14 +566,15 @@ Phase & Timeline & Compiler targets & We provide \\
 \label{sec:interaction}
 
 \begin{itemize}
-\item \textbf{Block 1 (Precision Controller)}: Receives decompressed K/V vectors
-      from this block for attention score computation. The precision controller
-      decides INT8 vs FP16 routing based on the decompressed scores.
-\item \textbf{Block 3 (Token Importance Unit)}: Provides token importance scores
-      that inform eviction decisions when the SRAM is full.
-\item \textbf{Block 4 (Memory Hierarchy Controller)}: Receives
-      \texttt{evict\_needed} / \texttt{evict\_addr} signals when SRAM is full.
-      Manages spilling compressed entries to DRAM and fetching them back.
+\item \textbf{Block 1 (Precision Controller / ACU)}: receives the fp32
+      decompressed K/V from this block for attention; it decides INT8 vs FP16
+      routing per tile from the scores. The controller is codec-agnostic --- it
+      never sees the KV storage format --- so the ChannelQuant codec change
+      requires no ACU change.
+\item \textbf{Block 3 (Token Importance Unit)}: provides token-importance scores
+      informing eviction when SRAM is full.
+\item \textbf{Block 4 (Memory Hierarchy Controller)}: receives
+      \texttt{evict\_needed} / \texttt{evict\_addr} when SRAM is full.
 \end{itemize}
 
 %==============================================================================
@@ -588,13 +584,15 @@ Phase & Timeline & Compiler targets & We provide \\
 \label{sec:open}
 
 \begin{enumerate}
-\item Should the compression path support variable-rate quantization (2/3/4-bit
-      PolarQuant selected per-vector based on norm)?
-\item Should the QJL projection dimension be configurable (currently $D \times D$,
-      could be $D \times D'$ with $D' < D$ for reduced storage)?
-\item Should the block support direct SRAM-to-SRAM copy for cache migration?
-\item Are the current fixed-point widths sufficient for larger models
-      ($D = 128, 256$)?
+\item Partial-group flush ($g<G$): the datapath supports it; the top's stream
+      framing currently auto-flushes at full $G$ only. Which sideband signals a
+      partial group (control-register bit vs.\ stream marker)?
+\item Should the outlier count $k$ and the ROM mask be run-time reloadable
+      (per deployed model) rather than fixed at synthesis?
+\item Is a per-token DWB-style tier selector (2/4/8-bit) worth the controller
+      cost, given per-channel INT4 already recovers $\sim$FP16?
+\item Are the fp16 scale / fp32 read-bus widths sufficient for larger heads
+      ($D=256$)?
 \item Should the eviction policy be configurable via registers (LRU, FIFO,
       importance-based)?
 \end{enumerate}
@@ -606,8 +604,14 @@ Phase & Timeline & Compiler targets & We provide \\
 \label{sec:changelog}
 
 \begin{itemize}
-\item \texttt{kv-isa-0.1} (2026-05-14): First public draft. Stable for the
-      KV cache engine block only.
+\item \texttt{kv-isa-0.2} (2026-07-03): Codec replaced TurboQuant+ $\to$
+      ChannelQuant (per-channel INT4 keys, per-token INT4 values, CQ-4+ outlier
+      lane). New \texttt{INFO\_TIER}/\texttt{GROUP}/\texttt{OUTLIER\_K}/
+      \texttt{SCALE\_DEPTH}/\texttt{RESID\_DEPTH} registers; \texttt{INFO\_PQ\_BITS}
+      / \texttt{INFO\_QJL\_BITS} removed. fp32 read bus. RTL fully integrated and
+      signed off (all CI gates green, Sky130).
+\item \texttt{kv-isa-0.1} (2026-05-14): First public draft (TurboQuant+ codec,
+      retired).
 \end{itemize}
 
 \vspace{0.5in}
