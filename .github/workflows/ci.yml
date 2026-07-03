@@ -17,17 +17,18 @@ jobs:
     with:
       block-name: kv_cache_engine
       # FF-count gate (Yosys synth -flatten, gate 3), DEFAULT params
-      # (VECTOR_DIM=64, TIER=1, KEY_GROUP=16, OUTLIER_K=0). The grouped KEY path is
-      # now wired into the top: keys route through cq_key_path (residual_buffer G*D*DW
-      # + scale_bank D*DW + serialized per-channel INT4), and the SRAM record widened
-      # to the unified per-channel key layout {D fp16 field, D INT4 codes} =>
-      # SRAM_WIDTH ~= 1281 b (was 272). Count = SRAM (16*1281) + residual_buffer
-      # (16*1024, KEY_GROUP kept 16 for the flop-based gate) + scale_bank + two
-      # amax_units + value/key FSM regs. Local yosys 0.66 (memory_map+techmap) =
-      # 46167 (26273 $_DFFE_PN0P_ + 3 $_DFFE_PN1P_ + 18902 $_DFFE_PP_ + 989 $_DFF_PN0_);
-      # CI apt-yosys 0.33 (the arbiter) reports 46147 from the gate-3 log -- a 20-FF
-      # opt delta between the two yosys versions, as expected.
-      expected-ff-count: 46147
+      # (VECTOR_DIM=64, TIER=1, KEY_GROUP=2, SRAM_DEPTH=2, OUTLIER_K=0). The grouped
+      # KEY path is wired into the top (cq_key_path: residual_buffer + scale_bank +
+      # serialized per-channel INT4 scale/quant/dequant), SRAM record = unified
+      # per-channel key layout {D fp16 field, D INT4 codes} => SRAM_WIDTH ~= 1281 b.
+      # KEY_GROUP and SRAM_DEPTH DEFAULTS are tiny (2) on purpose: they scale the two
+      # behavioral flop MEMORIES (residual G*D*DW, SRAM depth*width) whose FFs
+      # otherwise dominate and blow gate-4 formal induction past its ~10-min budget.
+      # Real depth/G are set per-instantiation (the TBs override); D stays 64.
+      # Local yosys 0.66 (memory_map+techmap) = 14730 (9175 $_DFFE_PN0P_ + 3
+      # $_DFFE_PN1P_ + 4563 $_DFFE_PP_ + 989 $_DFF_PN0_). CI apt-yosys 0.33 (arbiter)
+      # may differ by a few; correct to the gate-3 log if it mismatches.
+      expected-ff-count: 14730
       has-reference-model: true
       has-paper: false
       has-coverage-gate: false

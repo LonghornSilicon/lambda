@@ -29,13 +29,16 @@ module kv_cache_engine #(
     parameter integer VECTOR_DIM    = 64,   // D: head dim (64 or 128)
     parameter integer TIER          = 1,    // 0 = CQ-8, 1 = CQ-4, 2 = CQ-4+
     // G: tokens per per-channel key group. Shipped value is 128 (contract §3.1),
-    // set per-instantiation. The DEFAULT is kept small (16) because the key path's
-    // residual_buffer is G*D*DW behavioral flip-flops — the same "keep the
-    // flop-based proxy small for the FF/formal gates" rationale as SRAM_DEPTH.
-    parameter integer KEY_GROUP     = 16,
+    // set per-instantiation. The DEFAULTS for KEY_GROUP and SRAM_DEPTH are kept
+    // TINY because they scale the two behavioral flop MEMORIES (residual_buffer =
+    // G*D*DW, SRAM = SRAM_DEPTH*SRAM_WIDTH). Those memory FFs dominate and make the
+    // gate-4 formal-equivalence induction blow past its ~10-min budget, so the
+    // synthesized gate proxy shrinks them (real depth/G are set per-instantiation;
+    // the TBs all override). VECTOR_DIM stays 64 (the real head dim / FF headline).
+    parameter integer KEY_GROUP     = 2,
     parameter integer OUTLIER_K     = 0,    // top-k FP16 key channels (CQ-4+)
     parameter integer SCALE_WIDTH   = 16,   // fp16 per-axis scale width
-    parameter integer SRAM_DEPTH    = 16,
+    parameter integer SRAM_DEPTH    = 2,
     parameter integer COORD_WIDTH   = 16,   // fp16 input element width
     parameter integer OUT_WIDTH     = 32,   // fp32 decompressed output element (contract §1)
     parameter         MASK_FILE     = ""    // outlier-mask ROM hex (only used if OUTLIER_K>0)
