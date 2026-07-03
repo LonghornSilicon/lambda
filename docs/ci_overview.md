@@ -45,17 +45,17 @@ The thin caller passes these to the shared workflow:
 
 ```yaml
 block-name: kv_cache_engine
-expected-ff-count: 72
+expected-ff-count: 3914          # ChannelQuant default gate proxy (apt-yosys 0.33)
 has-reference-model: true
 has-paper: false
 has-coverage-gate: false        # TB doesn't compile under Verilator yet
 has-formal-equivalence: true
-extra-rtl-sources: "sram_controller.sv"
+extra-rtl-sources: "sram_controller.sv cq_value_path.sv cq_key_path.sv residual_buffer.sv scale_bank.sv amax_unit.sv cq_units_syn.sv"
 ```
 
 The `extra-rtl-sources` input tells the synthesis, formal equivalence,
-and coverage jobs to read `sram_controller.sv` alongside the top module.
-Single-file blocks (like `precision_controller`) leave this empty.
+and coverage jobs to read the ChannelQuant datapath modules alongside the
+top. Single-file blocks (like `precision_controller`) leave this empty.
 
 ## Gate-by-gate: what's checked
 
@@ -65,7 +65,8 @@ Single-file blocks (like `precision_controller`) leave this empty.
 |---|---|
 | Install iverilog + numpy | `apt-get` the simulator + Python deps |
 | `make testvectors` | Python regenerates hex test vectors from reference model |
-| `make sim` | Compile RTL + directed TB, run 14 cases against integer reference |
+| `make sim` | Compile RTL + directed TB (17 cases) |
+| `make sim_kpath` / `sim_top` / `sim_cq` | ChannelQuant bit-exact vs golden vectors |
 | `make sim_realdata` | Compile RTL + replay TB, run hex vector replay cases |
 
 **Gate**: workflow greps for `ALL TESTS PASSED` or `Tests: N  Pass: N`.
@@ -81,12 +82,12 @@ Will be enabled once the TB is Verilator-clean.
 | Step | What it does |
 |---|---|
 | Install yosys | `apt-get` |
-| `read_verilog -sv kv_cache_engine.sv sram_controller.sv` | Reads top + dependency |
+| `read_verilog -sv kv_cache_engine.sv <extra-rtl-sources>` | Reads top + ChannelQuant datapath |
 | `synth -flatten -top kv_cache_engine` | Generic gate netlist + cell-count breakdown |
 | Awk-extract FF count | Sum every cell line containing `DFF` |
 
-**Gate**: FF count must equal 72 (the expected-ff-count input).
-Catches accidental state additions on every push.
+**Gate**: FF count must equal 3914 (the expected-ff-count input, the ChannelQuant
+default gate proxy). Catches accidental state additions on every push.
 
 **Records**: `rtl/synth.log` uploaded as artifact (30-day retention).
 

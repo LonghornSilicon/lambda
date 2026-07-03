@@ -18,19 +18,19 @@ sw/
     ├── README.md                 ← API reference + build instructions
     ├── Makefile                  ← build everything, run all tests
     │
-    ├── kv_cache_engine_ref.py    ← Python golden reference
-    ├── kv_cache_engine_ref.hpp   ← C++ header
-    ├── kv_cache_engine_ref.cpp   ← C++ implementation
+    ├── channelquant_ref.hpp/.cpp ← ChannelQuant C++ reference (shipped codec)
+    ├── test_channelquant_ref.cpp ← 9 golden-vector tests
     │
-    ├── test_kv_cache_engine_ref.py
-    └── test_kv_cache_engine_ref.cpp
+    └── kv_cache_engine_ref.*     ← retired TurboQuant+ reference (archival only)
+# Python algorithm reference + golden vectors live in ../channelquant/reference/
 ```
 
 ## Block status
 
-| Block | Status | C++ class | C API | Python |
-|---|---|---|---|---|
-| KV Cache Engine | Bit-exact vs RTL | `lhsi::KVCacheEngine` | `lhsi_kv_*` | `KVCacheEngine` |
+| Codec | Status | C++ API | Python |
+|---|---|---|---|
+| ChannelQuant (shipped) | Bit-exact vs RTL + golden | `lhsi::cq::compress_*` | `../channelquant` reference |
+| TurboQuant+ (retired) | archival regression only | `lhsi::KVCacheEngine` | — |
 
 The model follows the same template as block 1
 ([adaptive-precision-attention](https://github.com/LonghornSilicon/adaptive-precision-attention)):
@@ -41,16 +41,15 @@ that gates on parity with the RTL TB.
 
 ```sh
 cd reference_model
-make test-all     # builds C++ tests, runs them, runs Python tests
+make test-cq      # ChannelQuant C++ tests vs the 9 golden vectors
+make test-all     # legacy TQ + ChannelQuant + Python tests
 make shared       # libkv_cache_engine_ref.so
 make static       # libkv_cache_engine_ref.a
-make clean
 ```
 
-Requires Python 3.10+, NumPy, and a C++17 compiler. The C++ tests
-verify against the RTL test vectors (`rtl/tb/testvectors/*.hex`)
-which the Makefile regenerates from
-`analysis/gen_kv_testvectors.py` if they aren't on disk.
+Requires Python 3.10+, NumPy, and a C++17 compiler. The ChannelQuant tests
+verify against the vendored golden vectors in
+`rtl/tb/testvectors/channelquant/` (committed; no generation step).
 
 ## What the compiler team should look at first
 

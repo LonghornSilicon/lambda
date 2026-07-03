@@ -225,9 +225,9 @@ matches.
 
 **Yosys-incompatible SV features.** The Cadence tools (Genus/Innovus)
 handle all SystemVerilog features including unpacked array ports. Unlike
-the Yosys/OpenLane flow, you can include all sub-modules (norm_unit,
-rotation_unit, quantizer, qjl_unit, packer, decompressor) in the
-Cadence flow without any workarounds.
+the Yosys/OpenLane flow, you can include all sub-modules (cq_key_path,
+cq_value_path, cq_units_syn, amax_unit, residual_buffer, scale_bank,
+sram_controller) in the Cadence flow without any workarounds.
 
 ## Quick reference — what to share back
 

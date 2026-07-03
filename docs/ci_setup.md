@@ -130,10 +130,11 @@ runner. Usually not needed since the librelane image is public.
 **Out of disk on the runner** — clean up old `runs/` directories with
 `docker system prune -af` and removing old OpenLane run outputs.
 
-**Yosys fails on SV unpacked arrays** — only `kv_cache_engine.sv` and
-`sram_controller.sv` can be parsed by Yosys. Sub-modules with
-unpacked array ports (`rotation_unit`, `quantizer`, etc.) are excluded
-until the full pipeline is wired.
+**Yosys synthesis scope** — the full ChannelQuant datapath synthesizes cleanly
+(`kv_cache_engine.sv` + the `extra-rtl-sources` list: `cq_key_path`, `cq_value_path`,
+`cq_units_syn`, `amax_unit`, `residual_buffer`, `scale_bank`, `sram_controller`).
+The behavioral `real`-math oracle (`cq_units.sv` / `cq_fp_pkg.sv`) is TB-only and
+is not read by the synth/formal gates.
 
 **Architecture mismatch** — the LibreLane Docker image is x86_64 only.
 ARM64 runners cannot run the OpenLane job. Use GitHub-hosted
