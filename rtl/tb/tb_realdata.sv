@@ -43,8 +43,11 @@ module tb_realdata;
     wire evict_needed;
     wire [$clog2(SRAM_DEPTH)-1:0] evict_addr;
 
+    // TIER=0 (CQ-8, per-token) so each streamed key token stores one record
+    // (occupancy replay check). Grouped keys are covered by tb_top_stream.
     kv_cache_engine #(
         .VECTOR_DIM  (VECTOR_DIM),
+        .TIER        (0),
         .SRAM_DEPTH  (SRAM_DEPTH),
         .COORD_WIDTH (COORD_WIDTH)
     ) dut (

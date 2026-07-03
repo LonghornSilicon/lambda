@@ -5,7 +5,10 @@ module tb_kv_cache_engine;
     localparam integer VECTOR_DIM    = 64;
     localparam integer COORD_WIDTH   = 16;
     localparam integer SCALE_WIDTH   = 16;
-    localparam integer TIER          = 1;    // CQ-4 (per-channel K int4 / per-token V int4)
+    // Plumbing/occupancy TB: uses TIER=0 (CQ-8, per-token K and V) so each streamed
+    // key token stores one record (occupancy +1/token). Grouped per-channel INT4
+    // keys (TIER 1/2) are exercised bit-exact by tb_top_stream (make sim_top).
+    localparam integer TIER          = 0;    // CQ-8 (per-token K int8 / per-token V int8)
     localparam integer KEY_GROUP     = 128;  // G
     localparam integer OUTLIER_K     = 0;
     localparam integer SRAM_DEPTH    = 16;
@@ -177,7 +180,7 @@ module tb_kv_cache_engine;
         check("INFO_DIM == 64", read_data == VECTOR_DIM);
 
         axil_read(8'h0C, read_data);
-        check("INFO_TIER == CQ-4", read_data == TIER);
+        check("INFO_TIER == CQ-8", read_data == TIER);
 
         axil_read(8'h10, read_data);
         check("INFO_GROUP == 128", read_data == KEY_GROUP);

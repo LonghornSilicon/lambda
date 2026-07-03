@@ -1,9 +1,16 @@
 // tb_top_stream.sv — top-level end-to-end ChannelQuant parity through the AXI
-// interfaces (per-token path). Drives kv_cache_engine (TIER=0, CQ-8) with a
-// golden tensor over AXI-Stream write, triggers decompress-on-read per token,
-// and checks the fp32 output vs expected_v_hat / expected_k_hat (CQ-8 keys are
-// per-token, same datapath). Proves the codec is correctly wired into the top
-// FSM + SRAM, not just the datapath modules in isolation.
+// interfaces, on the full CQ-4+ config (TIER=2, D=64, G=64, k=2). One DUT, two
+// checks:
+//
+//   (A) per-token INT4 VALUES: stream value tokens through cq_value_path in the
+//       top, decompress-on-read, check fp32 V_hat bit-exact vs expected_v_hat.
+//
+//   (B) grouped per-channel INT4 KEYS (+ k=2 fp16 outliers): stream one full key
+//       group (G=64 tokens) through cq_key_path in the top, wait for the group to
+//       flush, decompress-on-read each token, check fp32 K_hat bit-exact vs golden
+//       — keep channels via per-channel dequant, outlier channels via the unified
+//       {fp16 field, code +1} widen. Proves the grouped key path + outlier lane +
+//       SRAM layout are correctly wired into the top FSM.
 //
 // Run:  make sim_top   (rtl/Makefile)
 
@@ -13,9 +20,11 @@
 module tb_top_stream;
   import cq_fp_pkg::*;
 
-  localparam int D = 64, T = 128;
+  localparam int D = 64, T = 128, G = 64;
+  localparam int TA = 8;     // per-token value tokens checked (value path already broadly proven)
   localparam int DEPTH = 128;
-  localparam string TV = "tb/testvectors/channelquant/hex/d64_T128_G64__CQ8";
+  localparam string TV   = "tb/testvectors/channelquant/hex/d64_T128_G64__CQ4plus";
+  localparam string KMASK= "tb/testvectors/channelquant/hex/d64_T128_G64__CQ4plus/outlier_mask.u8.hex";
 
   reg clk=0; always #5 clk=~clk;
   reg rst_n;
@@ -31,7 +40,8 @@ module tb_top_stream;
   wire [31:0] m_tdata; wire m_tvalid; reg m_tready; wire m_tlast;
   wire evict_needed; wire [$clog2(DEPTH)-1:0] evict_addr;
 
-  kv_cache_engine #(.VECTOR_DIM(D), .TIER(0), .SRAM_DEPTH(DEPTH)) dut (
+  kv_cache_engine #(.VECTOR_DIM(D), .TIER(2), .KEY_GROUP(G), .OUTLIER_K(2),
+                    .SRAM_DEPTH(DEPTH), .MASK_FILE(KMASK)) dut (
     .clk(clk), .rst_n(rst_n),
     .axil_awaddr(awaddr), .axil_awvalid(awvalid), .axil_awready(awready),
     .axil_wdata(wdata), .axil_wvalid(wvalid), .axil_wready(wready),
@@ -57,23 +67,19 @@ module tb_top_stream;
     end
   endtask
 
-  // stream one token (D fp16 elems) at write_addr `addr`; is_v selects K/V.
-  // Negedge-driven AXI master: stimulus stable across the posedge; a beat
-  // advances only when tready is seen high at the negedge (avoids the spurious
-  // extra beat that would fire if tvalid were held during the store).
-  task automatic wr_token(input int base, input int addr, input logic is_v, input logic key);
+  // stream one VALUE token (D fp16 elems) at write_addr `addr`
+  task automatic wr_value(input int base, input int addr);
     int d;
     begin
       awrite(8'h28, addr);              // WRITE_ADDR
       d=0;
       while (d<D) begin
         @(negedge clk);
-        s_tdata = key ? in_k[base+d] : in_v[base+d];
-        s_tvalid=1; s_tuser=is_v; s_tlast=(d==D-1);
-        if (s_tready) d=d+1;            // this beat will be accepted at the posedge
+        s_tdata = in_v[base+d];
+        s_tvalid=1; s_tuser=1'b1; s_tlast=(d==D-1);   // tuser=1 -> VALUE
+        if (s_tready) d=d+1;
       end
       @(negedge clk); s_tvalid=0; s_tlast=0;
-      // wait until the engine is ready again (compress + store complete)
       while (!s_tready) @(negedge clk);
     end
   endtask
@@ -91,44 +97,79 @@ module tb_top_stream;
     end
   endtask
 
-  integer vi, t, d, fails;
+  // stream a full key group (n_tok tokens, D beats each) back-to-back
+  task automatic stream_key_group(input int tok_base, input int n_tok);
+    int t, d;
+    begin
+      for (t=0; t<n_tok; t=t+1) begin
+        d=0;
+        while (d<D) begin
+          @(negedge clk);
+          s_tdata = in_k[(tok_base+t)*D + d];
+          s_tvalid=1; s_tuser=1'b0; s_tlast=(d==D-1);   // tuser=0 -> KEY
+          if (s_tready) d=d+1;
+        end
+      end
+      @(negedge clk); s_tvalid=0; s_tlast=0;
+    end
+  endtask
+
+  // poll STATUS.idle until the FSM returns to IDLE (group flush complete)
+  task automatic wait_idle;
+    int guard; reg [31:0] st;
+    begin
+      guard=0; st=0;
+      while (!st[0] && guard<2000000) begin
+        @(negedge clk); araddr=8'h04; arvalid=1; rready=1;
+        @(negedge clk); arvalid=0;
+        @(negedge clk); st=rdata; rready=0;
+        guard=guard+1;
+      end
+    end
+  endtask
+
+  integer t, d, vf, kf;
   initial begin
-    rst_n=0; awvalid=0; wvalid=0; bready=1; araddr=0; arvalid=0; rready=1;
-    s_tdata=0; s_tvalid=0; s_tlast=0; s_tuser=0; m_tready=1;
+    rst_n=0; awaddr=0; awvalid=0; wvalid=0; wdata=0; bready=1;
+    araddr=0; arvalid=0; rready=1; s_tdata=0; s_tvalid=0; s_tlast=0; s_tuser=0; m_tready=1;
     $readmemh({TV,"/input_v.f16.hex"},        in_v);
     $readmemh({TV,"/input_k.f16.hex"},        in_k);
     $readmemh({TV,"/expected_v_hat.f32.hex"}, vhat);
     $readmemh({TV,"/expected_k_hat.f32.hex"}, khat);
     repeat(4) @(posedge clk); rst_n=1; @(posedge clk);
+    vf=0; kf=0;
     awrite(8'h00, 32'h2);   // enable
-    fails=0;
 
-    // ---- VALUES: write all T tokens, read back, check ----
-    for (t=0; t<T; t=t+1) wr_token(t*D, t, 1'b1, 1'b0);
-    for (t=0; t<T; t=t+1) begin
+    // ---- (A) per-token INT4 VALUES ----
+    for (t=0; t<TA; t=t+1) wr_value(t*D, t);
+    for (t=0; t<TA; t=t+1) begin
       rd_token(t);
       for (d=0; d<D; d=d+1)
-        if (outb[d] !== vhat[t*D+d]) begin fails++; if (fails<=6)
+        if (outb[d] !== vhat[t*D+d]) begin vf++; if (vf<=6)
           $display("  V_hat (t%0d,d%0d): got %08h exp %08h", t, d, outb[d], vhat[t*D+d]); end
     end
-
-    // ---- KEYS (CQ-8 per-token): same path ----
-    for (t=0; t<T; t=t+1) wr_token(t*D, t, 1'b0, 1'b1);
-    for (t=0; t<T; t=t+1) begin
-      rd_token(t);
+    // ---- (B) grouped per-channel INT4 KEYS (CQ-4+) ----
+    awrite(8'h28, 32'h0);   // WRITE_ADDR = 0 (group base)
+    stream_key_group(0, G); // one full group of G=64 key tokens
+    wait_idle();            // wait for the group to flush (records written, FSM idle)
+    for (t=0; t<G; t=t+1) begin
+      rd_token(t);          // decompress token t (addr t)
       for (d=0; d<D; d=d+1)
-        if (outb[d] !== khat[t*D+d]) begin fails++; if (fails<=6)
-          $display("  K_hat (t%0d,d%0d): got %08h exp %08h", t, d, outb[d], khat[t*D+d]); end
+        if (outb[d] !== khat[t*D+d]) begin kf++; if (kf<=8)
+          $display("  [CQ4+] K_hat (t%0d,d%0d): got %08h exp %08h", t, d, outb[d], khat[t*D+d]); end
     end
 
     $display("============================================================");
-    if (fails==0) $display("TOP-STREAM PARITY: CQ-8 K+V bit-exact through the top (D=%0d T=%0d)", D, T);
-    else          $display("TOP-STREAM PARITY: %0d MISMATCHES", fails);
+    if (vf==0) $display("TOP-STREAM (A) per-token INT4 V bit-exact through the top (D=%0d)", D);
+    else       $display("TOP-STREAM (A): %0d MISMATCHES", vf);
+    if (kf==0) $display("TOP-STREAM (B) grouped CQ-4+ keys bit-exact through the top (D=%0d G=%0d k=2)", D, G);
+    else       $display("TOP-STREAM (B): %0d MISMATCHES", kf);
+    if (vf==0 && kf==0) $display("TOP-STREAM PARITY: ALL PASS");
     $display("============================================================");
     $finish;
   end
 
   // safety timeout
-  initial begin #20000000; $display("TIMEOUT"); $finish; end
+  initial begin #400000000; $display("TIMEOUT"); $finish; end
 
 endmodule

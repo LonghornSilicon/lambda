@@ -53,6 +53,7 @@ module cq_key_path #(
     output wire [$clog2(G)-1:0]    tok_idx,
     output wire [(D/2)*8-1:0]      tok_pay,        // packed keep-channel INT4 codes (nk/2 bytes)
     output wire [D*8-1:0]          tok_codes,      // compacted keep codes (byte i = i-th keep)
+    output wire [D*DW-1:0]         emit_vec,       // the emitting token's raw fp16 (for outlier sidecar capture)
 
     // ---- decompress: combinational, per-channel dequant ----
     input  wire [D*8-1:0]          dec_codes,      // per original channel (byte c)
@@ -151,6 +152,7 @@ module cq_key_path #(
     assign tok_idx   = emit_cnt;
     assign tok_pay   = pay_c;
     assign tok_codes = codes_c;
+    assign emit_vec  = rb_rdvec;              // token emit_cnt's fp16 (valid throughout its emit)
 
     // ---- FSM ----
     always @(posedge clk or negedge rst_n) begin

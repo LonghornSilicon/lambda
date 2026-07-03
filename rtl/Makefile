@@ -5,7 +5,7 @@ PYTHON   ?= python3
 # ChannelQuant datapath: top + SRAM shell + the verified compute cores.
 # (TurboQuant+ codec — rotation_unit/qjl_unit/quantizer/packer/decompressor/
 #  norm_unit — was deleted in the revamp; see legacy/turboquant-plus branch.)
-RTL_SRC := kv_cache_engine.sv sram_controller.sv cq_units.sv cq_units_syn.sv cq_value_path.sv amax_unit.sv
+RTL_SRC := kv_cache_engine.sv sram_controller.sv cq_units.sv cq_units_syn.sv cq_value_path.sv cq_key_path.sv residual_buffer.sv scale_bank.sv amax_unit.sv
 
 TB_DIR  := tb
 TV_DIR  := $(TB_DIR)/testvectors
