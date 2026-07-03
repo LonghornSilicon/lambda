@@ -27,9 +27,8 @@ jobs:
       # passed). D=16/depth2/G2 = 3920 FFs (local 0.66: 2495 $_DFFE_PN0P_ + 3
       # $_DFFE_PN1P_ + 1155 $_DFFE_PP_ + 267 $_DFF_PN0_), well under 8210 -> formal
       # clears the cap. Real D/depth/G are set per-instantiation (every TB overrides).
-      # CI apt-yosys 0.33 ~= 3918 (extrapolated from the consistent ~0.042% delta: 46167->46147, 14730->14724); if the gate-3
-      # log mismatches, correct to it.
-      expected-ff-count: 3918
+      # CI apt-yosys 0.33 = 3914 from the gate-3 log (local 0.66 3920, -6 delta).
+      expected-ff-count: 3914
       has-reference-model: true
       has-paper: false
       has-coverage-gate: false
