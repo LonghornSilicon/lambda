@@ -200,7 +200,7 @@ module kv_cache_engine #(
     wire [VECTOR_DIM*COORD_WIDTH-1:0] kp_emit_vec;  // emitting token's raw fp16
     reg  [VECTOR_DIM*8-1:0]    kp_dec_codes;   // per-channel code (read-back)
     reg  [VECTOR_DIM*COORD_WIDTH-1:0] kp_dec_scales; // per-channel field (read-back)
-    wire [VECTOR_DIM*32-1:0]   kp_dec_hat;
+    wire [31:0]                kp_dec_hat;    // one reconstructed fp32 key channel (dec_idx)
 
     generate
         if (KEY_GROUPED) begin : g_kpath
@@ -211,7 +211,8 @@ module kv_cache_engine #(
                 .group_valid(kp_group_valid), .scales_bus(kp_scales_bus), .g_out(),
                 .tok_valid(kp_tok_valid), .tok_idx(kp_tok_idx),
                 .tok_pay(), .tok_codes(kp_tok_codes), .emit_vec(kp_emit_vec),
-                .dec_codes(kp_dec_codes), .dec_scales(kp_dec_scales), .dec_hat(kp_dec_hat)
+                .dec_codes(kp_dec_codes), .dec_scales(kp_dec_scales),
+                .dec_idx(out_count[$clog2(VECTOR_DIM)-1:0]), .dec_hat(kp_dec_hat)
             );
         end else begin : g_no_kpath
             assign kp_group_valid = 1'b0;
@@ -498,7 +499,7 @@ module kv_cache_engine #(
 
                 ST_OUTPUT: begin
                     // one fp32 beat per cycle (consumer holds tready; see IDLE clear)
-                    m_axis_kv_tdata  <= out_is_key ? kp_dec_hat[out_count*32 +: 32] : dec_hat;
+                    m_axis_kv_tdata  <= out_is_key ? kp_dec_hat : dec_hat;
                     m_axis_kv_tvalid <= 1'b1;
                     m_axis_kv_tlast  <= (out_count == VECTOR_DIM - 1);
                     if (out_count == VECTOR_DIM - 1) begin

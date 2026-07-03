@@ -37,14 +37,15 @@ module tb_key_path;
   wire [MD*8-1:0]   ktcodes;
   reg  [MD*8-1:0]   kdc;
   reg  [MD*DW-1:0]  kds;
-  wire [MD*32-1:0]  kdh;
+  reg  [$clog2(MD)-1:0] kdi;   // dequant channel index (one channel/beat)
+  wire [31:0]       kdh;
 
   cq_key_path #(.D(MD), .DW(DW), .G(G)) dut (
     .clk(clk), .rst_n(rst_n), .outlier_mask(omask),
     .in_valid(kiv), .in_vec(kivec), .group_start(kgs), .group_last(kgl),
     .group_valid(kgv), .scales_bus(ksc_bus), .g_out(kg_out),
     .tok_valid(ktv), .tok_idx(kti), .tok_pay(ktpay), .tok_codes(ktcodes),
-    .dec_codes(kdc), .dec_scales(kds), .dec_hat(kdh)
+    .dec_codes(kdc), .dec_scales(kds), .dec_idx(kdi), .dec_hat(kdh)
   );
 
   // ---- vectors (per-channel tiers only) ----
@@ -118,7 +119,7 @@ module tb_key_path;
           for (ci=0; ci<nk; ci=ci+1) kdc[keep[ci]*8 +: 8] = kc_arr[(t-a)*MD+ci];
           #1;
           for (ci=0; ci<nk; ci=ci+1) begin
-            c = keep[ci]; hat = kdh[c*32 +: 32];
+            c = keep[ci]; kdi = c[$clog2(MD)-1:0]; #1; hat = kdh;   // index one channel
             if (hat !== g_khat[t*D+c]) begin fails++; if (fails<=6)
               $display("  [%s] k_hat (t%0d,c%0d): got %08h exp %08h",
                        vname[vi], t, c, hat, g_khat[t*D+c]); end

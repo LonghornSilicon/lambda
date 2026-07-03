@@ -19,15 +19,15 @@ jobs:
       # FF-count gate (Yosys synth -flatten, gate 3), DEFAULT params
       # (VECTOR_DIM=64, TIER=1, KEY_GROUP=16, OUTLIER_K=0). The grouped KEY path is
       # now wired into the top: keys route through cq_key_path (residual_buffer G*D*DW
-      # + scale_bank D*DW + per-channel INT4), and the SRAM record widened to the
-      # unified per-channel key layout {D fp16 field, D INT4 codes} => SRAM_WIDTH ~=
-      # 1281 b (was 272). So the count jumps well past the old 8210: SRAM (16*1281) +
-      # residual_buffer (16*1024, KEY_GROUP kept 16 for the flop-based gate) +
-      # scale_bank + two amax_units + value/key FSM regs. This is CPU-only; the WASM
-      # yosys on the dev box cannot flatten a design this large, so the exact
-      # apt-yosys-0.33 count is read from the gate-3 CI log and pinned here.
-      # PROVISIONAL estimate ~46000 pending the first gate-3 run; correct to the log.
-      expected-ff-count: 46000
+      # + scale_bank D*DW + serialized per-channel INT4), and the SRAM record widened
+      # to the unified per-channel key layout {D fp16 field, D INT4 codes} =>
+      # SRAM_WIDTH ~= 1281 b (was 272). Count = SRAM (16*1281) + residual_buffer
+      # (16*1024, KEY_GROUP kept 16 for the flop-based gate) + scale_bank + two
+      # amax_units + value/key FSM regs. Local yosys 0.66 (memory_map+techmap):
+      # 26273 $_DFFE_PN0P_ + 3 $_DFFE_PN1P_ + 18902 $_DFFE_PP_ + 989 $_DFF_PN0_
+      # = 46167. CI apt-yosys 0.33 is the arbiter (differs by a few); if it mismatches,
+      # correct to the gate-3 log value.
+      expected-ff-count: 46167
       has-reference-model: true
       has-paper: false
       has-coverage-gate: false

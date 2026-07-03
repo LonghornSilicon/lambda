@@ -55,10 +55,11 @@ module cq_key_path #(
     output wire [D*8-1:0]          tok_codes,      // compacted keep codes (byte i = i-th keep)
     output wire [D*DW-1:0]         emit_vec,       // the emitting token's raw fp16 (for outlier sidecar capture)
 
-    // ---- decompress: combinational, per-channel dequant ----
+    // ---- decompress: ONE shared dequant, indexed by dec_idx (one channel/beat) ----
     input  wire [D*8-1:0]          dec_codes,      // per original channel (byte c)
     input  wire [D*DW-1:0]         dec_scales,     // per original channel scale
-    output wire [D*32-1:0]         dec_hat
+    input  wire [$clog2(D)-1:0]    dec_idx,        // channel to reconstruct
+    output wire [31:0]             dec_hat         // that channel's fp32
 );
     localparam int CW = $clog2(D);
 
@@ -70,6 +71,7 @@ module cq_key_path #(
     reg [$clog2(G+1)-1:0]     g_cnt;     // frozen group size
     reg [$clog2(G)-1:0]       emit_cnt;  // current token being emitted
     reg [CW:0]                ch;        // channel counter within the current token (0..D-1)
+    reg [CW:0]                sch;       // channel counter for the scale walk (0..D-1)
 
     wire collecting = (state == S_COLLECT);
 
@@ -94,22 +96,20 @@ module cq_key_path #(
         .scale_token(), .scale_chan(amax_chan), .out_valid(amax_ov)
     );
 
-    // ---- amax -> fp16 scale, per channel (keys are INT4) ----
-    wire [D*DW-1:0] csc;    // computed per-channel scales
-    genvar c;
-    generate
-        for (c = 0; c < D; c = c + 1) begin : g_scale
-            cq_scale_unit_syn u_sc (
-                .amax_f16(amax_chan[c*DW +: DW]), .bits(4'd4),
-                .scale_f16(csc[c*DW +: DW])
-            );
-        end
-    endgenerate
+    // ---- amax -> fp16 scale: ONE shared scale unit, walked over the D channels in
+    // S_SCALE (writes scale_bank one channel/cycle). Serializing this avoids D
+    // parallel fixed-point dividers, which blew up yosys synth (share/alumacc) the
+    // same way the parallel quant/dequant did — mirror the value-path serialization.
+    wire [DW-1:0] scale_one;
+    cq_scale_unit_syn u_sc (
+        .amax_f16(amax_chan[sch*DW +: DW]), .bits(4'd4), .scale_f16(scale_one)
+    );
 
-    // ---- scale bank: freeze the group's per-channel scales in S_SCALE ----
+    // ---- scale bank: per-channel write during the S_SCALE walk ----
     scale_bank #(.DIM(D), .DW(DW)) u_sb (
         .clk(clk), .rst_n(rst_n),
-        .wr(state == S_SCALE), .scales_in(csc), .scales_out(scales_bus)
+        .wr_en(state == S_SCALE), .wr_idx(sch[CW-1:0]), .wr_scale(scale_one),
+        .scales_out(scales_bus)
     );
 
     // ---- ONE shared quantizer, walked across the D channels of the current token.
@@ -162,6 +162,7 @@ module cq_key_path #(
             g_cnt       <= '0;
             emit_cnt    <= '0;
             ch          <= '0;
+            sch         <= '0;
             codes_all   <= '0;
             q_start     <= 1'b0;
             group_valid <= 1'b0;
@@ -175,16 +176,22 @@ module cq_key_path #(
                         icnt <= group_start ? 'd1 : icnt + 'd1;
                         if (group_last) begin
                             g_cnt <= group_start ? 'd1 : icnt + 'd1;
+                            sch   <= '0;
                             state <= S_SCALE;
                         end
                     end
                 end
                 S_SCALE: begin
-                    // csc valid (amax frozen), scale_bank latches this edge
-                    emit_cnt <= '0;
-                    g_out    <= g_cnt;
-                    ch       <= '0;
-                    state    <= S_QSTART;
+                    // walk the shared scale unit over the D channels; scale_bank
+                    // writes bank[sch] <= scale_one each cycle (wr_en = state==S_SCALE).
+                    if (sch == D-1) begin
+                        emit_cnt <= '0;
+                        g_out    <= g_cnt;
+                        ch       <= '0;
+                        state    <= S_QSTART;
+                    end else begin
+                        sch <= sch + 1'b1;
+                    end
                 end
                 S_QSTART: begin
                     q_start <= 1'b1;                 // kick the shared quant core for channel `ch`
@@ -218,15 +225,14 @@ module cq_key_path #(
         end
     end
 
-    // ---- decompress: per-channel dequant (outlier channels handled by the top) ----
-    generate
-        for (c = 0; c < D; c = c + 1) begin : g_dequant
-            cq_dequant_unit_syn u_d (
-                .code(dec_codes[c*8 +: 8]), .scale_f16(dec_scales[c*DW +: DW]),
-                .xhat_f32(dec_hat[c*32 +: 32])
-            );
-        end
-    endgenerate
+    // ---- decompress: ONE shared dequant, indexed by dec_idx (one channel/beat).
+    // The top streams the D reconstructed words out one per cycle, so a single
+    // dequant suffices — same as cq_value_path, and it avoids D parallel dequant
+    // cones (which also stress yosys synth). Outlier channels handled by the top.
+    cq_dequant_unit_syn u_d (
+        .code(dec_codes[dec_idx*8 +: 8]), .scale_f16(dec_scales[dec_idx*DW +: DW]),
+        .xhat_f32(dec_hat)
+    );
 
 endmodule
 
