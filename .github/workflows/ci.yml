@@ -27,8 +27,8 @@ jobs:
       # Real depth/G are set per-instantiation (the TBs override); D stays 64.
       # Local yosys 0.66 (memory_map+techmap) = 14730 (9175 $_DFFE_PN0P_ + 3
       # $_DFFE_PN1P_ + 4563 $_DFFE_PP_ + 989 $_DFF_PN0_). CI apt-yosys 0.33 (arbiter)
-      # may differ by a few; correct to the gate-3 log if it mismatches.
-      expected-ff-count: 14730
+      # = 14724 from the gate-3 log (6-FF delta vs local 0.66=14730).
+      expected-ff-count: 14724
       has-reference-model: true
       has-paper: false
       has-coverage-gate: false
