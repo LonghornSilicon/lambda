@@ -26,19 +26,20 @@
 //   - AXI-Stream read (decompressed KV, OUT_WIDTH fp32 elements — contract §1)
 
 module kv_cache_engine #(
-    parameter integer VECTOR_DIM    = 64,   // D: head dim (64 or 128)
+    // D: real head dim is 64/128 (set per-instantiation; every TB overrides). The
+    // DEFAULT is a small GATE PROXY: the synthesized default drives the flop-only
+    // synth/formal gates (3 & 4), whose cost scales with the key path's per-channel
+    // datapath + two behavioral flop MEMORIES. At D=64 the gate-4 formal-equivalence
+    // induction blows past its ~10-min budget, so the proxy shrinks D (and KEY_GROUP
+    // / SRAM_DEPTH, which size residual_buffer=G*D*DW and SRAM=depth*width). This is
+    // exactly the "keep the flop proxy small" rationale the block already used for
+    // SRAM_DEPTH. OpenLane (gate 6) shrinks further via config.json SYNTH_PARAMETERS.
+    parameter integer VECTOR_DIM    = 16,
     parameter integer TIER          = 1,    // 0 = CQ-8, 1 = CQ-4, 2 = CQ-4+
-    // G: tokens per per-channel key group. Shipped value is 128 (contract §3.1),
-    // set per-instantiation. The DEFAULTS for KEY_GROUP and SRAM_DEPTH are kept
-    // TINY because they scale the two behavioral flop MEMORIES (residual_buffer =
-    // G*D*DW, SRAM = SRAM_DEPTH*SRAM_WIDTH). Those memory FFs dominate and make the
-    // gate-4 formal-equivalence induction blow past its ~10-min budget, so the
-    // synthesized gate proxy shrinks them (real depth/G are set per-instantiation;
-    // the TBs all override). VECTOR_DIM stays 64 (the real head dim / FF headline).
-    parameter integer KEY_GROUP     = 2,
+    parameter integer KEY_GROUP     = 2,    // shipped 128 (contract §3.1); proxy default
     parameter integer OUTLIER_K     = 0,    // top-k FP16 key channels (CQ-4+)
     parameter integer SCALE_WIDTH   = 16,   // fp16 per-axis scale width
-    parameter integer SRAM_DEPTH    = 2,
+    parameter integer SRAM_DEPTH    = 2,    // proxy default; real capacity per-instantiation
     parameter integer COORD_WIDTH   = 16,   // fp16 input element width
     parameter integer OUT_WIDTH     = 32,   // fp32 decompressed output element (contract §1)
     parameter         MASK_FILE     = ""    // outlier-mask ROM hex (only used if OUTLIER_K>0)
