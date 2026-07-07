@@ -1,4 +1,4 @@
-# KVCE handoff — grouped per-channel key-path integration
+# KVE handoff — grouped per-channel key-path integration
 
 > **✅ DONE (master `4f92c9e`, 2026-07-03).** The grouped per-channel-INT4 key path
 > is serialized, wired into the top, and signed off — **all CI gates green**

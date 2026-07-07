@@ -1,7 +1,7 @@
-# ChannelQuant → KVCE handoff: contract + golden vectors
+# ChannelQuant → KVE handoff: contract + golden vectors
 
 **Vendored from the `channelquant` lane @ commit `7f5a1e1` (see `SOURCE_COMMIT`).**
-This is the verified algorithm handoff that unblocks KVCE verification
+This is the verified algorithm handoff that unblocks KVE verification
 (`findings/channelquant_block_revamp.md` §1, P3 — 3-way parity). The
 `channelquant` repo remains the source of truth; this is a pinned copy so the
 parity harness is hermetic. Re-sync only on a contract/vector version bump.
@@ -50,7 +50,7 @@ to exercise a second grouping + partial flush; the shipped default is G=128.)
 
 ## Open items to confirm with the channelquant lane (do not guess)
 - **Decompress bus format.** `expected_K/V_hat` are exported as exact **fp32**
-  (`int × fp16_scale`, lossless). If the KVCE decompress bus carries fp16, compare
+  (`int × fp16_scale`, lossless). If the KVE decompress bus carries fp16, compare
   after casting to fp16 — and pin which the RTL emits (contract §1 fixes scale
   format as fp16 but does not yet fix the product format). Flagged in
   `HW_CONTRACT.md` "Open items".

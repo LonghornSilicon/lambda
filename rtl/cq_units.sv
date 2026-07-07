@@ -1,6 +1,6 @@
 // cq_units.sv — ChannelQuant datapath compute cores (combinational).
 //
-// These are the numerically-critical primitives of the revamped KVCE datapath,
+// These are the numerically-critical primitives of the revamped KVE datapath,
 // implementing docs/HW_CONTRACT.md §1-§4 exactly. They replace the TurboQuant+
 // quantizer/decompressor cores and back the amax_unit / scale_bank scale math.
 // Bit-exactness vs the golden vectors is proven by tb_channelquant.sv, which

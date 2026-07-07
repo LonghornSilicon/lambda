@@ -1,4 +1,4 @@
-# KVCE block — Lab Notebook
+# KVE block — Lab Notebook
 
 Dated, provenance-bearing entries for every parity run and synth result (per
 `findings/channelquant_block_revamp.md` §8). These feed the joint paper's

@@ -1,6 +1,6 @@
 # RTL teardown manifest — TurboQuant+ → ChannelQuant
 
-Tracks the datapath conversion of the KVCE block from the TurboQuant+ codec to
+Tracks the datapath conversion of the KVE block from the TurboQuant+ codec to
 ChannelQuant. Full plan: [`../findings/channelquant_block_revamp.md`](../findings/channelquant_block_revamp.md).
 Algorithm contract + golden vectors **landed 2026-06-22** (channelquant commit
 `08d5287`), vendored hermetically at

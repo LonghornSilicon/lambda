@@ -32,7 +32,7 @@ models — a few fixed high-magnitude **key channels**:
 
 Decompression is per channel (`code · scale`, in fp32); outlier channels replay
 their stored FP16. Effective ~4 bits/value, ~3.8× vs FP16, near-lossless
-(HellaSwag acc_norm within ~0.5–1.6 pt of FP16 on Qwen2-0.5B/1.5B).
+(HellaSwag acc_norm within ~0.4–0.8 pt of FP16 at the CQ-4+ tier on Qwen2-0.5B/1.5B).
 
 Bit-exact reference: `sw/reference_model/channelquant_ref.{hpp,cpp}` and the frozen
 Python reference `../channelquant/reference/channelquant_ref.py` (3-way parity).

@@ -1,7 +1,7 @@
 # KV Cache Engine
 
-This is the **KV Cache Engine (KVCE)** block of the LonghornSilicon LLM inference
-accelerator — block 2 of four targeting TSMC 16FFC tape-out. It is a streaming
+This is the **KV Cache Engine (KVE)** block of the LonghornSilicon LLM inference
+accelerator — block 2 of four targeting TSMC 16nm FinFET (N16FFC) tape-out. It is a streaming
 compress-on-write / decompress-on-read engine for transformer KV-cache tensors,
 sitting between the ACU (attention compute unit) and the memory hierarchy.
 
@@ -47,8 +47,8 @@ sitting between the ACU (attention compute unit) and the memory hierarchy.
 | **K/V asymmetry** | K: per-channel scale over a token group (the GQA-critical axis); V: per-token scale |
 | **Tiers** | CQ-8 (per-token INT8 K+V), CQ-4 (per-channel INT4 K / per-token INT4 V), CQ-4+ (CQ-4 with k=2 FP16 outlier channels) |
 | **Verified** | RTL bit-exact vs golden (`sim_kpath`/`sim_top`), 3-way Python↔C++↔SV parity, **all CI gates green** incl. Sky130 sign-off |
-| **Accuracy** | HellaSwag acc_norm within ~0.5–1.6 pt of FP16 on Qwen2-0.5B/1.5B (see below) |
-| **Status** | Tape-out target Q3/Q4 2026 via TSMC University Program 16FFC |
+| **Accuracy** | HellaSwag acc_norm within ~0.4–0.8 pt of FP16 (CQ-4+ tier) on Qwen2-0.5B/1.5B (see below) |
+| **Status** | RTL complete through Sky130 physical sign-off (all CI gates green). 16nm (Lambda) sign-off is future work; full-chip tape-out target Summer 2027 via TSMC University Program |
 
 ---
 
@@ -135,7 +135,7 @@ ACU precision controller (INT8/FP16-routed S·V) the system holds accuracy at FP
 | **Token Importance Unit** | not yet | Tracks attention weight per cached token → keep / demote / evict |
 | **Memory Hierarchy Controller** | not yet | Routes between L1 SRAM / L2 eDRAM / off-chip LPDDR5 |
 
-The two live blocks coordinate at attention time: KVCE decompresses K/V → the ACU
+The two live blocks coordinate at attention time: the KVE decompresses K/V → the ACU
 computes Q·Kᵀ scores → the precision controller routes INT8/FP16 → the MAC array
 runs the matmul.
 
@@ -269,7 +269,7 @@ Full ISA specification: [`docs/isa/kv_cache_engine_isa.pdf`](docs/isa/kv_cache_e
 - [ ] TSMC 16FFC sign-off on Cadence (waiting on PDK access)
 - [ ] ZCU102/104 FPGA prototype (Vivado, when board arrives)
 - [ ] Integration with Token Importance Unit, Memory Hierarchy Controller
-- [ ] Full-chip tape-out via TSMC University Program shuttle (target Q3/Q4 2026)
+- [ ] Full-chip tape-out via TSMC University Program shuttle (Lambda 16nm track, target Summer 2027)
 
 ---
 

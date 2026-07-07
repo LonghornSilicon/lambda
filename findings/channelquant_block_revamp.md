@@ -1,7 +1,7 @@
-# KVCE block revamp — implement ChannelQuant (retire the TurboQuant+ datapath)
+# KVE block revamp — implement ChannelQuant (retire the TurboQuant+ datapath)
 
 **Status:** design / pre-implementation · **Date:** 2026-06-22
-**Scope:** the KVCE *silicon block* (this repo) — datapath, RTL, CSR/ISA, ACU
+**Scope:** the KVE *silicon block* (this repo) — datapath, RTL, CSR/ISA, ACU
 integration, synth. NOT the algorithm (that's the `channelquant` repo).
 **Algorithm source of truth:** `channelquant/docs/HW_CONTRACT.md` +
 `channelquant/REVAMP_SPEC.md`. **Verification golden:** vendored hermetically at
@@ -12,7 +12,7 @@ integration, synth. NOT the algorithm (that's the `channelquant` repo).
 
 ## 0. What this is
 
-The KVCE block stays — it is block 2 of 4 in the Longhorn chip (streaming K/V
+The KVE block stays — it is block 2 of 4 in the Longhorn chip (streaming K/V
 compress-on-write / decompress-on-read, between the ACU and the memory
 hierarchy). What changes is the **codec it implements**: the TurboQuant+ vector
 codec (PolarQuant + QJL + Walsh–Hadamard rotation) is retired and replaced by
@@ -141,7 +141,7 @@ Drop TurboQuant+ registers, add ChannelQuant ones:
 
 ## 5. ACU integration
 
-The ACU handshake is unchanged in shape (KVCE decompresses K/V → ACU computes
+The ACU handshake is unchanged in shape (KVE decompresses K/V → ACU computes
 Q·Kᵀ → precision controller routes INT8/FP16 → MAC). Deltas to verify:
 - **Decompress latency** now has two paths (quantized-group vs in-flight-FP16
   residual) — confirm the ACU's read timing tolerates the residual-buffer select.

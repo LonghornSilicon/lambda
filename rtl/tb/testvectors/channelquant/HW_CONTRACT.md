@@ -1,16 +1,16 @@
-# ChannelQuant → KVCE Hardware Contract
+# ChannelQuant → KVE Hardware Contract
 
 **Status:** v0.2 (P2 pins locked) · **Date:** 2026-07-01 · (v0.1: 2026-06-22)
-> **v0.2 (2026-07-01) — four P2 parameters pinned** for the KVCE streaming
+> **v0.2 (2026-07-01) — four P2 parameters pinned** for the KVE streaming
 > datapath, all doc-level (no change to packing, dequant, or golden vectors —
 > the vectors are byte-identical since `08d5287`, so 3-way parity stays valid):
 > **(1)** group size **G=128 for all D** (§3.1); **(2)** outlier ROM format +
 > location + **k=2**, lane **optional at D=128** per the C16 headline finding
 > (§4.1); **(3)** decompress read bus **fp32** (§1); **(4)** **EPS=2⁻¹⁴ final**,
 > no regeneration (§1). See the resolved Open-items list at the foot.
-**Audience:** the KVCE silicon block (a block of the Longhorn chip) that
+**Audience:** the KVE silicon block (a block of the Longhorn chip) that
 implements ChannelQuant. **This document is a contract, not an implementation.**
-It specifies *exactly what the hardware must reproduce* so that KVCE RTL passes
+It specifies *exactly what the hardware must reproduce* so that KVE RTL passes
 3-way Python↔C++↔SV bit-exact parity against the golden vectors emitted by
 `reference/` (see `reference/testvectors/`).
 
@@ -25,9 +25,9 @@ itself (§3), evidence (§2), compression math (§4), and gates (§7) in
 
 ---
 
-## 0. Scope of what KVCE must reproduce
+## 0. Scope of what KVE must reproduce
 
-KVCE compresses and decompresses a transformer KV cache for **KV heads only**
+KVE compresses and decompresses a transformer KV cache for **KV heads only**
 (GQA), per layer. For each KV head: keys `K[t, c]` and values `V[t, c]`, token
 index `t`, channel index `c ∈ [0, D)`, `D ∈ {64, 128}` (parameterize; do not
 hardcode 64). All quantization is **uniform signed integer** (no Lloyd-Max, no
@@ -143,7 +143,7 @@ is full, the in-flight group is buffered in FP16.
 ### 3.2 Why per-channel keys / per-token values are asymmetric
 Keys have fixed large-magnitude **channels** (a weight property → per-channel
 scale contains them); values do not (per-token suffices, and it streams with no
-buffer). KVCE's datapath is therefore K/V-asymmetric: buffered per-channel keys,
+buffer). KVE's datapath is therefore K/V-asymmetric: buffered per-channel keys,
 streaming per-token values.
 
 ---
@@ -157,12 +157,12 @@ The top-k key channels (by magnitude) are held in **FP16** instead of INT4.
   across inputs (validated, c19: top-2 stability 0.958/0.986/0.984 on Qwen2
   {0.5B/1.5B/7B}; layer-0 perfectly pinned). **No runtime top-k, no argsort in
   silicon.**
-- KVCE ships a **static per-(layer, KV-head) outlier mask**:
+- KVE ships a **static per-(layer, KV-head) outlier mask**:
   - **k** = number of outlier channels (config). **Default k=2 at both D=64 and
     D=128** (as calibrated for every shipped model). Parameterize k.
   - Format: **k channel indices** per (layer, head), each `ceil(log2(D))` bits,
     stored in a **ROM**. (Equivalently a D-wide bitmask; the reference emits both
-    the index list and the bitmask — KVCE may use either, but the *selected
+    the index list and the bitmask — KVE may use either, but the *selected
     channel set* must match exactly.)
 - **Committed ROM artifact (P2 loads this, not the mask embedded in the vectors):**
   `reference/masks/<tag>_k<k>.npz` (+ a `.json` summary), one per model. The `.npz`
@@ -226,7 +226,7 @@ block, `T` = tokens in a value run.
   Signed values stored two's-complement in the nibble.
 - If a row's element count is odd, the final nibble's high half is zero-padded.
 - INT8 elements are one byte each, two's-complement. **The golden vectors define
-  the canonical byte stream; KVCE must match it byte-for-byte.**
+  the canonical byte stream; KVE must match it byte-for-byte.**
 
 ---
 
@@ -242,12 +242,12 @@ D=64 reference (spec §4):
 | Combined CQ-4 | — | — | ~4.2 | ~3.8× |
 | Combined CQ-4+ | — | — | ~4.4 | ~3.6× |
 
-KVCE's actual packed sizes must reconcile with this table (the per-channel scale
+KVE's actual packed sizes must reconcile with this table (the per-channel scale
 overhead depends on G; the outlier overhead depends on k and D).
 
 ---
 
-## 7. Config / INFO registers KVCE should expose
+## 7. Config / INFO registers KVE should expose
 
 (Carried from the predecessor CSR scaffolding, minus QJL/rotation registers.)
 
@@ -265,7 +265,7 @@ overhead depends on G; the outlier overhead depends on k and D).
 
 ## 8. Parity acceptance (the handoff gate)
 
-KVCE conformance = **bit-exact** Python↔C++↔SV on the golden vectors in
+KVE conformance = **bit-exact** Python↔C++↔SV on the golden vectors in
 `reference/testvectors/`, for **both compress and decompress**, for **all three
 tiers**, including:
 - a full group (g=G) and at least one **partial group** (g<G) for keys;
@@ -290,5 +290,5 @@ layout is **non-conformant** — the byte stream is part of the contract.
 - Reciprocal-vs-divide equivalence (§1) — confirmed only by passing golden vectors.
 - CQ-8 keys per-token vs per-channel (§5) — chosen per-token for the simple floor;
   revisit only if a CQ-8-per-channel tier is ever requested.
-- Silicon results (area/Fmax vs TurboQuant+) are produced by the **KVCE block**,
+- Silicon results (area/Fmax vs TurboQuant+) are produced by the **KVE block**,
   not here; the method paper notes them as forthcoming.
