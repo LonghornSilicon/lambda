@@ -42,7 +42,7 @@ sitting between the ACU (attention compute unit) and the memory hierarchy.
 | | |
 |---|---|
 | **What** | Streaming compress/decompress engine for transformer KV-cache tensors |
-| **Why** | Cuts KV-cache DRAM bandwidth ~3.8× (near-lossless), enabling longer context in the same memory budget |
+| **Why** | Cuts off-chip LPDDR5X KV-cache bandwidth ~3.8× (near-lossless), enabling longer context in the same memory budget |
 | **How** | ChannelQuant — per-channel INT4 keys (grouped, G=128) + per-token INT4 values + static top-k FP16 outlier-channel isolation (CQ-4+) |
 | **K/V asymmetry** | K: per-channel scale over a token group (the GQA-critical axis); V: per-token scale |
 | **Tiers** | CQ-8 (per-token INT8 K+V), CQ-4 (per-channel INT4 K / per-token INT4 V), CQ-4+ (CQ-4 with k=2 FP16 outlier channels) |
@@ -122,7 +122,7 @@ ACU precision controller (INT8/FP16-routed S·V) the system holds accuracy at FP
 │   └─────────────┬───────────┘                                        │
 │                 ▼                                                     │
 │   ┌─────────────────────────┐   ┌──────────────────────┐             │
-│   │ Memory Hierarchy Ctrl.  │◀─▶│ Off-chip LPDDR5       │             │
+│   │ Memory Hierarchy Ctrl.  │◀─▶│ Off-chip LPDDR5X      │             │
 │   │ (block 4)               │   │ (cold KV + weights)   │             │
 │   └─────────────────────────┘   └──────────────────────┘             │
 └──────────────────────────────────────────────────────────────────────┘
@@ -133,7 +133,7 @@ ACU precision controller (INT8/FP16-routed S·V) the system holds accuracy at FP
 | **ACU (Attention Compute Unit)** | no ([repo](https://github.com/LonghornSilicon/adaptive-precision-attention)) | Decides INT8 vs FP16 per tile, runs the MAC array |
 | **KV Cache Engine** | **this repo** | ChannelQuant compress on write, decompress on read |
 | **Token Importance Unit** | not yet | Tracks attention weight per cached token → keep / demote / evict |
-| **Memory Hierarchy Controller** | not yet | Routes between L1 SRAM / L2 eDRAM / off-chip LPDDR5 |
+| **Memory Hierarchy Controller** | not yet | Routes between on-die SRAM and off-chip LPDDR5X (direct; no eDRAM tier) |
 
 The two live blocks coordinate at attention time: the KVE decompresses K/V → the ACU
 computes Q·Kᵀ scores → the precision controller routes INT8/FP16 → the MAC array
