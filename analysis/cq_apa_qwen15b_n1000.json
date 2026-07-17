@@ -1,0 +1,48 @@
+{
+  "model": "Qwen/Qwen2-1.5B",
+  "n": 1000,
+  "results": {
+    "fp16": {
+      "acc_norm": 0.59,
+      "tier": "off",
+      "apa": false,
+      "int8_frac": null,
+      "delta_vs_fp16": 0.0
+    },
+    "cq4": {
+      "acc_norm": 0.582,
+      "tier": "cq4",
+      "apa": false,
+      "int8_frac": null,
+      "delta_vs_fp16": -0.008
+    },
+    "cq4+": {
+      "acc_norm": 0.587,
+      "tier": "cq4+",
+      "apa": false,
+      "int8_frac": null,
+      "delta_vs_fp16": -0.003
+    },
+    "apa": {
+      "acc_norm": 0.588,
+      "tier": "off",
+      "apa": true,
+      "int8_frac": 0.9999996849925407,
+      "delta_vs_fp16": -0.002
+    },
+    "cq4+apa": {
+      "acc_norm": 0.589,
+      "tier": "cq4",
+      "apa": true,
+      "int8_frac": 0.9999998249958559,
+      "delta_vs_fp16": -0.001
+    },
+    "cq4+ +apa": {
+      "acc_norm": 0.582,
+      "tier": "cq4+",
+      "apa": true,
+      "int8_frac": 0.999999912497928,
+      "delta_vs_fp16": -0.008
+    }
+  }
+}
