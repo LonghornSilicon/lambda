@@ -1,0 +1,13 @@
+runs/
+build/
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+rtl/tb/testvectors/
+__pycache__/
+*.pyc
+hf_cache/
+venv/
