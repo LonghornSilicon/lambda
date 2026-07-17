@@ -57,9 +57,36 @@ Consistent with the H2O paper's ~20%-cache claim, now on Qwen2.
   retention." Quantifying the accuracy of graded demotion (vs binary evict) is the
   recommended next analysis.
 
+## Recent-window ratio sweep → gold config
+
+The budget C is split between a recent local window (L) and heavy hitters (C−L).
+Swept L/C ∈ {0.25, 0.5, 0.75} at the knee budgets (Qwen2-0.5B, n=500), acc_norm:
+
+| budget | L/C=0.25 | **L/C=0.50** | L/C=0.75 |
+|---|---|---|---|
+| 0.25 | 0.488 | **0.492** | 0.432 |
+| 0.20 | 0.458 | **0.484** | 0.444 |
+| 0.15 | 0.396 | **0.454** | 0.432 |
+| 0.10 | 0.340 | **0.376** | 0.328 |
+
+**L/C = 0.50 wins at every budget** — an even split between recency and heavy-hitters
+is best; too much recency (0.75) throws away heavy hitters, too little (0.25) loses
+local coherence.
+
+**Gold config: recent_ratio = 0.5, KV budget = 25%** → −0.006 vs full cache
+(near-lossless, comfortable margin under the ±0.02 gate). Budget 20% is the gate
+edge (−0.014); below ~15% it falls off. This is the config carried into the RTL and
+the all-3-blocks integration test.
+
+Caveat: HellaSwag sequences are short, so eviction only bites the longer ones
+(kept-fraction stays ~0.97) — the accuracy impact is real but concentrated. A
+2–4K-token trace would exercise the policy harder; HellaSwag is used here for
+consistency with blocks 1 & 2.
+
 ## Next
 
+- Graded demotion (importance→CQ tier) vs binary eviction — folded into the
+  all-3-blocks integration test (`full_stack_integration.py`).
 - Per-head vs shared-budget ablation (H2O is per-head here; shared budget is cheaper HW).
-- Graded demotion (tier mapping) accuracy vs binary eviction.
-- Longer-context trace (the HellaSwag knee is short-sequence-limited; confirm on 2–4K).
+- Longer-context trace (2–4K) to exercise the knee.
 - Fixed-point / integer accumulator precision study before RTL.
