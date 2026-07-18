@@ -1,0 +1,47 @@
+{
+  "model": "Qwen/Qwen2-0.5B",
+  "n": 500,
+  "frac": 0.25,
+  "recent_ratio": 0.5,
+  "fp16_full_cache": 0.498,
+  "gold_fp32_accumulator": 0.492,
+  "fullscale": "Tk (context length)",
+  "results": {
+    "16": {
+      "bits": 16,
+      "acc_norm": 0.498,
+      "delta_vs_fp32_gold": 0.006,
+      "delta_vs_fp16_full": 0.0
+    },
+    "12": {
+      "bits": 12,
+      "acc_norm": 0.496,
+      "delta_vs_fp32_gold": 0.004,
+      "delta_vs_fp16_full": -0.002
+    },
+    "10": {
+      "bits": 10,
+      "acc_norm": 0.498,
+      "delta_vs_fp32_gold": 0.006,
+      "delta_vs_fp16_full": 0.0
+    },
+    "8": {
+      "bits": 8,
+      "acc_norm": 0.49,
+      "delta_vs_fp32_gold": -0.002,
+      "delta_vs_fp16_full": -0.008
+    },
+    "6": {
+      "bits": 6,
+      "acc_norm": 0.47,
+      "delta_vs_fp32_gold": -0.022,
+      "delta_vs_fp16_full": -0.028
+    },
+    "4": {
+      "bits": 4,
+      "acc_norm": 0.456,
+      "delta_vs_fp32_gold": -0.036,
+      "delta_vs_fp16_full": -0.042
+    }
+  }
+}
