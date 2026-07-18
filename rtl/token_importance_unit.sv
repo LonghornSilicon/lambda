@@ -28,18 +28,20 @@
 //   evict_slot     : SLOT_WIDTH
 //   Total: N_SLOTS*(SCORE_WIDTH+1) + SCORE_WIDTH + 3*SLOT_WIDTH + 3
 //
-// For N_SLOTS = 8, SCORE_WIDTH = 16, SLOT_WIDTH = 3:
-//   8*17 + 16 + 3*3 + 3 = 136 + 16 + 9 + 3 = 164 FFs (register-count derivation)
+// For N_SLOTS = 8, SCORE_WIDTH = 10, SLOT_WIDTH = 3:
+//   8*11 + 10 + 3*3 + 3 = 88 + 10 + 9 + 3 = 110 FFs (register-count derivation)
 //
-// Synthesized (yosys 0.33, `synth -flatten`): 167 FFs — the +3 is one slot-index
-// register yosys keeps un-merged. The CI FF-count gate pins the synthesized value
-// (167); the derivation above is the analytic bound it tracks.
+// SCORE_WIDTH = 10 is set from the accumulator-bit-width study
+// (docs/findings/h2o-deep-analysis.md): 8 bits is already loss-free for the
+// eviction ranking on Qwen2 (-0.002 acc_norm), 10 gives margin at trivial cost.
+// The CI FF-count gate pins the synthesized value; the derivation is the analytic
+// bound it tracks (yosys keeps a few slot-index FFs un-merged, ~+3).
 //
 `timescale 1ns/1ps
 
 module token_importance_unit #(
     parameter  integer N_SLOTS      = 8,
-    parameter  integer SCORE_WIDTH  = 16,
+    parameter  integer SCORE_WIDTH  = 10,
     parameter  integer WEIGHT_WIDTH = 8,
     localparam integer SLOT_WIDTH   = (N_SLOTS <= 1) ? 1 : $clog2(N_SLOTS)
 ) (

@@ -7,7 +7,7 @@
 
 module tb_token_importance_unit;
     localparam integer N_SLOTS      = 8;
-    localparam integer SCORE_WIDTH  = 16;
+    localparam integer SCORE_WIDTH  = 10;
     localparam integer WEIGHT_WIDTH = 8;
     localparam integer SLOT_WIDTH   = 3;
     localparam [SCORE_WIDTH-1:0] SCORE_MAX = {SCORE_WIDTH{1'b1}};
