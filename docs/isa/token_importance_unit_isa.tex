@@ -57,6 +57,16 @@
 
 \setlist{itemsep=1pt,topsep=2pt}
 
+% --- table breathing room ---------------------------------------------------
+% Roomier rows, a touch more column padding, and clear vertical separation
+% between floats and the surrounding body text (important with parskip, where
+% floats otherwise butt against paragraphs).
+\renewcommand{\arraystretch}{1.25}
+\setlength{\tabcolsep}{7pt}
+\setlength{\textfloatsep}{18pt plus 2pt minus 2pt}
+\setlength{\intextsep}{16pt plus 3pt minus 2pt}
+\setlength{\floatsep}{16pt plus 2pt minus 2pt}
+
 \begin{document}
 
 %==============================================================================
@@ -432,7 +442,7 @@ the chip is a bug in this specification, not in the chip.
 \begin{table}[ht]
 \centering
 \small
-\renewcommand{\arraystretch}{1.2}
+\renewcommand{\arraystretch}{1.25}
 \begin{tabular}{@{}c p{3.0cm} p{4.0cm} p{5.0cm}@{}}
 \toprule
 Phase & Timeline & Compiler targets & We provide \\

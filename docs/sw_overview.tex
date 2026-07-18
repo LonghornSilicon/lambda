@@ -54,6 +54,16 @@
 
 \setlist{itemsep=2pt,topsep=3pt}
 
+% --- table breathing room ---------------------------------------------------
+% Roomier rows, a touch more column padding, and clear vertical separation
+% between floats and the surrounding body text (important with parskip, where
+% floats otherwise butt against paragraphs).
+\renewcommand{\arraystretch}{1.25}
+\setlength{\tabcolsep}{7pt}
+\setlength{\textfloatsep}{18pt plus 2pt minus 2pt}
+\setlength{\intextsep}{16pt plus 3pt minus 2pt}
+\setlength{\floatsep}{16pt plus 2pt minus 2pt}
+
 \begin{document}
 
 %==============================================================================
@@ -228,7 +238,7 @@ $\rightarrow$ AXI register write $\rightarrow$ PCIe MMIO.
 \begin{table}[ht]
 \centering
 \small
-\renewcommand{\arraystretch}{1.2}
+\renewcommand{\arraystretch}{1.25}
 \caption{Four-phase compiler integration plan.}
 \label{tab:phases}
 \begin{tabular}{@{}c p{3.0cm} p{4.0cm} p{4.8cm}@{}}

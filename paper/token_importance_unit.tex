@@ -38,6 +38,16 @@
   urlcolor=codeblue,
 }
 
+% --- table breathing room ---------------------------------------------------
+% Roomier rows and clear vertical separation between floats and the surrounding
+% body text (important with parskip, where floats otherwise butt against
+% paragraphs). tabcolsep left at the default to stay safe in the narrow
+% two-column measure.
+\renewcommand{\arraystretch}{1.25}
+\setlength{\textfloatsep}{16pt plus 2pt minus 2pt}
+\setlength{\intextsep}{14pt plus 3pt minus 2pt}
+\setlength{\floatsep}{14pt plus 2pt minus 2pt}
+
 \pagestyle{fancy}
 \fancyhf{}
 \rhead{\small Token Importance Unit}
