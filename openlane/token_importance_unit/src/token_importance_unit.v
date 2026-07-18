@@ -90,17 +90,18 @@ module token_importance_unit #(
 
     integer k;
     always @(posedge clk) begin
+        // Only the control FFs are reset: state (must start IDLE), valid[] (slots
+        // must start empty), evict_valid (no spurious victim). The score[] datapath
+        // and the scan scratch regs (scan_idx/min_*) are intentionally NOT reset —
+        // a slot's score is zeroed by LOAD before it is ever read (its valid bit is
+        // 0 until then), and the scan regs are seeded at evict_req. This keeps rst_n
+        // fanout ~11 instead of ~113, so no delay-buffer reset tree (and its slew
+        // violations) is needed.
         if (!rst_n) begin
             state       <= S_IDLE;
-            scan_idx    <= {SLOT_WIDTH{1'b0}};
-            min_score   <= {SCORE_WIDTH{1'b0}};
-            min_idx     <= {SLOT_WIDTH{1'b0}};
             evict_valid <= 1'b0;
-            evict_slot  <= {SLOT_WIDTH{1'b0}};
-            for (k = 0; k < N_SLOTS; k = k + 1) begin
-                score[k] <= {SCORE_WIDTH{1'b0}};
+            for (k = 0; k < N_SLOTS; k = k + 1)
                 valid[k] <= 1'b0;
-            end
         end else begin
             evict_valid <= 1'b0;
             case (state)
