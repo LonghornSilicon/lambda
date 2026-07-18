@@ -49,9 +49,20 @@ natural there. Therefore:
 
 `analysis/full_stack_integration.py` composes TIU (evict + threshold keep/demote) →
 KVCE (per-token value tier + uniform per-channel keys) → APA (INT8/FP16-routed S·V) in
-one Qwen2 attention. The tiered value precision matching this handshake holds accuracy
-to within the ±0.02 gate of FP16 with APA active (and recovers ~1pt over uniform CQ-4+
-by spending bits on the heavy hitters). See that script's `ALL3+graded` row.
+one Qwen2 attention. Measured (Qwen2-0.5B, HellaSwag n=1000, 25% KV budget):
+
+| config | acc_norm | Δ vs FP16 | APA INT8 |
+|---|---|---|---|
+| fp16 | 0.489 | — | — |
+| APA only | 0.490 | +0.001 | 99.99% |
+| **ALL 3 + tier(handshake)** | **0.458** | **−0.031** | **99.99%** |
+
+The `tier(handshake)` row uses **exactly the RTL `tier_keep` semantics** (2-tier
+keep→CQ-8 / demote→CQ-4 by an accumulated-mass threshold). The full stack — TIU
+eviction + this tier + KVCE + APA's ~all-INT8 S·V — holds within the ~3% combined
+envelope of FP16, with **APA fully active (99.99% INT8)**. The handshake composes with
+APA with no interaction: APA operates on the attention scores (codec/tier-agnostic),
+so the TIU tier and KVCE codec are transparent to it.
 
 ## RTL ↔ model correspondence
 

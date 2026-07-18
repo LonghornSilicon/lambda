@@ -124,18 +124,28 @@ def _tiu(A, causal, i, j):
 
     tier_id = None
     if CFG["graded"]:
-        # rank tokens by final-row accumulated mass; map to KVCE tiers.
         final = acc[:, :, -1, :]                             # [B,H,Tk] mass over whole seq
-        finm = torch.where(causal[-1].unsqueeze(0).unsqueeze(0).expand_as(final),
-                           final, torch.full_like(final, -1.0))
-        order = finm.argsort(dim=-1, descending=True)        # most->least important
-        rank = torch.empty_like(order); rank.scatter_(-1, order,
-              torch.arange(Tk, device=A.device).expand_as(order))
-        frac_rank = rank.float() / max(Tk - 1, 1)
-        tier_id = torch.full((B, H, Tk), 3, dtype=torch.long, device=A.device)  # default cq4+
-        tier_id = torch.where(frac_rank < 0.50, torch.tensor(2, device=A.device), tier_id)  # mid -> cq4
-        tier_id = torch.where(frac_rank < 0.25, torch.tensor(1, device=A.device), tier_id)  # top -> cq8
-        tier_id = torch.where(frac_rank < 0.10, torch.tensor(0, device=A.device), tier_id)  # top10% fp16
+        vmask = causal[-1].unsqueeze(0).unsqueeze(0).expand_as(final)
+        if CFG.get("tier_mode") == "threshold":
+            # 2-tier keep/demote by an accumulated-mass threshold — EXACTLY the RTL
+            # tier_keep semantics (score >= threshold). Threshold = per-(B,H) mean of
+            # valid tokens' accumulated mass (a calibratable percentile in silicon).
+            denom = vmask.sum(-1, keepdim=True).clamp(min=1)
+            thr = (torch.where(vmask, final, torch.zeros_like(final)).sum(-1, keepdim=True) / denom)
+            keep_hh = final >= thr                            # heavy hitter?
+            tier_id = torch.where(keep_hh, torch.tensor(1, device=A.device),   # keep -> CQ-8
+                                  torch.tensor(2, device=A.device))            # demote -> CQ-4
+        else:
+            # rank-fraction map (design-space generalization)
+            finm = torch.where(vmask, final, torch.full_like(final, -1.0))
+            order = finm.argsort(dim=-1, descending=True)
+            rank = torch.empty_like(order); rank.scatter_(-1, order,
+                  torch.arange(Tk, device=A.device).expand_as(order))
+            frac_rank = rank.float() / max(Tk - 1, 1)
+            tier_id = torch.full((B, H, Tk), 3, dtype=torch.long, device=A.device)
+            tier_id = torch.where(frac_rank < 0.50, torch.tensor(2, device=A.device), tier_id)
+            tier_id = torch.where(frac_rank < 0.25, torch.tensor(1, device=A.device), tier_id)
+            tier_id = torch.where(frac_rank < 0.10, torch.tensor(0, device=A.device), tier_id)
     return keep, tier_id
 
 
@@ -190,7 +200,7 @@ AttentionInterface.register("full_stack", full_attention)
 
 def run_cfg(lm, name, n, **kw):
     import lm_eval
-    CFG.update({"tiu": False, "graded": False, "kvce": "off", "apa": False})
+    CFG.update({"tiu": False, "graded": False, "kvce": "off", "apa": False, "tier_mode": None})
     CFG.update(kw)
     for k2 in STATS: STATS[k2] = 0
     torch.manual_seed(0)
@@ -227,6 +237,9 @@ def main():
     R["tiu+kvce"]        = run_cfg(lm, "tiu+kvce", args.n, tiu=True, kvce="cq4+")
     R["ALL3"]            = run_cfg(lm, "ALL3", args.n, tiu=True, kvce="cq4+", apa=True)
     R["ALL3+graded"]     = run_cfg(lm, "ALL3+graded", args.n, tiu=True, kvce="cq4+", apa=True, graded=True)
+    # RTL tier-handshake semantics: 2-tier keep->CQ8 / demote->CQ4 by mass threshold, + APA
+    R["ALL3+tier(hs)"]   = run_cfg(lm, "ALL3+tier(hs)", args.n, tiu=True, kvce="cq4+",
+                                   apa=True, graded=True, tier_mode="threshold")
 
     base = R["fp16"]["acc_norm"]
     for r in R.values(): r["delta"] = round(r["acc_norm"] - base, 4)
