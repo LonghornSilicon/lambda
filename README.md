@@ -166,9 +166,12 @@ token-importance-unit/
 - [x] Algorithm validated (H2O accumulated-mass on Qwen2; near-lossless to 25% budget)
 - [x] Gold config chosen (recent-ratio 0.5, 25% budget)
 - [x] All-3-blocks integration verified (TIU+KVCE+APA compose within ~3% of FP16)
-- [ ] RTL: accumulator + streaming top-k eviction datapath, closed-form FF count
-- [ ] Directed + replay testbenches (iverilog), bit-exact vs a Python reference
-- [ ] Yosys synth FF-count gate; LibreLane Sky130 sign-off (0 violations)
+- [x] Deep analysis: long-ctx knee, per-head vs shared (keep per-head), accumulator width (10b)
+- [x] RTL: accumulator + serialized-argmin eviction datapath, closed-form FF count (113 FFs)
+- [x] Directed + randomized self-checking testbench (iverilog), 20/20 bit-exact
+- [x] Yosys synth FF-count + Sky130 first pass: DRC/LVS/antenna/timing clean (`docs/sky130_signoff.md`)
+- [ ] Close residual max-slew (pipeline the argmin compare to cut mux fanout) → 0-violation sign-off
+- [ ] Replay testbench from real Qwen2 eviction traces
 - [ ] Integration: tier-signal handshake with the KV Cache Engine
 - [ ] Paper section with hardware results
 
