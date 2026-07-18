@@ -1,5 +1,10 @@
 # Adaptive Precision Attention
 
+> **Building a compiler / integrating this block?** Start with the chip-level
+> [Compiler Programming Guide](https://github.com/LonghornSilicon/architecture/blob/main/docs/compiler_programming_guide.md)
+> and the [documentation standard](https://github.com/LonghornSilicon/architecture/blob/main/docs/documentation_standard.md)
+> in the `architecture` repo. This block's own interface spec is [`docs/isa/precision_controller_isa.md`](docs/isa/precision_controller_isa.md).
+
 A hardware-verified extension of [FlashAttention](https://arxiv.org/abs/2205.14135)
 that routes each attention tile to **INT8** or **FP16** at runtime based on
 a single pre-softmax ratio check. ~79% of tiles end up on the cheaper
