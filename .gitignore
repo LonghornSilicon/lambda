@@ -17,6 +17,7 @@ openlane/kv_cache_engine/src/*.sv
 !openlane/kv_cache_engine/src/sram_controller.sv
 rtl/tb/testvectors/*
 !rtl/tb/testvectors/channelquant/
+!rtl/tb/testvectors/qwen/
 *.swp
 *.swo
 *~

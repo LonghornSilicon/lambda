@@ -19,7 +19,9 @@ SIM_KPATH_BIN := $(TB_DIR)/tb_key_path.out
 SIM_TOP_BIN := $(TB_DIR)/tb_top_stream.out
 SIM_SYN_BIN := $(TB_DIR)/tb_cq_syn.out
 
-.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top sim_syn testvectors clean
+SIM_QWEN_BIN := $(TB_DIR)/tb_qwen_validate.out
+
+.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top sim_syn sim_qwen testvectors clean
 
 all: sim
 
@@ -50,6 +52,16 @@ sim_vpath: $(SIM_VPATH_BIN)
 
 $(SIM_VPATH_BIN): $(TB_DIR)/tb_value_path.sv cq_value_path.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv cq_units_syn.sv
 	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_value_path.sv cq_value_path.sv amax_unit.sv cq_units.sv cq_units_syn.sv
+
+# Validate the value-path RTL against a REAL Qwen2 slice: replays tb/testvectors/
+# qwen_v.hex through cq_value_path and checks V̂ bit-for-bit vs qwen_vhat_hw.hex (the
+# fp16-exact codec, analysis/channelquant_hw.py). Regenerate the slice with:
+#   python analysis/channelquant_hw.py --mode dump-slice
+sim_qwen: $(SIM_QWEN_BIN)
+	$(VVP) $(SIM_QWEN_BIN)
+
+$(SIM_QWEN_BIN): $(TB_DIR)/tb_qwen_validate.sv cq_value_path.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv cq_units_syn.sv
+	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_qwen_validate.sv cq_value_path.sv amax_unit.sv cq_units.sv cq_units_syn.sv
 
 # Streaming KEY-path parity vs golden (per-channel scales + INT4 payload + K_hat
 # + sidecar). Exercises residual_buffer + amax_unit + scale_bank + cq cores.
