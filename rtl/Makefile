@@ -21,7 +21,7 @@ SIM_SYN_BIN := $(TB_DIR)/tb_cq_syn.out
 
 SIM_QWEN_BIN := $(TB_DIR)/tb_qwen_validate.out
 
-.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top sim_syn sim_qwen testvectors clean
+.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top sim_syn sim_qwen sim_qwen_grid testvectors clean
 
 all: sim
 
@@ -62,6 +62,19 @@ sim_qwen: $(SIM_QWEN_BIN)
 
 $(SIM_QWEN_BIN): $(TB_DIR)/tb_qwen_validate.sv cq_value_path.sv amax_unit.sv cq_fp_pkg.sv cq_units.sv cq_units_syn.sv
 	$(IVERILOG) -g2012 -I. -o $@ $(TB_DIR)/tb_qwen_validate.sv cq_value_path.sv amax_unit.sv cq_units.sv cq_units_syn.sv
+
+# Full real-Qwen GRID: value AND key path, D=64 (0.5B) and D=128 (1.5B) — 696,320
+# elements bit-exact. Regenerate the vectors with:
+#   python analysis/channelquant_hw.py --mode dump-multi --model Qwen/Qwen2-0.5B --outdir ../rtl/tb/testvectors/qwen/g05b
+#   python analysis/channelquant_hw.py --mode dump-multi --model Qwen/Qwen2-1.5B --outdir ../rtl/tb/testvectors/qwen/g15b
+sim_qwen_grid:
+	$(IVERILOG) -g2012 -DQD=64  -I. -o $(TB_DIR)/tb_qwen_v64.out  $(TB_DIR)/tb_qwen_multi.sv cq_value_path.sv amax_unit.sv cq_units.sv cq_units_syn.sv
+	$(VVP) $(TB_DIR)/tb_qwen_v64.out  +TVDIR=tb/testvectors/qwen/g05b/multi
+	$(IVERILOG) -g2012 -DQD=128 -I. -o $(TB_DIR)/tb_qwen_v128.out $(TB_DIR)/tb_qwen_multi.sv cq_value_path.sv amax_unit.sv cq_units.sv cq_units_syn.sv
+	$(VVP) $(TB_DIR)/tb_qwen_v128.out +TVDIR=tb/testvectors/qwen/g15b/multi
+	$(IVERILOG) -g2012 -I. -o $(TB_DIR)/tb_qwen_key.out $(TB_DIR)/tb_qwen_key.sv cq_key_path.sv residual_buffer.sv scale_bank.sv amax_unit.sv cq_units.sv cq_units_syn.sv
+	$(VVP) $(TB_DIR)/tb_qwen_key.out +TVDIR=tb/testvectors/qwen/g05b/multi
+	$(VVP) $(TB_DIR)/tb_qwen_key.out +TVDIR=tb/testvectors/qwen/g15b/multi
 
 # Streaming KEY-path parity vs golden (per-channel scales + INT4 payload + K_hat
 # + sidecar). Exercises residual_buffer + amax_unit + scale_bank + cq cores.
