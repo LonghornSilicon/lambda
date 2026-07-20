@@ -50,17 +50,18 @@ and the accumulators are untouched by the codec itself.
   ~4.2 → ~3.3 b/val, ~3.8× → ~4.8× KV compression, ~15× → ~19× stacked. Update KVE README,
   `architecture/arch.yml`, org README, paper. Credit Abhiram + Chaithu.
 
-## Five decisions to make BEFORE coding (Chaithu + Abhiram)
+## Five decisions — LOCKED (Chaithu + Abhiram, 2026-07-20)
 
-1. **Path A vs Path B.** A = un-rotate inside KVE (zero change to APA/MatE, but read cost
-   grows ~log D and scales with context). B = sum in rotated space, one inverse-WHT on the
-   output (touches MatE, but the right design). **Recommend B.**
-2. **3-bit packing** (true `pack_int3`, 8→3 bytes) vs a 4-bit slot. Needed for the memory win.
-3. **Fixed vs randomized Hadamard.** A/B says fixed is fine; randomized adds free worst-case
-   incoherence insurance at the cost of a shared sign ROM. Decide.
-4. **Retire TIU `tier_keep` value role** — drop or repurpose.
-5. **fp16-WHT precision** — the A/B rotated in fp32; confirm the fp16 butterfly doesn't erode
-   the −0.003 before any RTL work. (This is the one experiment still owed.)
+1. **Path B.** Sum in rotated space; one inverse-WHT on the A·V output per (query, head),
+   done in fp on the accumulator output (NOT inside the INT32 integer accumulator). MatE
+   gains an output inverse-WHT stage; KVE just emits rotated dequant.
+2. **True 3-bit packing** — `pack_int3`, 8 codes → 3 bytes. No 4-bit slot.
+3. **Randomized Hadamard** — H·diag(±1) with one fixed shared sign vector (a sign ROM);
+   free worst-case incoherence insurance. rotate = WHT(x·s); unrotate = WHT(y)·s (s²=1).
+4. **Retire the TIU `tier_keep` value-demotion** — flat rotated-3bit obsoletes it; drop the
+   value-precision role (keep only keep/evict). Update `docs/tier_handshake.md` + tier RTL.
+5. **fp16-WHT + Llama gate** — RUNNING now (`wht_fp16_check.py`): randomized Hadamard +
+   fp16 butterfly + 3-bit on Qwen2-0.5B/1.5B + Llama-3.2-1B. Coding is gated on this passing.
 
 ## Sequencing (all on this branch; merge to main only after review)
 
