@@ -21,7 +21,7 @@ SIM_SYN_BIN := $(TB_DIR)/tb_cq_syn.out
 
 SIM_QWEN_BIN := $(TB_DIR)/tb_qwen_validate.out
 
-.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top sim_syn sim_qwen sim_qwen_grid sim_wht testvectors clean
+.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top sim_syn sim_qwen sim_qwen_grid sim_wht sim_wht_syn testvectors clean
 
 # WHT-rotated INT3 value path (branch wht-turboquant-values): cq_wht_value (forward WHT +
 # amax + INT3 + dequant + inverse WHT + x1/D) vs the C++/numpy reference V̂ on real Qwen,
@@ -85,6 +85,18 @@ sim_qwen_grid:
 	$(IVERILOG) -g2012 -I. -o $(TB_DIR)/tb_qwen_key.out $(TB_DIR)/tb_qwen_key.sv cq_key_path.sv residual_buffer.sv scale_bank.sv amax_unit.sv cq_units.sv cq_units_syn.sv
 	$(VVP) $(TB_DIR)/tb_qwen_key.out +TVDIR=tb/testvectors/qwen/g05b/multi
 	$(VVP) $(TB_DIR)/tb_qwen_key.out +TVDIR=tb/testvectors/qwen/g15b/multi
+
+
+# Synthesis-tier WHT: fp16_addsub_syn (fp16 add/sub, no `real`) vs the behavioral oracle
+# (cq_fp_pkg::fp16_add/sub) on a 375k-pair sweep, then wht_unit_syn vs behavioral wht_unit
+# on real Qwen rows. The synthesizable butterfly for tape-out (cf. cq_units_syn.sv).
+sim_wht_syn:
+	$(IVERILOG) -g2012 -I. -o $(TB_DIR)/tb_fp16as.out cq_fp_pkg.sv fp16_addsub_syn.sv $(TB_DIR)/tb_fp16_addsub.sv
+	$(VVP) $(TB_DIR)/tb_fp16as.out
+	$(IVERILOG) -g2012 -DQD=64  -I. -o $(TB_DIR)/tb_whtsyn64.out  cq_fp_pkg.sv fp16_addsub_syn.sv wht_unit.sv wht_unit_syn.sv $(TB_DIR)/tb_wht_syn.sv
+	$(VVP) $(TB_DIR)/tb_whtsyn64.out  +VAL=tb/testvectors/qwen/g05b/multi/val_0.hex
+	$(IVERILOG) -g2012 -DQD=128 -I. -o $(TB_DIR)/tb_whtsyn128.out cq_fp_pkg.sv fp16_addsub_syn.sv wht_unit.sv wht_unit_syn.sv $(TB_DIR)/tb_wht_syn.sv
+	$(VVP) $(TB_DIR)/tb_whtsyn128.out +VAL=tb/testvectors/qwen/g15b/multi/val_0.hex
 
 # Streaming KEY-path parity vs golden (per-channel scales + INT4 payload + K_hat
 # + sidecar). Exercises residual_buffer + amax_unit + scale_bank + cq cores.

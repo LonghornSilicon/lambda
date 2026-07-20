@@ -88,10 +88,18 @@ token) — there is no per-token value bit-width to select anymore. The TIU keep
 keep/evict role; the value-precision role of `tier_keep` is dropped (see the
 `token-importance-unit` tier-handshake doc).
 
+## Synthesis tier — `wht_unit_syn` (done)
+
+`fp16_addsub_syn.sv` is a synthesizable IEEE-754 half add/subtract (no `real` math —
+align / add / normalize / round-half-even, subnormals handled), **bit-exact to the
+behavioral oracle** `cq_fp_pkg::fp16_add`/`fp16_sub` over a 375,403-pair random sweep +
+directed edge cases. `wht_unit_syn.sv` wires those cores into the same butterfly and is
+**bit-identical to the behavioral `wht_unit`** on real Qwen rows (D=128 10,240/10,240,
+D=64 5,120/5,120). `make sim_wht_syn`. This is the tape-out-ready form of the butterfly
+(cf. `cq_units_syn.sv` for the base codec's quant/dequant cores).
+
 ## Still open (Phase 3 remainder)
 
-- Synthesizable fp16 adder (`wht_unit_syn`) verified against the behavioral butterfly (the
-  synthesis tier, cf. `cq_units_syn.sv`).
 - Full streaming Path-B integration into `cq_value_path` (rotate-on-write, rotated-emit read).
 - Chip-hub docs (`architecture/arch.yml` codec-of-record + MatE inverse-WHT stage, org
   profile README compression numbers) — updated at merge to master.
