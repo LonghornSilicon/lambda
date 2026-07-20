@@ -21,10 +21,12 @@ from channelquant_hw import q_per_token_hw, q_keys_per_channel_hw
 
 _SIGN = {}
 def sign(D, device):
-    if D not in _SIGN:
-        v = np.random.default_rng(1234).integers(0, 2, size=D) * 2 - 1   # fixed ±1 seed
-        _SIGN[D] = torch.tensor(v, dtype=torch.float32)
-    return _SIGN[D].to(device)
+    seed = CFG.get("seed", 1234)
+    key = (D, seed)
+    if key not in _SIGN:
+        v = np.random.default_rng(seed).integers(0, 2, size=D) * 2 - 1   # ±1 draw for this seed
+        _SIGN[key] = torch.tensor(v, dtype=torch.float32)
+    return _SIGN[key].to(device)
 
 
 def fwht_dt(x, dt):
@@ -51,7 +53,7 @@ def quant_value(v, bits, dt, randomized):
     return y
 
 
-CFG = {"mode": "fp16", "bits": 3, "dt": torch.float16, "rand": True, "G": 128, "k_out": 2}
+CFG = {"mode": "fp16", "bits": 3, "dt": torch.float16, "rand": True, "seed": 1234, "G": 128, "k_out": 2}
 
 
 def attn(module, query, key, value, attention_mask, scaling=None, dropout=0.0, **kw):
@@ -83,22 +85,30 @@ def main():
     ap.add_argument("--model", default="Qwen/Qwen2-1.5B")
     ap.add_argument("--n", type=int, default=1000)
     ap.add_argument("--out", default="wht_fp16_check.json")
+    ap.add_argument("--seed_sweep", action="store_true",
+                    help="fixed WHT vs several randomized sign-vector draws (fp16, 3b)")
     a = ap.parse_args()
     tok = AutoTokenizer.from_pretrained(a.model)
     model = AutoModelForCausalLM.from_pretrained(a.model, dtype=torch.float16,
                                                  attn_implementation="f16chk").cuda().eval()
     lm = HFLM(pretrained=model, tokenizer=tok, batch_size=16)
     f16, f32 = torch.float16, torch.float32
-    grid = [
-        ("fp16",                       dict(mode="fp16")),
-        ("val4 plain (current)",       dict(mode="plain", bits=4)),
-        ("rand-WHT fp32 / 3b (ideal)", dict(mode="rot", bits=3, dt=f32, rand=True)),
-        ("rand-WHT fp16 / 3b (SILICON)",dict(mode="rot", bits=3, dt=f16, rand=True)),
-        ("fixed-WHT fp16 / 3b",        dict(mode="rot", bits=3, dt=f16, rand=False)),
-    ]
+    if a.seed_sweep:
+        grid = [("fp16", dict(mode="fp16")),
+                ("fixed-WHT fp16 / 3b", dict(mode="rot", bits=3, dt=f16, rand=False))]
+        grid += [(f"rand seed={s} fp16 / 3b", dict(mode="rot", bits=3, dt=f16, rand=True, seed=s))
+                 for s in (0, 1, 7, 42, 1234)]
+    else:
+        grid = [
+            ("fp16",                       dict(mode="fp16")),
+            ("val4 plain (current)",       dict(mode="plain", bits=4)),
+            ("rand-WHT fp32 / 3b (ideal)", dict(mode="rot", bits=3, dt=f32, rand=True)),
+            ("rand-WHT fp16 / 3b (SILICON)",dict(mode="rot", bits=3, dt=f16, rand=True)),
+            ("fixed-WHT fp16 / 3b",        dict(mode="rot", bits=3, dt=f16, rand=False)),
+        ]
     R = {}
     for label, cfg in grid:
-        CFG.update({"mode": "fp16", "bits": 3, "dt": f16, "rand": True}); CFG.update(cfg)
+        CFG.update({"mode": "fp16", "bits": 3, "dt": f16, "rand": True, "seed": 1234}); CFG.update(cfg)
         torch.manual_seed(0)
         o = lm_eval.simple_evaluate(model=lm, tasks=["hellaswag"], limit=a.n, bootstrap_iters=0)
         acc = o["results"]["hellaswag"]["acc_norm,none"]
