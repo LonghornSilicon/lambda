@@ -186,6 +186,22 @@ package cq_fp_pkg;
   endfunction
 
   // signed round-half-to-even of a real to a longint (handles negatives)
+  // ---- fp16 add/sub (round-half-even) — the WHT butterfly ops -----------------
+  // Match channelquant_ref.hpp: real_to_f16(exact double sum). Behavioral core;
+  // the synthesizable fp16 adder is the synthesis tier (cf. cq_units_syn.sv).
+  function automatic logic [15:0] fp16_add(input logic [15:0] a, input logic [15:0] b);
+    fp16_add = real_to_f16(f16_to_real(a) + f16_to_real(b));
+  endfunction
+  function automatic logic [15:0] fp16_sub(input logic [15:0] a, input logic [15:0] b);
+    fp16_sub = real_to_f16(f16_to_real(a) - f16_to_real(b));
+  endfunction
+
+  // dequant straight to fp16 (WHT inverse input): real_to_f16(code * f16_to_real(scale)).
+  function automatic logic [15:0] cq_dequant_f16(input logic signed [7:0] code,
+                                                 input logic [15:0] scale_f16);
+    cq_dequant_f16 = real_to_f16(real'(code) * f16_to_real(scale_f16));
+  endfunction
+
   function automatic longint srint_ll(input real x);
     begin
       srint_ll = (x < 0.0) ? -rint_ll(-x) : rint_ll(x);

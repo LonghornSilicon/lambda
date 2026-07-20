@@ -21,7 +21,17 @@ SIM_SYN_BIN := $(TB_DIR)/tb_cq_syn.out
 
 SIM_QWEN_BIN := $(TB_DIR)/tb_qwen_validate.out
 
-.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top sim_syn sim_qwen sim_qwen_grid testvectors clean
+.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top sim_syn sim_qwen sim_qwen_grid sim_wht testvectors clean
+
+# WHT-rotated INT3 value path (branch wht-turboquant-values): cq_wht_value (forward WHT +
+# amax + INT3 + dequant + inverse WHT + x1/D) vs the C++/numpy reference V̂ on real Qwen,
+# both head dims. Reference vectors: rtl/tb/testvectors/qwen/{g05b,g15b}/multi/vhatwht_*.hex
+# (regen: sw/reference_model/test_wht_value_ref for each val_*.hex).
+sim_wht:
+	$(IVERILOG) -g2012 -DQD=64  -I. -o $(TB_DIR)/tb_wht64.out  cq_fp_pkg.sv cq_units.sv wht_unit.sv cq_wht_value.sv $(TB_DIR)/tb_wht_value.sv
+	$(VVP) $(TB_DIR)/tb_wht64.out  +TVDIR=tb/testvectors/qwen/g05b/multi
+	$(IVERILOG) -g2012 -DQD=128 -I. -o $(TB_DIR)/tb_wht128.out cq_fp_pkg.sv cq_units.sv wht_unit.sv cq_wht_value.sv $(TB_DIR)/tb_wht_value.sv
+	$(VVP) $(TB_DIR)/tb_wht128.out +TVDIR=tb/testvectors/qwen/g15b/multi
 
 all: sim
 
