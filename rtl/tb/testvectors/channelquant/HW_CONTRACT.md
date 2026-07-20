@@ -40,6 +40,12 @@ Three tiers, selected by a mode register:
 | **CQ-8** | INT8 per-token | INT8 per-token | none |
 | **CQ-4** | INT4 per-channel (grouped, G) | INT4 per-token | none |
 | **CQ-4+** | INT4 per-channel (grouped, G) | INT4 per-token | top-k key channels in FP16 |
+| **CQ-3-rot** | INT4 per-channel (grouped, G) | **WHT-rotated INT3 per-token** (`pack_int3`, 3.0 b/val) | top-k key channels in FP16 |
+
+CQ-3-rot (branch `wht-turboquant-values`) adds a fixed Walsh-Hadamard rotation to the
+per-token **value** row before the standard amax/quant rule (§2), taking values to 3 bits;
+keys and the outlier lane are unchanged. The rotation is add/sub only and is undone once on
+the P·V output (Path B). Full spec + bit-exact evidence: `docs/wht_value_rotation.md`.
 
 ---
 

@@ -50,7 +50,7 @@ sitting between the ACU (attention compute unit) and the memory hierarchy.
 | **Why** | Cuts off-chip LPDDR5X KV-cache bandwidth ~3.8× (near-lossless), enabling longer context in the same memory budget |
 | **How** | ChannelQuant — per-channel INT4 keys (grouped, G=128) + per-token INT4 values + static top-k FP16 outlier-channel isolation (CQ-4+) |
 | **K/V asymmetry** | K: per-channel scale over a token group (the GQA-critical axis); V: per-token scale |
-| **Tiers** | CQ-8 (per-token INT8 K+V), CQ-4 (per-channel INT4 K / per-token INT4 V), CQ-4+ (CQ-4 with k=2 FP16 outlier channels) |
+| **Tiers** | CQ-8 (per-token INT8 K+V), CQ-4 (per-channel INT4 K / per-token INT4 V), CQ-4+ (CQ-4 with k=2 FP16 outlier channels), **CQ-3-rot** (CQ-4+ keys + WHT-rotated per-token **INT3** values — flat 3.0 b/val; branch `wht-turboquant-values`, see [`docs/wht_value_rotation.md`](docs/wht_value_rotation.md)) |
 | **Verified** | RTL bit-exact vs golden (`sim_kpath`/`sim_top`), 3-way Python↔C++↔SV parity, **all CI gates green** incl. Sky130 sign-off |
 | **Accuracy** | HellaSwag acc_norm within ~0.4–0.8 pt of FP16 (CQ-4+ tier) on Qwen2-0.5B/1.5B (see below) |
 | **Status** | RTL complete through Sky130 physical sign-off (all CI gates green). 16nm (Lambda) sign-off is future work; full-chip tape-out target Summer 2027 via TSMC University Program |
@@ -72,6 +72,12 @@ channels get their own scale) and isolates the worst top-k as FP16 outliers:
 
 **Value path — per-token INT4 (`cq_value_path`)**
 - Per-token amax → FP16 scale → INT4 (INT8 for the CQ-8 tier). No grouping.
+- **CQ-3-rot (branch):** a fixed Walsh-Hadamard rotation of each value row before the per-token
+  amax/INT3 quant (`wht_unit` + `cq_wht_value`) drops values to a flat **3.0 bits/value**,
+  near-lossless (idea: Abhiram Bandi + Chaithu Talasila). Keys are untouched. Hardware runs
+  "Path B": store rotated, sum A·V in rotated space, undo the rotation once on the MatE output
+  (`wht_inverse_out`). Reference + RTL bit-exact on real Qwen (348,160/348,160). See
+  [`docs/wht_value_rotation.md`](docs/wht_value_rotation.md).
 
 **Unified per-channel SRAM record** `{tag, D×FP16 field, D×INT4 code}`
 - Keep channel → `{group scale, INT4 code}`; **outlier channel → `{raw FP16, code +1}`**
