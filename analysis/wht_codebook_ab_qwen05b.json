@@ -1,0 +1,38 @@
+{
+  "model": "Qwen/Qwen2-0.5B",
+  "n": 1000,
+  "results": {
+    "fp16": {
+      "acc_norm": 0.489,
+      "delta_vs_fp16": 0.0
+    },
+    "val4 uniform (current)": {
+      "acc_norm": 0.487,
+      "delta_vs_fp16": -0.002
+    },
+    "val3 uniform (naive)": {
+      "acc_norm": 0.467,
+      "delta_vs_fp16": -0.022
+    },
+    "WHT / amax / uniform  3b": {
+      "acc_norm": 0.489,
+      "delta_vs_fp16": 0.0
+    },
+    "WHT / L2   / uniform  3b": {
+      "acc_norm": 0.413,
+      "delta_vs_fp16": -0.076
+    },
+    "WHT / L2   / lloyd    3b": {
+      "acc_norm": 0.485,
+      "delta_vs_fp16": -0.004
+    },
+    "Haar/ L2   / lloyd    3b": {
+      "acc_norm": 0.485,
+      "delta_vs_fp16": -0.004
+    },
+    "WHT / amax / uniform  4b": {
+      "acc_norm": 0.476,
+      "delta_vs_fp16": -0.013
+    }
+  }
+}
