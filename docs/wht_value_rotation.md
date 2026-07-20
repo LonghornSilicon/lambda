@@ -1,7 +1,8 @@
 # CQ-3-rot — Walsh-Hadamard-rotated INT3 values
 
-**Status:** on branch `wht-turboquant-values`; reference + RTL bit-exact, awaiting review
-before master. **Idea and result:** Abhiram Bandi + Chaithu Talasila.
+**Status:** merged — the reference codec, accuracy, and this spec are on `main`; the RTL
+(`wht_unit`, `cq_wht_value`, `wht_inverse_out`) and its bit-exact proof are on the `rtl`
+branch. **Idea and result:** Abhiram Bandi + Chaithu Talasila.
 **One line:** rotate each per-token value row by a fixed Walsh-Hadamard transform before
 quantizing, so values drop from 4 to a **flat, uniform 3 bits** (no calibration) — keys
 untouched.

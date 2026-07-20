@@ -1,6 +1,6 @@
 # WHT value rotation → ChannelQuant / KVE integration plan (branch `wht-turboquant-values`)
 
-**Status:** PLAN ONLY — nothing here goes to master without Chaithu + Abhiram sign-off.
+**Status:** the value codec + docs are merged to `main`; the RTL is on the `rtl` branch. Remaining Phase-3 RTL (Path B streaming, synth adder) tracked on `rtl`.
 **Idea/result:** Abhiram Bandi + Chaithu Talasila. **Adopt the Walsh-Hadamard rotation
 only** (A/B verdict, `WHT_INTEGRATION_FINDINGS.md`): rotate each per-token VALUE row, keep
 ChannelQuant's existing amax + uniform quant at **3 bits**. Keys unchanged (CQ-4+). No
