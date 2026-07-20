@@ -57,6 +57,20 @@ vs the full stack at each context length (8 non-overlapping windows each).
    moves 4096 from +7.2% to +6.8% — a fraction of a point. 25% is already near the knee at
    long context, so the aggressive operating point costs almost nothing extra vs a safer one.
 
+## Cross-family: same behavior on Llama-3.2-1B
+
+Re-ran the sweep on **Llama-3.2-1B** (a different family — tokenizer, RoPE, tied
+embeddings) with the identical full stack:
+
+| ctx | 256 | 512 | 1024 | 2048 | 4096 |
+|---|---|---|---|---|---|
+| full/FP16 ppl | +6.5% | +8.0% | +7.5% | +9.2% | +9.2% |
+
+Same picture: a flat ~6–9% penalty that does not compound out to 4096 tokens. The
+robustness is a property of the stack, not of the Qwen architecture. (Llama also takes
+the stacked blocks *better* on HellaSwag — ALL-3 is −0.017 vs Qwen2's ~−0.03; see
+`all-three-blocks-integration.md`.)
+
 ## Caveat
 
 Perplexity is more sensitive than multiple-choice acc_norm, so +7% ppl is the *stress*

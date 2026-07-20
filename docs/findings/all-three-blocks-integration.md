@@ -18,21 +18,26 @@ HellaSwag acc_norm, n=1000, gold TIU config (25% KV budget, recent-window ratio 
 
 ## Result (Δ vs FP16 full-cache baseline)
 
-| config | Qwen2-0.5B (D=64) | Qwen2-1.5B (D=128) |
-|---|---|---|
-| fp16 | 0.489 | 0.590 |
-| TIU evict only | −0.016 | −0.034 |
-| KVCE cq4+ only | −0.015 | −0.003 |
-| APA only | +0.001 | −0.002 |
-| TIU + KVCE | −0.018 | −0.025 |
-| **ALL 3 (evict + cq4+ + APA)** | **−0.033** | **−0.030** |
-| ALL 3 + graded value demotion | −0.023 | −0.029 |
+| config | Qwen2-0.5B (D=64) | Qwen2-1.5B (D=128) | Llama-3.2-1B (D=64) |
+|---|---|---|---|
+| fp16 | 0.489 | 0.590 | 0.564 |
+| TIU evict only | −0.016 | −0.034 | −0.019 |
+| KVCE cq4+ only | −0.015 | −0.003 | −0.005 |
+| APA only | +0.001 | −0.002 | +0.001 |
+| TIU + KVCE | −0.018 | −0.025 | −0.025 |
+| **ALL 3 (evict + cq4+ + APA)** | **−0.033** | **−0.030** | **−0.017** |
+| ALL 3 + graded value demotion | −0.023 | −0.029 | −0.024 |
 
 Each block alone is within (or near) the ±0.02 per-block gate. The full stack lands
-at ~−0.03 — the expected cumulative cost of three aggressive, independent
+at ~−0.02 to −0.03 — the expected cumulative cost of three aggressive, independent
 optimizations (75% cache eviction × 4-bit KV × INT8 compute). APA remains free
-(≈FP16, 99.999% INT8). To stay under ±0.02 combined, back the TIU budget off to ~35%
-(where TIU alone is ≈−0.006); 25% is the aggressive operating point.
+(≈FP16, 99.999% INT8) on every model. To stay under ±0.02 combined, back the TIU budget
+off to ~35% (where TIU alone is ≈−0.006); 25% is the aggressive operating point.
+
+**Cross-family:** the stack was re-run on **Llama-3.2-1B** (different family) and lands
+at **−0.017** — actually *better* than Qwen2, and every block behaves the same
+qualitatively (APA free, KVCE ~−0.005, TIU the dominant cost). The three-block design is
+not tuned to Qwen; it holds across families.
 
 ## Two integration findings
 

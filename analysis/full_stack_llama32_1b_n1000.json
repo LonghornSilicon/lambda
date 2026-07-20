@@ -1,0 +1,56 @@
+{
+  "model": "unsloth/Llama-3.2-1B",
+  "n": 1000,
+  "frac": 0.25,
+  "recent_ratio": 0.5,
+  "results": {
+    "fp16": {
+      "acc_norm": 0.564,
+      "kept": null,
+      "int8": null,
+      "delta": 0.0
+    },
+    "tiu": {
+      "acc_norm": 0.545,
+      "kept": 0.43335095479145197,
+      "int8": null,
+      "delta": -0.019
+    },
+    "kvce": {
+      "acc_norm": 0.559,
+      "kept": null,
+      "int8": null,
+      "delta": -0.005
+    },
+    "apa": {
+      "acc_norm": 0.565,
+      "kept": null,
+      "int8": 0.9999954747184309,
+      "delta": 0.001
+    },
+    "tiu+kvce": {
+      "acc_norm": 0.539,
+      "kept": 0.43335095479145197,
+      "int8": null,
+      "delta": -0.025
+    },
+    "ALL3": {
+      "acc_norm": 0.547,
+      "kept": 0.43335095479145197,
+      "int8": 0.9999996743593909,
+      "delta": -0.017
+    },
+    "ALL3+graded": {
+      "acc_norm": 0.54,
+      "kept": 0.43335095479145197,
+      "int8": 0.99999974173331,
+      "delta": -0.024
+    },
+    "ALL3+tier(hs)": {
+      "acc_norm": 0.541,
+      "kept": 0.43335095479145197,
+      "int8": 0.9999996855883774,
+      "delta": -0.023
+    }
+  }
+}
