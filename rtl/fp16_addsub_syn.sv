@@ -55,16 +55,30 @@ module fp16_addsub_syn (
     reg  [13:0]       norm;
     reg  signed [8:0] exp;
     reg  [4:0]        lz;
-    integer k;
     always @* begin
+        lz = 5'd0;                                 // default (avoids a latch; reassigned below)
         if (mag[14]) begin                         // add carry-out: >>1, exp+1
             norm    = mag[14:1];
             norm[0] = norm[0] | mag[0];            // preserve sticky
             exp     = $signed({4'd0, eBig}) + 9'sd1;
-        end else begin
-            lz = 5'd14;                            // all-zero default
-            for (k = 13; k >= 0; k = k - 1)
-                if (mag[k] && (lz == 5'd14)) lz = 5'd13 - k[4:0];
+        end else begin                             // subtract: normalize leading zeros
+            casez (mag[13:0])                      // priority encoder (no loop -> no latch)
+                14'b1?????????????: lz = 5'd0;
+                14'b01????????????: lz = 5'd1;
+                14'b001???????????: lz = 5'd2;
+                14'b0001??????????: lz = 5'd3;
+                14'b00001?????????: lz = 5'd4;
+                14'b000001????????: lz = 5'd5;
+                14'b0000001???????: lz = 5'd6;
+                14'b00000001??????: lz = 5'd7;
+                14'b000000001?????: lz = 5'd8;
+                14'b0000000001????: lz = 5'd9;
+                14'b00000000001???: lz = 5'd10;
+                14'b000000000001??: lz = 5'd11;
+                14'b0000000000001?: lz = 5'd12;
+                14'b00000000000001: lz = 5'd13;
+                default:            lz = 5'd14;    // all zero -> true zero result
+            endcase
             norm = (lz == 5'd14) ? 14'd0 : (mag[13:0] << lz);
             exp  = $signed({4'd0, eBig}) - $signed({4'd0, lz});
         end
