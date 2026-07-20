@@ -93,7 +93,12 @@ class MacArray:
     # INT8 path — signed int8 × signed int8 → int32
     # ------------------------------------------------------------------
     def matmul_int8(self, A: np.ndarray, B: np.ndarray) -> np.ndarray:
-        """C = A @ B in INT8, returning int32. Inputs must be int8."""
+        """C = A @ B in INT8, returning int32. Inputs must be int8.
+
+        int32 is REQUIRED (not headroom) for the P·V tile: it reduces over the token
+        dim, so a flat attention row of length L needs 14+ceil(log2 L) bits — INT24
+        overflows past ~520 tokens. See analysis/pv_accumulator_width.py and arch.yml
+        accumulator_rationale. (Hidden-dim reductions — W4A8 GEMM, Q·Kᵀ — fit INT24.)"""
         if A.dtype != np.int8 or B.dtype != np.int8:
             raise TypeError("matmul_int8 inputs must be np.int8")
         if A.ndim != 2 or B.ndim != 2 or A.shape[1] != B.shape[0]:
