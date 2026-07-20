@@ -4,11 +4,11 @@
 LonghornSilicon block (KV Cache Engine, Token Importance Unit, Memory
 Hierarchy Controller, or any future block), read this end-to-end before
 writing any code. It captures the patterns that worked for the
-precision controller (`adaptive-precision-attention`, the ACU), the
+precision controller (`attention-compute-unit`, the ACU), the
 gotchas we hit, and the specific moment to migrate to a shared CI repo.
 
 This is meant to be read cold — no prior conversation context
-required. References to files in the `adaptive-precision-attention`
+required. References to files in the `attention-compute-unit`
 repo are examples to copy-and-adapt, not literal sources you should
 import.
 
@@ -38,7 +38,7 @@ industry tape-out methodology, just at smaller scale.
 ## Step-by-step: setting up a new block repo
 
 The example file paths below come from
-`adaptive-precision-attention` — copy them and rename for your block.
+`attention-compute-unit` — copy them and rename for your block.
 
 ### Step 0. Create the repo
 
@@ -251,7 +251,7 @@ Three obligatory sections, in this order:
    diagram (copy from this repo's README, highlight the new block).
 
 Then the standard repo-content / results / reproduce / CI sections,
-copying the structure from `adaptive-precision-attention`'s README.
+copying the structure from `attention-compute-unit`'s README.
 
 ### Step 9. Paper section (when applicable)
 

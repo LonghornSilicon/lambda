@@ -11,7 +11,7 @@ KV entry — so the KV cache stays within a fixed on-die budget as context grows
 > bit-accurate Python reference model is at parity (40/40 evictions), and the
 > compiler-facing ISA spec, reference model, and paper section are in `docs/isa/`,
 > `sw/reference_model/`, and `paper/`. Follows the pattern of
-> [`adaptive-precision-attention`](https://github.com/LonghornSilicon/adaptive-precision-attention)
+> [`attention-compute-unit`](https://github.com/LonghornSilicon/attention-compute-unit)
 > (block 1) and [`kv-cache-engine`](https://github.com/LonghornSilicon/kv-cache-engine) (block 2).
 
 ---
@@ -148,7 +148,7 @@ one.
 
 | Block | Repo | Role |
 |---|---|---|
-| ACU (Attention Compute Unit) | [adaptive-precision-attention](https://github.com/LonghornSilicon/adaptive-precision-attention) | INT8 vs FP16 per tile, MAC array |
+| ACU (Attention Compute Unit) | [attention-compute-unit](https://github.com/LonghornSilicon/attention-compute-unit) | INT8 vs FP16 per tile, MAC array |
 | KV Cache Engine | [kv-cache-engine](https://github.com/LonghornSilicon/kv-cache-engine) | ChannelQuant compress/decompress |
 | **Token Importance Unit** | **this repo** | Per-token keep/demote/evict (H2O) |
 | Memory Hierarchy Controller | not yet | On-die SRAM ↔ off-chip LPDDR5X |
@@ -188,4 +188,4 @@ token-importance-unit/
 ## References
 
 - Zhang et al., *H2O: Heavy-Hitter Oracle for Efficient Generative Inference of LLMs*, NeurIPS 2023.
-- LonghornSilicon ACU sparsity study (`adaptive-precision-attention/docs/findings/sparsity-controller-finding.md`) — post-softmax attention mass predicts token importance (r≈0.99); pre-softmax proxies do not.
+- LonghornSilicon ACU sparsity study (`attention-compute-unit/docs/findings/sparsity-controller-finding.md`) — post-softmax attention mass predicts token importance (r≈0.99); pre-softmax proxies do not.
