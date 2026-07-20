@@ -1,5 +1,12 @@
 # KV Cache Engine
 
+> 📐 **RTL lives on the [`rtl`](../../tree/rtl) branch, not `main`.** `main` carries the
+> spec, reference model, analysis, and paper (the 16nm architecture story); all
+> SystemVerilog, testbenches, OpenLane, golden vectors, and the RTL/reference CI gates
+> live on `rtl`. The RTL and its sign-off are **130nm (SkyWater Sky130)** — the best
+> open-PDK proxy, used for 16nm *estimates* and realizability, not the 16nm design itself.
+> Verification claims below (bit-exact, Sky130 sign-off) refer to that branch.
+
 This is the **KV Cache Engine (KVE)** block of the LonghornSilicon LLM inference
 accelerator — block 2 of four targeting TSMC 16nm FinFET (N16FFC) tape-out. It is a streaming
 compress-on-write / decompress-on-read engine for transformer KV-cache tensors,
