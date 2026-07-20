@@ -147,7 +147,7 @@ Q·Kᵀ → precision controller routes INT8/FP16 → MAC). Deltas to verify:
   residual) — confirm the ACU's read timing tolerates the residual-buffer select.
 - **Tier signaling**: `CFG_TIER` is set per-layer/per-deployment, not per-tile —
   simpler than TurboQuant+'s per-tile assumptions. Confirm with the ACU repo
-  (`adaptive-precision-attention`) that no per-tile codec signaling is expected.
+  (`attention-compute-unit`) that no per-tile codec signaling is expected.
 - Outlier FP16 sidecar adds a few channels of bandwidth on read — account for it
   in the memory-hierarchy bandwidth model (block 4).
 

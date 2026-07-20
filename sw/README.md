@@ -33,7 +33,7 @@ sw/
 | TurboQuant+ (retired) | archival regression only | `lhsi::KVCacheEngine` | — |
 
 The model follows the same template as block 1
-([adaptive-precision-attention](https://github.com/LonghornSilicon/adaptive-precision-attention)):
+([attention-compute-unit](https://github.com/LonghornSilicon/attention-compute-unit)):
 a header + cpp pair, a C ABI shim, a Python parity model, a test suite
 that gates on parity with the RTL TB.
 

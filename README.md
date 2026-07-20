@@ -135,7 +135,7 @@ ACU precision controller (INT8/FP16-routed S·V) the system holds accuracy at FP
 
 | Block | This repo? | Role |
 |---|---|---|
-| **ACU (Attention Compute Unit)** | no ([repo](https://github.com/LonghornSilicon/adaptive-precision-attention)) | Decides INT8 vs FP16 per tile, runs the MAC array |
+| **ACU (Attention Compute Unit)** | no ([repo](https://github.com/LonghornSilicon/attention-compute-unit)) | Decides INT8 vs FP16 per tile, runs the MAC array |
 | **KV Cache Engine** | **this repo** | ChannelQuant compress on write, decompress on read |
 | **Token Importance Unit** | not yet | Tracks attention weight per cached token → keep / demote / evict |
 | **Memory Hierarchy Controller** | not yet | Routes between on-die SRAM and off-chip LPDDR5X (direct; no eDRAM tier) |
