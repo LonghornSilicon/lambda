@@ -1,0 +1,50 @@
+{
+  "model": "Qwen/Qwen2-1.5B",
+  "layers": [
+    2,
+    10,
+    18,
+    26
+  ],
+  "results": {
+    "1024": {
+      "empirical_max_abs_acc": 599417.0,
+      "empirical_bits_signed": 21,
+      "empirical_argmax_layer_head": [
+        10,
+        0
+      ],
+      "theoretical_flat_max_abs": 16516096.0,
+      "theoretical_bits_signed": 25,
+      "int24_capacity": 8388608,
+      "empirical_fits_int24": true,
+      "theoretical_fits_int24": false
+    },
+    "2048": {
+      "empirical_max_abs_acc": 609568.0,
+      "empirical_bits_signed": 21,
+      "empirical_argmax_layer_head": [
+        10,
+        0
+      ],
+      "theoretical_flat_max_abs": 33032192.0,
+      "theoretical_bits_signed": 26,
+      "int24_capacity": 8388608,
+      "empirical_fits_int24": true,
+      "theoretical_fits_int24": false
+    },
+    "4096": {
+      "empirical_max_abs_acc": 710665.0,
+      "empirical_bits_signed": 21,
+      "empirical_argmax_layer_head": [
+        18,
+        7
+      ],
+      "theoretical_flat_max_abs": 66064384.0,
+      "theoretical_bits_signed": 27,
+      "int24_capacity": 8388608,
+      "empirical_fits_int24": true,
+      "theoretical_fits_int24": false
+    }
+  }
+}
