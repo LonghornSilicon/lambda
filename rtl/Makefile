@@ -21,7 +21,7 @@ SIM_SYN_BIN := $(TB_DIR)/tb_cq_syn.out
 
 SIM_QWEN_BIN := $(TB_DIR)/tb_qwen_validate.out
 
-.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top sim_syn sim_qwen sim_qwen_grid sim_wht sim_wht_syn testvectors clean
+.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top sim_syn sim_qwen sim_qwen_grid sim_wht sim_wht_syn sim_wht_pathb testvectors clean
 
 # WHT-rotated INT3 value path (branch wht-turboquant-values): cq_wht_value (forward WHT +
 # amax + INT3 + dequant + inverse WHT + x1/D) vs the C++/numpy reference V̂ on real Qwen,
@@ -97,6 +97,16 @@ sim_wht_syn:
 	$(VVP) $(TB_DIR)/tb_whtsyn64.out  +VAL=tb/testvectors/qwen/g05b/multi/val_0.hex
 	$(IVERILOG) -g2012 -DQD=128 -I. -o $(TB_DIR)/tb_whtsyn128.out cq_fp_pkg.sv fp16_addsub_syn.sv wht_unit.sv wht_unit_syn.sv $(TB_DIR)/tb_wht_syn.sv
 	$(VVP) $(TB_DIR)/tb_whtsyn128.out +VAL=tb/testvectors/qwen/g15b/multi/val_0.hex
+
+
+# Path B (CQ-3-rot): cq_value_path_wht (KVE emits ROTATED fp16) -> wht_inverse_out (inverse
+# WHT + x1/D on the P·V output) == the full reference V̂ on real Qwen. Proves the once-per-
+# decode inverse split (store rotated, unspin once) is bit-exact to the full codec.
+sim_wht_pathb:
+	$(IVERILOG) -g2012 -DQD=64  -I. -o $(TB_DIR)/tb_pathb64.out  cq_fp_pkg.sv cq_units.sv wht_unit.sv wht_inverse_out.sv cq_value_path_wht.sv $(TB_DIR)/tb_wht_pathb.sv
+	$(VVP) $(TB_DIR)/tb_pathb64.out  +TVDIR=tb/testvectors/qwen/g05b/multi
+	$(IVERILOG) -g2012 -DQD=128 -I. -o $(TB_DIR)/tb_pathb128.out cq_fp_pkg.sv cq_units.sv wht_unit.sv wht_inverse_out.sv cq_value_path_wht.sv $(TB_DIR)/tb_wht_pathb.sv
+	$(VVP) $(TB_DIR)/tb_pathb128.out +TVDIR=tb/testvectors/qwen/g15b/multi
 
 # Streaming KEY-path parity vs golden (per-channel scales + INT4 payload + K_hat
 # + sidecar). Exercises residual_buffer + amax_unit + scale_bank + cq cores.

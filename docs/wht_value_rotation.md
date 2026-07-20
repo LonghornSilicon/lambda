@@ -98,8 +98,18 @@ directed edge cases. `wht_unit_syn.sv` wires those cores into the same butterfly
 D=64 5,120/5,120). `make sim_wht_syn`. This is the tape-out-ready form of the butterfly
 (cf. `cq_units_syn.sv` for the base codec's quant/dequant cores).
 
-## Still open (Phase 3 remainder)
+## Path B (done)
 
-- Full streaming Path-B integration into `cq_value_path` (rotate-on-write, rotated-emit read).
+`cq_value_path_wht.sv` is the KVE side of Path B: forward-WHT the row, per-token
+amax + INT3 quant, and on read emit the **rotated** fp16 reconstruction per channel — the
+inverse WHT + x(1/D) runs ONCE on the P·V output (`wht_inverse_out`), not per token.
+Chaining `cq_value_path_wht -> wht_inverse_out` is **bit-exact to the full reference V̂** on
+real Qwen (`make sim_wht_pathb`: D=128 10,240/10,240, D=64 5,120/5,120). So the
+store-rotated / unspin-once dataflow is proven equivalent to the full codec.
+
+## Still open
+
+- Fold Path B into the pipelined streaming schedule of the top FSM (a throughput
+  optimization; the arithmetic and dataflow are proven).
 - Chip-hub docs (`architecture/arch.yml` codec-of-record + MatE inverse-WHT stage, org
   profile README compression numbers) — updated at merge to master.
