@@ -161,6 +161,34 @@ inline std::vector<uint8_t> pack_int8(const std::vector<int>& codes) {
     return out;
 }
 
+// ---- WHT-rotated 3-bit VALUE path (fixed Walsh-Hadamard; Abhiram Bandi + Chaithu) ----
+// In-place radix-2 Walsh-Hadamard over fp16 bits, ADD/SUB ONLY (no normalization). Each
+// butterfly is real_to_f16(exact double sum) — matches numpy fp16 add and the RTL fp16
+// adder. D must be a power of two. Self-inverse up to the 1/D scale applied on decode.
+inline void fwht_raw_f16(std::vector<uint16_t>& x, int D) {
+    for (int h = 1; h < D; h <<= 1)
+        for (int i = 0; i < D; i += (h << 1))
+            for (int j = i; j < i + h; j++) {
+                double a = f16_to_real(x[j]);
+                double b = f16_to_real(x[j + h]);
+                x[j]     = real_to_f16(a + b);
+                x[j + h] = real_to_f16(a - b);
+            }
+}
+
+// 8 signed 3-bit codes -> 3 bytes. code&0x7 at bit offset 3*i (little-endian within the stream).
+inline std::vector<uint8_t> pack_int3(const std::vector<int>& codes) {
+    std::vector<uint8_t> out((codes.size() * 3 + 7) / 8, 0);
+    for (size_t i = 0; i < codes.size(); i++) {
+        uint32_t c = static_cast<uint32_t>(codes[i]) & 0x7u;
+        size_t bit = i * 3, byte = bit >> 3, off = bit & 7;
+        out[byte] |= static_cast<uint8_t>((c << off) & 0xFF);
+        if (off > 5) out[byte + 1] |= static_cast<uint8_t>(c >> (8 - off));
+    }
+    return out;
+}
+
+
 // ---- compressed-blob containers ---------------------------------------------
 struct ValueBlob {                 // per-token path (values all tiers; CQ-8 keys)
     int T = 0, D = 0, bits = 0;
@@ -182,6 +210,41 @@ struct KeyBlob {                   // per-channel grouped path (CQ-4 / CQ-4+)
 // ---- compress / decompress (single KV head, shape [T, D] row-major fp16) -----
 ValueBlob compress_values(const std::vector<uint16_t>& V_f16, int T, int D, int bits);
 std::vector<uint32_t> decompress_values(const ValueBlob& b);   // [T*D] fp32 bits
+
+// ---- WHT-rotated INT3 value path (header-only; uses the ValueBlob container) ----
+// compress: per token, rotate the fp16 row (raw WHT) then per-token amax + INT3 quant.
+inline ValueBlob compress_values_wht3(const std::vector<uint16_t>& V, int T, int D) {
+    ValueBlob b; b.T = T; b.D = D; b.bits = 3;
+    b.scales.resize(T); b.codes.resize(static_cast<size_t>(T) * D);
+    for (int t = 0; t < T; t++) {
+        std::vector<uint16_t> row(V.begin() + static_cast<size_t>(t) * D,
+                                  V.begin() + static_cast<size_t>(t) * D + D);
+        fwht_raw_f16(row, D);
+        uint16_t s = scale_from_amax(amax_bits(row, 0, 1, D), 3);
+        b.scales[t] = s;
+        for (int d = 0; d < D; d++)
+            b.codes[static_cast<size_t>(t) * D + d] = quant_code(row[d], s, 3);
+    }
+    b.payload = pack_int3(b.codes);
+    return b;
+}
+
+// decompress: dequant each rotated code to fp16, inverse WHT (raw), then x(1/D) -> fp32.
+inline std::vector<uint32_t> decompress_values_wht3(const ValueBlob& b) {
+    std::vector<uint32_t> out(static_cast<size_t>(b.T) * b.D);
+    const double inv_d = 1.0 / static_cast<double>(b.D);           // exact (D is 2^k)
+    for (int t = 0; t < b.T; t++) {
+        std::vector<uint16_t> r(b.D);
+        for (int d = 0; d < b.D; d++) {
+            int code = b.codes[static_cast<size_t>(t) * b.D + d];
+            r[d] = real_to_f16(static_cast<double>(code) * f16_to_real(b.scales[t]));
+        }
+        fwht_raw_f16(r, b.D);
+        for (int d = 0; d < b.D; d++)
+            out[static_cast<size_t>(t) * b.D + d] = real_to_f32(f16_to_real(r[d]) * inv_d);
+    }
+    return out;
+}
 
 KeyBlob compress_keys(const std::vector<uint16_t>& K_f16, int T, int D, int bits,
                       int G, const std::vector<int>& outlier_idx);
