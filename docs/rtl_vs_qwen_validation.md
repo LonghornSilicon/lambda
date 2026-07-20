@@ -63,6 +63,11 @@ approximation, and the fp16-exact (= RTL) path:
 consistently). At 7B, n=500 puts −0.020 within ~1σ of the measurement-noise floor. The
 compression numbers we ship are the silicon's, not an optimistic proxy.
 
+**Cross-family check — it isn't Qwen-specific.** The same fp16-exact codec on
+**Llama-3.2-1B** (different family: tokenizer, RoPE, tied embeddings) costs **−0.007**
+acc_norm (n=1000, CQ-4+) — in line with Qwen2. ChannelQuant generalizes across model
+families, not just the one it was tuned on.
+
 For the long-context view — where the KV cache is actually large — see the
 `token-importance-unit` finding `long-context-holds.md`: the full-stack perplexity penalty
 is flat (~7% on 1.5B) from 256 to 4096 tokens.
