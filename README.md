@@ -178,7 +178,9 @@ kv-cache-engine/
 │   ├── amax_unit.sv              # Per-token / per-channel max reduction
 │   ├── residual_buffer.sv        # G-token group hold (key path)
 │   ├── scale_bank.sv             # D per-channel scale bank (key path)
-│   ├── sram_controller.sv        # Behavioral SRAM (reg array)
+│   ├── sram_controller.sv        # KV-store control shell (valid/occupancy/rd handshake)
+│   ├── kv_sram.sv                # Swappable KV-store memory (behavioral default;
+│   │                             #   GF180 build tiles a real gf180mcu_fd_ip_sram macro)
 │   ├── tb/                       # sim, sim_realdata, sim_cq, sim_amax, sim_vpath,
 │   │                             #   sim_kpath, sim_top, sim_syn  (+ vendored golden vectors)
 │   ├── constraints/, *.tcl, synth.ys, Makefile
