@@ -10,7 +10,8 @@ test_kv
 *.vcd
 *.out
 *.log
-openlane/kv_cache_engine/results/
+# Curated Sky130 sign-off artifacts (metrics JSON + final GDS) are committed under
+# results/; the giant per-run intermediate tree stays ignored.
 openlane/kv_cache_engine/runs/
 openlane/kv_cache_engine/src/*.sv
 !openlane/kv_cache_engine/src/kv_cache_engine.sv
