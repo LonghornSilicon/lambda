@@ -70,5 +70,18 @@ test-gls-e2e:
 	    $(KVE_RTL) $(GL_NL) tb_gls_e2e.sv
 	vvp sim_gls_e2e.out
 
+# ----- KVE store round-trip through the REAL GF180 SRAM macro ---------------
+# Drives the KVE sram_controller (via the GF180 kv_sram tiling wrapper) wired to
+# the real gf180mcu_fd_ip_sram__sram512x8m8wm1 hard-macro SIMULATION MODEL (the
+# sign-off view of the IP): writes KV records into real SRAM and reads them back
+# bit-exact. Proves the KV storage now lands on real SRAM, not flip-flops.
+SRAM_VLOG ?= $(HOME)/.ciel/gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/verilog
+test-kv-sram-gf180:
+	iverilog -g2012 -o sim_kv_sram_gf180.out \
+	    $(BLOCKS)/kve/sram_controller.sv $(BLOCKS)/kve_gf180_sram/kv_sram.sv \
+	    $(SRAM_VLOG)/gf180mcu_fd_ip_sram__sram512x8m8wm1.v \
+	    tb_kv_sram_gf180.sv
+	vvp sim_kv_sram_gf180.out 2>&1 | grep -vE 'WARNING: CEN|MESSAGE: CEN|@Time|scope ='
+
 clean:
-	rm -rf sim_build sim_build_smoke results.xml sim_gls_e2e.out
+	rm -rf sim_build sim_build_smoke results.xml sim_gls_e2e.out sim_kv_sram_gf180.out

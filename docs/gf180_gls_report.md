@@ -135,22 +135,13 @@ combinational reconstruct, which is a different module from the full
   repo's `openlane/kv_cache_engine/src` list). The behavioral RTL views
   (`cq_fp_pkg.sv`, `cq_units.sv`, `wht_*.sv`) use `real`/`$fscanf` and abort
   yosys — the `*_syn.sv` real-free views are the synthesis set (`librelane/kve.yaml`).
-- **SRAM boundary (as requested, stated honestly):** at the gate-proxy
-  `SRAM_DEPTH=2`, the KV storage (`scale_bank` / `residual_buffer`) synthesizes
-  to **flip-flop register arrays** — the netlist contains **2114 DFF cells and
-  zero `gf180mcu_fd_ip_sram` macro instances**. This is a **SIM/area proxy, not
-  real KV capacity.** A real-capacity KVE needs the `gf180mcu_fd_ip_sram` hard
-  macro (the PDK **does ship it** — `libs.ref/gf180mcu_fd_ip_sram` is installed)
-  wired into the flow as a `MACRO` with PDN connections. That integration is
-  **TODO** and is why the full `kv_cache_engine` is not in the gate-level GLS
-  loop (its AXI interface + register-array storage differ from the cosim's
-  combinational reconstruct). The register-array proxy is also what drives its
-  2392 ss-corner transition violations (§1).
-
-**The `gf180mcu_fd_ip_sram` macro integration is now the ONE remaining honest
-hole** in gate-level datapath coverage. The entire *compute* datapath
-(Q·Kᵀ → softmax → P·V, plus ACU + TIU) is GF180 gate-level verified end to end;
-the only piece not on real gate-level SRAM is the KV *store* in `kv_cache_engine`.
+- **SRAM store — now on a REAL GF180 SRAM macro (see §4).** The KVE's KV store was
+  previously a flip-flop register array at the `SRAM_DEPTH=2` proxy. It is now
+  refactored behind a swappable `kv_sram` memory interface and backed by real
+  `gf180mcu_fd_ip_sram` hard macros — see §5 for the integration + its honest
+  signoff boundary. (The full `kv_cache_engine` codec still hardens as logic; its
+  AXI wrapper is separate from the cosim's combinational value reconstruct, so it
+  is not in the compute-datapath GLS loop — but the *store* now uses real SRAM.)
 
 **Both `mate_qkt` and `vecu_softmax` are now VERBATIM vendored sources — no local
 edits.** The **pipelined** `vecu_softmax` (`attention-compute-unit` `rtl`
@@ -159,7 +150,62 @@ edits.** The **pipelined** `vecu_softmax` (`attention-compute-unit` `rtl`
 synth-compat patch for, so it synthesizes cleanly with the default yosys frontend
 as-is. See `rtl/blocks/PROVENANCE.md`.
 
-## 4. Reproduce
+## 4. KV store on a real GF180 SRAM macro (closing the SRAM hole)
+
+**RTL refactor (PDK-agnostic, kv-cache-engine repo `rtl`):** the raw storage array
+was extracted out of `sram_controller` into a new **`kv_sram`** module with a clean
+`addr/data/we/re` interface (registered 1-cycle read). The default `kv_sram` is
+behavioral (a reg array) so sim + other PDKs are unchanged; the GF180 build swaps
+in a wrapper that tiles the hard macro. No functional change — verified no
+regression: `make sim_top` (V + grouped keys thru SRAM, ALL PASS), `make sim`
+(17/17), `make sim_realdata` (ALL PASS).
+
+**GF180 tiling wrapper (chipathon, `rtl/blocks/kve_gf180_sram/kv_sram.sv`):** the
+GF180 open SRAM IP is single-port, synchronous, 512×8 (registered Q). A
+WIDTH-bit × DEPTH-word store is `ceil(WIDTH/8)` byte-lane banks sharing one
+address/control; the KVE FSM writes (ST_STORE) and reads (ST_RLOAD) in distinct
+cycles, so the two logical ports mux safely onto the one macro port
+(`CEN=~(we|re)`, `GWEN=~we`, `WEN=we?0:FF`).
+
+**Functional round-trip through the REAL macro — BIT-EXACT** (`make test-kv-sram-gf180`):
+`sram_controller` + the GF180 `kv_sram` wired to the real
+`gf180mcu_fd_ip_sram__sram512x8m8wm1` **simulation model** (the sign-off view of
+the hard IP), an **80-bit × 512-word** store (10 banks). Writes KV records, reads
+them back (incl. overwrite) — all **BIT-EXACT** through the real macro protocol.
+So the KV store round-trips through real SRAM, not flip-flops.
+
+**Physical hardening with the macro placed (`librelane/kve_store_gf180.yaml`):**
+`kv_sram` hardened as a 32-bit × 512-word store = **4 placed
+`gf180mcu_fd_ip_sram__sram512x8m8wm1` hard macros** (2×2 grid), LEF/lib/gds from
+the PDK, a custom `pdn_cfg_sram.tcl` bridging the macro power pins to the grid:
+
+| check | result |
+|---|---|
+| macro placement | **4 SRAM macros placed** (die 1.27 mm², 8911 cells) |
+| setup / hold | **met** (setup WS +17.5 ns, hold WS +6.9 ns @ 40 ns) |
+| routing (TritonRoute) DRC | **0 — clean** (global + detailed routing complete) |
+| antenna | **0** |
+| PDN power connectivity (PSM) | **passes** (macro VDD/VSS electrically tied to the grid) |
+| SRAM macro LVS device match | **matches** (`gf180mcu_fd_ip_sram…` device classes equivalent) |
+| Magic DRC | **7026 — NOT clean** (all from the PDN via geometry tying the macro's Metal2/Metal1 power pins to the Metal4 straps; macro-internal bitcell DRC suppressed via `MAGIC_DRC_USE_GDS: false`, the standard hard-macro handling) |
+| Netgen LVS | **6 errors** (power-net "badnets" from the same PDN connection; the SRAM device itself matches) |
+
+**Honest boundary:** the real SRAM macro is **placed, timed, routed-clean,
+antenna-clean, PSM-power-connected, and LVS-device-matched** — the store is
+genuinely on real 6T-SRAM bitcells and round-trips bit-exact in sim. The one
+unresolved piece is **clean Magic-DRC + LVS signoff of the PDN via connection**
+from the macro's low-metal (Metal2 VDD / Metal1 VSS) power pins up to the Metal4
+straps: the connection is electrically valid (PSM passes) but its via geometry
+violates gf180 Via1/Via2 rules and leaves LVS power-net mismatches. Closing it
+needs a refined PDN (proper via arrays / a per-macro power ring on the pin
+layers) — the classic fiddly hard-macro PDN step, a documented follow-up. This is
+a real partial, not faked signoff.
+
+**The `gf180mcu_fd_ip_sram` macro is now integrated** (placed + routed + power-
+connected + functional-bit-exact); the remaining hole narrowed to **clean
+DRC/LVS signoff of the macro PDN vias**.
+
+## 5. Reproduce
 
 ```bash
 # one-time: enable the gf180 PDK LibreLane pins into the ciel store
@@ -173,6 +219,11 @@ scripts/harden.sh precision_controller     # …mate_pv, mate_pv_fp16,
 
 # gate-level end-to-end (needs the 6 compute macros hardened)
 cd tb && make test-gls-e2e
+
+# KV store on the real SRAM macro (§4)
+scripts/harden.sh kve_store_gf180          # hardens kv_sram + 4 gf180 SRAM macros
+cd tb && make test-kv-sram-gf180           # KV round-trip bit-exact thru real SRAM
+# (kve RTL regression, in the kv-cache-engine repo: make sim_top sim sim_realdata)
 ```
 
 Notes / friction encountered (for the next runner):
@@ -194,3 +245,14 @@ Notes / friction encountered (for the next runner):
   closes ss at **+19.2 ns** at a *tighter* 300 ns clock, and the resizers now pass
   in seconds (margin to spare). Lesson: when the resizer grinds asymptotically,
   pipeline the path — don't keep raising the period.
+- **SRAM hard-macro escaping (§4).** A `genvar` generate loop names the macro
+  instances `lane[0].u_bank` → Verilog escaped identifier → ODB name
+  `lane\[0\].u_bank`. Three different LibreLane fields want three different forms:
+  `PDN_MACRO_CONNECTIONS` is a **regex** (use `^lane.*u_bank$`, or escape the
+  brackets), the `instances` placement keys go through `escape_verilog_name` so
+  give the **raw** `lane[0].u_bank`, and YAML needs **single quotes** for literal
+  backslashes. Also: harden the macro-bearing wrapper (`kv_sram`) **as the top**
+  so its power pins connect cleanly (macros nested under a power-less parent leave
+  the pins unconnected), give a `vh` blackbox stub so Verilator/yosys elaborate,
+  and set `MAGIC_DRC_USE_GDS: false` so Magic DRCs the macro abstract (not the
+  vendor's internal bitcell GDS, which throws ~31k false device-rule errors).

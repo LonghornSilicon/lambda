@@ -29,6 +29,7 @@ VERILOG_FILES:
   - dir::../rtl/blocks/kve/scale_bank.sv
   - dir::../rtl/blocks/kve/residual_buffer.sv
   - dir::../rtl/blocks/kve/sram_controller.sv
+  - dir::../rtl/blocks/kve/kv_sram.sv          # behavioral KV-store memory (flop proxy)
   - dir::../rtl/blocks/kve/kv_cache_engine.sv
 
 # Gate-proxy parameters (small synth footprint), mirroring the Sky130 signoff.
