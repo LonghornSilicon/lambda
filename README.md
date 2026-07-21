@@ -31,8 +31,8 @@ KV entry — so the KV cache stays within a fixed on-die budget as context grows
 | **How** | **H2O** — accumulate each token's post-softmax attention mass; keep a recent local window + the top "heavy-hitter" tokens by accumulated mass; evict the rest |
 | **Signal** | Post-softmax attention mass (the ACU sparsity study proved pre-softmax proxies fail at r≈0, post-softmax works at r≈0.99) |
 | **Integration** | Emits the **tier signal** that the KV Cache Engine already consumes (keep → CQ-8, demote → CQ-4, evict → drop) — mixed-precision retention |
-| **Verified (algorithm)** | HellaSwag acc_norm within **−0.006** of full cache down to **25% KV budget** on Qwen2-0.5B (n=500) |
-| **Status** | Built & signed off — RTL verified (29/29 directed, 40/40 real-data replay), **0-violation Sky130**, bit-exact Python reference at parity, ISA spec + paper shipped |
+| **Verified (algorithm)** | HellaSwag acc_norm within **−0.006** of full cache down to **25% KV budget** on Qwen2-0.5B (n=500, per-layer/head H2O, recent-ratio 0.5; source `analysis/h2o_qwen05b_n500.json`) |
+| **Status** | Built & signed off — RTL verified (29/29 directed `rtl/tb/tb_token_importance_unit.sv`, 40/40 real-data replay `rtl/tb/tb_realdata.sv`), **0-violation Sky130** (`openlane/token_importance_unit/results/signoff_metrics.json`), bit-exact Python reference at parity, ISA spec + paper shipped |
 
 ---
 
@@ -63,7 +63,7 @@ implementation** and its integration with the ChannelQuant tier signal.
 
 HellaSwag `acc_norm`, n=500, H2O eviction applied to every layer/head of
 Qwen2-0.5B (recent-window share = 50% of budget). "KV budget" is the cache size C
-as a fraction of the sequence length:
+as a fraction of the sequence length. Source: `analysis/h2o_qwen05b_n500.json` (measured by `analysis/h2o_analysis.py`):
 
 | KV budget | acc_norm | Δ vs full cache |
 |---|---|---|
@@ -95,7 +95,7 @@ split wins at every budget; see `docs/findings/h2o-analysis.md`).
 
 The TIU is the last of the three live blocks. Composed in chip order — KVCE
 decompress → scores → **TIU** keep/evict → APA route — on Qwen2 (HellaSwag n=1000,
-gold config), Δ vs the FP16 full-cache baseline:
+gold config: frac 0.25, recent-ratio 0.5; sources `analysis/full_stack_qwen05b_n1000.json` + `full_stack_qwen15b_n1000.json` via `analysis/full_stack_integration.py`), Δ vs the FP16 full-cache baseline:
 
 | config | Qwen2-0.5B | Qwen2-1.5B |
 |---|---|---|
@@ -180,8 +180,8 @@ token-importance-unit/
 - [x] Algorithm validated (H2O accumulated-mass on Qwen2; near-lossless to 25% budget)
 - [x] Gold config chosen (recent-ratio 0.5, 25% budget)
 - [x] All-3-blocks integration verified (TIU+KVCE+APA compose within ~3% of FP16)
-- [x] Deep analysis: long-ctx knee, per-head vs shared (keep per-head), accumulator width (10b)
-- [x] RTL: distributed-accumulator + serialized-argmin eviction datapath, closed-form FF count (95 FFs)
+- [x] Deep analysis: long-ctx knee, per-head vs shared (keep per-head), accumulator width (SCORE_WIDTH=8b, loss-free −0.002; 10b only for long-ctx margin — `docs/findings/h2o-deep-analysis.md`)
+- [x] RTL: distributed-accumulator + serialized-argmin eviction datapath, FF count 95 (synth/CI-pinned, `.github/workflows/ci.yml`; closed-form analytic bound 92 + ~3 yosys-unmerged slot-index FFs — see `rtl/token_importance_unit.sv` header)
 - [x] Directed + randomized self-checking testbench (iverilog), 29/29 bit-exact
 - [x] **Sky130 sign-off: 0 violations** across all checks (DRC/LVS/antenna/setup/hold/slew/cap/fanout) — `docs/sky130_signoff.md`
 - [x] Replay testbench from real Qwen2 attention traces (`sim_realdata`, 40/40 evictions bit-exact)
