@@ -19,6 +19,5 @@ jobs:
       has-coverage-gate: false
       has-formal-equivalence: true
       has-qwen-test: true            # real-Qwen accuracy gate (rtl branch only)
-      qwen-test-deps: >-
-        torch --index-url https://download.pytorch.org/whl/cpu
-        transformers datasets numpy accelerate lm_eval
+      # qwen-test-deps: uses the default (transformers datasets numpy accelerate lm_eval);
+      # CPU torch is installed separately by the reusable job.
