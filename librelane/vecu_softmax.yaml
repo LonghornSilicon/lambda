@@ -1,0 +1,32 @@
+# LibreLane Classic-flow hardening config for the vecu_softmax macro.
+#
+# STATUS: STUB — RTL NOT STARTED (Phase 2). vecu_softmax is the vector unit that
+# normalizes the Q·Kᵀ scores (streaming softmax / max-subtract + exp + reduce)
+# feeding the P·V reduction. No RTL exists yet.
+#
+# TODO before this config is real:
+#   - design + add rtl/blocks/vecu_softmax.sv (and update VERILOG_FILES)
+#   - decide fixed-point vs fp16 exp approximation; set SYNTH_PARAMETERS
+#   - set CLOCK_PERIOD from GF180 timing
+#   - add a tb/test_vecu_softmax.py cocotb test
+
+meta:
+  version: 3
+  flow: Classic
+
+DESIGN_NAME: vecu_softmax
+
+# TODO: point at the real source once it lands.
+VERILOG_FILES:
+  - dir::../rtl/blocks/vecu_softmax.sv   # DOES NOT EXIST YET
+
+CLOCK_PORT: clk
+CLOCK_NET: clk
+CLOCK_PERIOD: 20     # ns — TODO placeholder, re-time for GF180
+
+FP_SIZING: relative
+FP_CORE_UTIL: 50
+PL_TARGET_DENSITY_PCT: 60
+
+DESIGN_IS_CORE: false
+GRT_ALLOW_CONGESTION: true

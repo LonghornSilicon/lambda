@@ -1,0 +1,33 @@
+# LibreLane Classic-flow hardening config for the mate_qkt macro (Q·Kᵀ scores).
+#
+# STATUS: STUB — RTL IN PROGRESS (Phase 1). mate_qkt computes the attention
+# score tile Q·Kᵀ (the K-axis / hidden-dim GEMM, INT24 accumulators — the
+# companion to mate_pv's token-reduction INT32 path). The RTL does not exist in
+# ../rtl/blocks/ yet.
+#
+# TODO before this config is real:
+#   - add rtl/blocks/mate_qkt.sv (and update VERILOG_FILES below)
+#   - set SYNTH_PARAMETERS (lane count / accumulator width)
+#   - set CLOCK_PERIOD from GF180 timing
+#   - add a tb/test_mate_qkt.py cocotb test
+
+meta:
+  version: 3
+  flow: Classic
+
+DESIGN_NAME: mate_qkt
+
+# TODO: point at the real source once it lands.
+VERILOG_FILES:
+  - dir::../rtl/blocks/mate_qkt.sv    # DOES NOT EXIST YET
+
+CLOCK_PORT: clk
+CLOCK_NET: clk
+CLOCK_PERIOD: 20     # ns — TODO placeholder, re-time for GF180
+
+FP_SIZING: relative
+FP_CORE_UTIL: 50
+PL_TARGET_DENSITY_PCT: 60
+
+DESIGN_IS_CORE: false
+GRT_ALLOW_CONGESTION: true
