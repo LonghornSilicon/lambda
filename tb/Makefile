@@ -42,12 +42,13 @@ test-smoke:
 
 test-all: test-smoke
 
-# ----- GF180 gate-level end-to-end (the Stage-1 deliverable) ---------------
+# ----- GF180 gate-level end-to-end (the full compute-datapath deliverable) --
 # Compiles the GF180 LibreLane gate-level netlists (../librelane/runs/<macro>/
 # final/nl/<macro>.nl.v) against the gf180mcu_fd_sc_mcu7t5v0 Verilog cell
 # models + KVE value-path RTL + the tb_gls_e2e reference TB, and checks each
 # block's output matches the reference (INT bit-exact / FP rel_err<5e-3).
-# Requires the four macros hardened first (scripts/harden.sh).
+# The datapath: mate_qkt -> vecu_softmax -> mate_pv/_fp16, plus ACU + TIU.
+# Requires all six compute macros hardened first (scripts/harden.sh).
 #
 #   PDK_VLOG=<...>/gf180mcu_fd_sc_mcu7t5v0/verilog make test-gls-e2e
 PDK_VLOG ?= $(HOME)/.ciel/gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu7t5v0/verilog
@@ -58,7 +59,9 @@ KVE_RTL   = $(BLOCKS)/kve/cq_fp_pkg.sv $(BLOCKS)/kve/cq_units.sv \
 GL_NL     = $(RUNS)/mate_pv/final/nl/mate_pv.nl.v \
             $(RUNS)/mate_pv_fp16/final/nl/mate_pv_fp16.nl.v \
             $(RUNS)/precision_controller/final/nl/precision_controller.nl.v \
-            $(RUNS)/token_importance_unit/final/nl/token_importance_unit.nl.v
+            $(RUNS)/token_importance_unit/final/nl/token_importance_unit.nl.v \
+            $(RUNS)/mate_qkt/final/nl/mate_qkt.nl.v \
+            $(RUNS)/vecu_softmax/final/nl/vecu_softmax.nl.v
 
 test-gls-e2e:
 	iverilog -g2012 -DFUNCTIONAL -I $(BLOCKS)/kve -o sim_gls_e2e.out \

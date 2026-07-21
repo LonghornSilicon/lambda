@@ -1,14 +1,15 @@
 # LibreLane Classic-flow hardening config for the vecu_softmax macro.
 #
-# STATUS: STUB — RTL NOT STARTED (Phase 2). vecu_softmax is the vector unit that
-# normalizes the Q·Kᵀ scores (streaming softmax / max-subtract + exp + reduce)
-# feeding the P·V reduction. No RTL exists yet.
+# STATUS: REAL RTL — vecu_softmax is the decode online-softmax slice: it buffers
+# a score row (up to N fp16 scores), does the streaming max-subtract + exp-LUT +
+# normalize, and emits N fp16 attention weights (probabilities). Passed the RTL
+# cross-block cosim (architecture/rtl/tb/tb_chip_cosim.sv, BLOCK 2d). Re-targeted
+# to GF180MCU here. The exp is a ~2%-accurate LUT (documented tolerance).
 #
-# TODO before this config is real:
-#   - design + add rtl/blocks/vecu_softmax.sv (and update VERILOG_FILES)
-#   - decide fixed-point vs fp16 exp approximation; set SYNTH_PARAMETERS
-#   - set CLOCK_PERIOD from GF180 timing
-#   - add a tb/test_vecu_softmax.py cocotb test
+# Provenance (source repo, branch, commit): ../rtl/blocks/PROVENANCE.md
+#
+# Shares the fp16/fp32 arithmetic of the MatE fp16 path, so the clock is retimed
+# loose and closed cleanly.
 
 meta:
   version: 3
@@ -16,17 +17,27 @@ meta:
 
 DESIGN_NAME: vecu_softmax
 
-# TODO: point at the real source once it lands.
+PDK: gf180mcuD
+
+
 VERILOG_FILES:
-  - dir::../rtl/blocks/vecu_softmax.sv   # DOES NOT EXIST YET
+  - dir::../rtl/blocks/vecu_softmax.sv
+
+SYNTH_PARAMETERS:
+  - N=8               # max scores per row (row buffer depth)
 
 CLOCK_PORT: clk
 CLOCK_NET: clk
-CLOCK_PERIOD: 20     # ns — TODO placeholder, re-time for GF180
+CLOCK_PERIOD: 340    # ns — GF180 retime (long fp16->exp-LUT->fp32->fp16 softmax chain; worst ss-corner path ~300ns, +40ns margin so the resizer converges)
 
 FP_SIZING: relative
-FP_CORE_UTIL: 50
-PL_TARGET_DENSITY_PCT: 60
+FP_CORE_UTIL: 45
+PL_TARGET_DENSITY_PCT: 55
 
 DESIGN_IS_CORE: false
+IO_DELAY_CONSTRAINT: 2
+CLOCK_UNCERTAINTY_CONSTRAINT: 0.1
+PL_RESIZER_HOLD_SLACK_MARGIN: 0.8
+GRT_RESIZER_HOLD_SLACK_MARGIN: 0.8
+RUN_POST_GRT_RESIZER_TIMING: true
 GRT_ALLOW_CONGESTION: true

@@ -31,9 +31,9 @@ One decode step (single query token attending over the KV cache):
                      │
         ┌────────────┴─────────────────────────────────────────────┐
         │  kve            store/stream K,V  (ChannelQuant KV codec)  │
-        │  mate_qkt       scores  = Q·Kᵀ            [Phase 1]        │
+        │  mate_qkt       scores  = Q·Kᵀ                            │
         │  precision_ctrl decide INT8 vs FP16 per tile (d_fp16)      │
-        │  vecu_softmax   P = softmax(scores)       [Phase 2]        │
+        │  vecu_softmax   P = softmax(scores)                       │
         │  tiu            H2O heavy-hitter scoring / eviction pick    │
         │  mate_pv / mate_pv_fp16   o = Σ P·V  (INT8 signed / FP16)  │
         └────────────┬─────────────────────────────────────────────┘
@@ -60,18 +60,23 @@ for full per-macro signoff + the gate-level end-to-end match numbers.
 | `mate_pv`               | INT8 P·V token-reduction MAC               | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 170 348 µm², ~36 MHz | ✅ **INT32 bit-exact** vs matmul_int8 | `mate_pv.yaml` ✅ |
 | `mate_pv_fp16`          | FP16 P·V MAC (fp32 internal accumulate)    | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 508 460 µm², ~6.7 MHz | ✅ **rel_err 1.7e-4** (< 5e-3) | `mate_pv_fp16.yaml` ✅ |
 | `kv_cache_engine` (kve) | ChannelQuant KV-cache codec (store/stream) | 🟠 hardens standalone (DRC/LVS/antenna clean) but **flop-array storage, no SRAM macro**; slew@ss; 621 960 µm² | RTL-fed in the GLS (see boundary) | `kve.yaml` ✅ (synth set) |
-| `mate_qkt`              | Q·Kᵀ score tile (INT24 K-axis GEMM)        | ⬜ Phase 1 — RTL IN PROGRESS                         | —                                   | `mate_qkt.yaml` 🟡 stub |
-| `vecu_softmax`          | streaming softmax / normalize              | ⬜ Phase 2 — RTL NOT STARTED                         | —                                   | `vecu_softmax.yaml` 🟡 stub |
+| `mate_qkt`              | Q·Kᵀ decode scoring (fp16, fp32 accum)     | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 904 834 µm², ~6.7 MHz | ✅ **scores rel_err 0.0** (< 5e-3) → gate | `mate_qkt.yaml` ✅ |
+| `vecu_softmax`          | decode online softmax (exp-LUT)            | 🟠 DRC/LVS/antenna/hold clean; setup clean at tt/ff, **−26.5 ns at ss** (long exp path); 779 671 µm² | ✅ **softmax 2.1e-4 / attn-out 5.4e-4** (within tol) | `vecu_softmax.yaml` ✅ (1 synth-compat patch) |
 
-All five blocks with RTL were **signed off on Sky130** in their sibling repos and
-are **re-hardened here on GF180MCU** (LibreLane 3.0.5 Classic; clocks re-timed —
-GF180 180 nm is much slower). The four compute macros pass a **GF180 gate-level
-end-to-end** check (INT bit-exact / FP16 rel_err < 5e-3) on a real Qwen tile
-(`tb/tb_gls_e2e.sv`, `make test-gls-e2e`). **KVE boundary:** the full
+All seven compute blocks are **re-hardened on GF180MCU** (LibreLane 3.0.5 Classic;
+clocks re-timed — GF180 180 nm is much slower). The **full compute datapath
+Q·Kᵀ → softmax → P·V** (plus the ACU gate and TIU) passes a **GF180 gate-level
+end-to-end** check (INT bit-exact / FP16 rel_err < 5e-3 / softmax within LUT tol)
+on a real Qwen tile (`tb/tb_gls_e2e.sv`, `make test-gls-e2e`). Signoff is
+setup/hold/DRC/LVS/antenna clean across the datapath, with two honest caveats:
+`vecu_softmax` meets setup at tt/ff but **misses at the ss slow corner by
+−26.5 ns** (its long exp-LUT path — needs pipelining), and the big fp16 blocks
+carry slow-corner max-transition violations. **KVE boundary:** the full
 `kv_cache_engine` hardens on GF180 but with **flip-flop register-array storage**
 (gate-proxy `SRAM_DEPTH=2`) — real KV capacity needs `gf180mcu_fd_ip_sram` macro
-integration (**TODO**); in the GLS the KVE value-reconstruct is RTL, feeding the
-gate-level P·V. Provenance (source repo, branch, commit) is in
+integration (**the one remaining gate-level hole**); in the GLS the KVE
+value-reconstruct is RTL, feeding the gate-level P·V. Provenance (source repo,
+branch, commit) + the one `vecu_softmax` synth-compat patch are in
 [`rtl/blocks/PROVENANCE.md`](rtl/blocks/PROVENANCE.md).
 
 ## Repository layout
@@ -96,8 +101,8 @@ chipathon-lambda-acu/
 │   ├── precision_controller.yaml       (real)
 │   ├── mate_pv.yaml                    (real)
 │   ├── mate_pv_fp16.yaml               (real)
-│   ├── mate_qkt.yaml                   (stub, TODO)
-│   └── vecu_softmax.yaml               (stub, TODO)
+│   ├── mate_qkt.yaml                   (real)
+│   └── vecu_softmax.yaml               (real)
 ├── tb/                           # cocotb harness (mirrors the template)
 │   ├── Makefile                  # dispatcher: make test-smoke / test-all
 │   ├── Makefile.cocotb           # cocotb standard include
@@ -179,18 +184,16 @@ example notebooks target.)
 
 To turn this skeleton into a real, tapeout-ready submission:
 
-1. **Finish the two remaining blocks' RTL** — `mate_qkt` (Phase 1, in progress)
-   and `vecu_softmax` (Phase 2, not started) — then copy them into `rtl/blocks/`,
-   promote their `librelane/*.yaml` from stub to real, and add per-macro cocotb
-   tests.
-2. **GF180 signoff polish + real KVE SRAM** — Stage 1 hardened all five blocks on
-   GF180 with a passing gate-level end-to-end (see
-   [`docs/gf180_gls_report.md`](docs/gf180_gls_report.md)); setup/hold/DRC/LVS/
-   antenna are clean. Remaining: close the **slow-corner (`ss`) max-transition**
-   violations (driver up-sizing / multi-corner slew repair) on the four blocks
-   that still show them, and **integrate the `gf180mcu_fd_ip_sram` hard macro**
-   into `kv_cache_engine` (today it hardens with flip-flop register-array storage
-   at the `SRAM_DEPTH=2` proxy — not real KV capacity).
+1. **GF180 signoff polish + real KVE SRAM** — Stage 1 + 2 hardened all seven
+   compute blocks on GF180 with a passing gate-level end-to-end covering the full
+   Q·Kᵀ→softmax→P·V datapath (see [`docs/gf180_gls_report.md`](docs/gf180_gls_report.md));
+   setup/hold/DRC/LVS/antenna are clean. Remaining: close the **slow-corner
+   (`ss`) max-transition** violations (driver up-sizing / multi-corner slew
+   repair) on the fp16 blocks that still show them, and **integrate the
+   `gf180mcu_fd_ip_sram` hard macro** into `kv_cache_engine` (today it hardens
+   with flip-flop register-array storage at the `SRAM_DEPTH=2` proxy — not real
+   KV capacity). This SRAM macro is the one remaining honest hole in the
+   gate-level datapath coverage.
 3. **Padring-fork integration + full datapath wiring** — clone
    `Mauricio-xx/chipathon-2026-gf180mcu-padring`, drop in `rtl/chip_core.sv`,
    merge the macros into `librelane/config.yaml`, and complete `lambda_acu.sv`:

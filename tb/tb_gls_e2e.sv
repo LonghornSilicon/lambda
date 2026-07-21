@@ -31,6 +31,8 @@ module tb_gls_e2e;
     localparam int NPV  = 4;             // mate_pv / mate_pv_fp16 hardened lane count (N=4)
     localparam int NS   = 4;             // token_importance_unit hardened N_SLOTS
     localparam int ACU_N = 4096;         // precision_controller hardened tile (64*64)
+    localparam int LQK  = 8;             // mate_qkt / vecu_softmax hardened N (keys / row length)
+    localparam int DQK  = 64;            // Q·Kᵀ head-dim reduction length (TB stimulus)
 
     reg clk = 0, rst_n = 0; always #5 clk = ~clk;
     integer errors = 0, e0;
@@ -81,6 +83,27 @@ module tb_gls_e2e;
         .ld_valid(tiu_lv), .ld_slot(tiu_ls), .evict_req(tiu_er), .evict_valid(tiu_ev),
         .evict_slot(tiu_es), .tier_threshold(tiu_thr), .tier_keep(tiu_keep), .busy(tiu_busy));
 
+    // ============ MatE Q·Kᵀ decode scoring (GF180 gate-level, N=8) ============
+    reg               qkt_sv, qkt_sl;
+    reg  signed [7:0] qkt_q;
+    reg  [LQK*16-1:0] qkt_k;
+    wire              qkt_cv;
+    wire [LQK*16-1:0] qkt_c;
+    mate_qkt u_qkt (                      // no #(): N=8 baked into the netlist
+        .clk(clk), .rst_n(rst_n),
+        .s_valid(qkt_sv), .a_data(qkt_q), .k_data(qkt_k), .s_last(qkt_sl),
+        .c_valid(qkt_cv), .c_data(qkt_c));
+
+    // ============ VecU decode online-softmax (GF180 gate-level, N=8) ============
+    reg               sm_sv, sm_sl;
+    reg  [15:0]       sm_s;
+    wire              sm_wv, sm_wl, sm_busy;
+    wire [15:0]       sm_w;
+    vecu_softmax u_sm (                   // no #(): N=8 baked into the netlist
+        .clk(clk), .rst_n(rst_n),
+        .s_valid(sm_sv), .s_data(sm_s), .s_last(sm_sl),
+        .w_valid(sm_wv), .w_data(sm_w), .w_last(sm_wl), .busy(sm_busy));
+
     // ---- shared scenario data (real Qwen tile) ----
     reg [DW-1:0] Vin [0:255][0:127]; reg [31:0] Ghat [0:255][0:127];
     integer Dn, Tn, Bn, fv, fg, code, t, d, k;
@@ -100,6 +123,18 @@ module tb_gls_e2e;
     reg [15:0] Af16 [0:PVM-1];
     reg [7:0] mass [0:NS-1]; integer exp_evict, mn;
 
+    // ---- Q·Kᵀ -> softmax -> P·V decode datapath working state ----
+    localparam real QKT_TOL  = 0.005;    // fp16 Q·Kᵀ score rel-err gate (< 5e-3)
+    localparam real SM_TOL   = 0.05;     // softmax weights vs exact softmax (absorbs ~2% LUT err)
+    localparam real PVSM_TOL = 0.06;     // attention output vs reference (softmax LUT thru P·V)
+    reg  signed [7:0] Qi [0:DQK-1];      // INT8 query
+    reg  [15:0]  Kf [0:LQK*DQK-1];       // per-channel-dequantized fp16 keys
+    reg  [15:0]  ksc; reg signed [7:0] qc;
+    integer sc_i8 [0:LQK-1]; integer iq, n;
+    real gmaxq, rrq, adq, maxrelq, smaxq, sscaleq;
+    reg  [15:0] Wsm [0:LQK-1];           // vecu_softmax attention weights (fp16)
+    real smax_r, sumexp, refw_n, wmaxrel;
+
     task step; begin @(negedge clk); end endtask
 
     initial begin
@@ -113,6 +148,7 @@ module tb_gls_e2e;
         $fclose(fv); $fclose(fg);
         pv_sv=0; pv_sl=0; pv16_sv=0; pv16_sl=0; acu_sv=0; acu_sl=0;
         tiu_av=0; tiu_lv=0; tiu_er=0;
+        qkt_sv=0; qkt_sl=0; sm_sv=0; sm_sl=0;
         rst_n = 0; repeat(6) step; rst_n = 1; step;
 
         $display("=== GF180 GATE-LEVEL cross-block end-to-end (gf180mcu_fd_sc_mcu7t5v0) ===");
@@ -270,8 +306,123 @@ module tb_gls_e2e;
         $display("[TIU   GL] keep-tier (thr=%0d) + eviction victim: %s (evict slot %0d, exp %0d)",
                  tiu_thr, (errors==e0)?"match reference":"MISMATCH", tiu_es, exp_evict);
 
+        // ===== Q·Kᵀ decode scoring (GATE-LEVEL mate_qkt, N=8) -> ACU gate =====
+        // Score one INT8 query against LQK per-channel-dequantized fp16 keys over
+        // DQK head-dim channels, then quantize + gate. (cosim BLOCK 1.)
+        e0 = errors;
+        for (d=0;d<DQK;d=d+1) Qi[d] = 8'sd1;                   // query: +1 on every channel
+        ksc = cq_fp_pkg::real_to_f16(1.0/64.0);                // per-channel fp16 key scale
+        for (n=0;n<LQK;n=n+1) begin
+            case (n)                                           // score targets (moderate spread)
+                0: qc = 8'sd3;  1: qc = 8'sd1;  2: qc = 8'sd0;  3: qc = -8'sd1;
+                4: qc = 8'sd2;  5: qc = -8'sd2; 6: qc = 8'sd1;  default: qc = -8'sd3;
+            endcase
+            for (d=0;d<DQK;d=d+1) Kf[n*DQK+d] = cq_fp_pkg::cq_dequant_f16(qc, ksc);
+        end
+        for (d=0;d<DQK;d=d+1) begin                            // stream head-dim channels
+            step; qkt_sv=1; qkt_q=Qi[d]; qkt_sl=(d==DQK-1);
+            for (n=0;n<LQK;n=n+1) qkt_k[n*16 +: 16] = Kf[n*DQK+d];
+        end
+        step; qkt_sv=0; qkt_sl=0;
+        pd=0; while (qkt_cv !== 1'b1 && pd<8) begin step; pd=pd+1; end
+        if (qkt_cv !== 1'b1) begin errors=errors+1; $display("  Q·Kᵀ c_valid never pulsed"); end
+        else begin
+            // (a) mate_qkt scores vs sequential-fp32 golden (rel_err < 5e-3)
+            gmaxq = 1.0e-9;
+            for (n=0;n<LQK;n=n+1) begin
+                gg = 0.0;
+                for (d=0;d<DQK;d=d+1) gg = gg + $itor(Qi[d])*cq_fp_pkg::f16_to_real(Kf[n*DQK+d]);
+                rrq=(gg<0.0)?-gg:gg; if (rrq>gmaxq) gmaxq=rrq;
+            end
+            maxrelq = 0.0;
+            for (n=0;n<LQK;n=n+1) begin
+                gg = 0.0;
+                for (d=0;d<DQK;d=d+1) gg = gg + $itor(Qi[d])*cq_fp_pkg::f16_to_real(Kf[n*DQK+d]);
+                rrq = cq_fp_pkg::f16_to_real(qkt_c[n*16 +: 16]);
+                adq = rrq-gg; if (adq<0.0) adq=-adq;
+                if (adq/gmaxq > maxrelq) maxrelq = adq/gmaxq;
+            end
+            if (maxrelq >= QKT_TOL) begin errors=errors+1; $display("  Q·Kᵀ scores OUT OF TOL: %f (tol %.3f)", maxrelq, QKT_TOL); end
+        end
+        // (b) quantize scores to int8 (per-tile symmetric) and gate the tile
+        smaxq = 0.0;
+        for (n=0;n<LQK;n=n+1) begin rrq=cq_fp_pkg::f16_to_real(qkt_c[n*16 +: 16]); if (rrq<0.0) rrq=-rrq; if (rrq>smaxq) smaxq=rrq; end
+        sscaleq = (smaxq>1.0e-9) ? (smaxq/127.0) : 1.0;
+        mx=0; sm=0;
+        for (n=0;n<LQK;n=n+1) begin
+            rrq = cq_fp_pkg::f16_to_real(qkt_c[n*16 +: 16]) / sscaleq;
+            iq = $rtoi(rrq + (rrq>=0.0?0.5:-0.5)); if (iq>127) iq=127; if (iq<-127) iq=-127;
+            sc_i8[n]=iq;
+            if ((iq<0?-iq:iq) > mx) mx = (iq<0?-iq:iq);
+            sm = sm + (iq<0?-iq:iq);
+        end
+        for (n=0;n<LQK;n=n+1) begin step; acu_sv=1; acu_sl=(n==LQK-1); acu_s=sc_i8[n][7:0]; end
+        step; acu_sv=0; acu_sl=0;
+        k=0; while (acu_dv !== 1'b1 && k<8) begin step; k=k+1; end
+        exp_fp16 = (mx*ACU_N > 10*sm);
+        if (acu_dv !== 1'b1) begin errors=errors+1; $display("  ACU(qkt) d_valid never pulsed"); end
+        else if (acu_fp16 !== exp_fp16) begin errors=errors+1; $display("  ACU(qkt) got=%0b exp=%0b", acu_fp16, exp_fp16); end
+        $display("[MatE  GL] Q·Kᵀ (mate_qkt) scores: rel-err %f (< %.3f) vs seq-fp32 golden; -> ACU gate fp16=%0b: %s",
+                 maxrelq, QKT_TOL, acu_fp16, (errors==e0)?"match reference":"MISMATCH");
+
+        // ===== decode closed loop: Q·Kᵀ -> softmax (GL vecu_softmax) -> P·V (GL) =====
+        // (cosim BLOCK 2d.) The attention weights feeding the FP16 P·V are computed
+        // by vecu_softmax from the mate_qkt scores — the whole compute datapath is GL.
+        e0 = errors;
+        for (n=0;n<LQK;n=n+1) begin step; sm_sv=1; sm_s=qkt_c[n*16 +: 16]; sm_sl=(n==LQK-1); end
+        step; sm_sv=0; sm_sl=0;
+        k=0; pd=0;
+        while (k<LQK && pd<(LQK+40)) begin
+            step;
+            if (sm_wv) begin Wsm[k]=sm_w; k=k+1; end
+            pd=pd+1;
+        end
+        if (k !== LQK) begin errors=errors+1; $display("  softmax: only %0d of %0d weights emitted", k, LQK); end
+        else begin
+            // reference exact-fp64 softmax of the (fp16) scores
+            smax_r = -1.0e30;
+            for (n=0;n<LQK;n=n+1) begin rrq=cq_fp_pkg::f16_to_real(qkt_c[n*16 +: 16]); if (rrq>smax_r) smax_r=rrq; end
+            sumexp = 0.0;
+            for (n=0;n<LQK;n=n+1) sumexp = sumexp + $exp(cq_fp_pkg::f16_to_real(qkt_c[n*16 +: 16]) - smax_r);
+            wmaxrel = 0.0;
+            for (n=0;n<LQK;n=n+1) begin
+                refw_n = $exp(cq_fp_pkg::f16_to_real(qkt_c[n*16 +: 16]) - smax_r) / sumexp;
+                adq = cq_fp_pkg::f16_to_real(Wsm[n]) - refw_n; if (adq<0.0) adq=-adq;
+                if (adq > wmaxrel) wmaxrel = adq;
+            end
+            if (wmaxrel >= SM_TOL) begin errors=errors+1; $display("  softmax weights OUT OF TOL: %f (tol %.3f)", wmaxrel, SM_TOL); end
+        end
+        // feed the softmax weights to the GL FP16 P·V over the KVE's rotated V̂ (first NPV ch)
+        for (t=0;t<LQK;t=t+1) begin
+            step; pv16_sv=1; pv16_a=Wsm[t]; pv16_sl=(t==LQK-1);
+            for (d=0;d<NPV;d=d+1) pv16_v[d*16 +: 16] = rotv16[t*D+d];
+        end
+        step; pv16_sv=0; pv16_sl=0;
+        pd=0; while (pv16_cv !== 1'b1 && pd<8) begin step; pd=pd+1; end
+        if (pv16_cv !== 1'b1) begin errors=errors+1; $display("  closed-loop P·V c_valid never pulsed"); end
+        else begin
+            // reference attention: o_ref[d] = Σ_t softmax_ref[t]·V̂[t][d]
+            gmax16 = 1.0e-9;
+            for (d=0;d<NPV;d=d+1) begin
+                gg=0.0;
+                for (t=0;t<LQK;t=t+1) gg = gg + ($exp(cq_fp_pkg::f16_to_real(qkt_c[t*16 +: 16])-smax_r)/sumexp)*cq_fp_pkg::f16_to_real(rotv16[t*D+d]);
+                rr16=(gg<0.0)?-gg:gg; if (rr16>gmax16) gmax16=rr16;
+            end
+            maxrel16 = 0.0;
+            for (d=0;d<NPV;d=d+1) begin
+                gg=0.0;
+                for (t=0;t<LQK;t=t+1) gg = gg + ($exp(cq_fp_pkg::f16_to_real(qkt_c[t*16 +: 16])-smax_r)/sumexp)*cq_fp_pkg::f16_to_real(rotv16[t*D+d]);
+                rr16 = cq_fp_pkg::f16_to_real(pv16_c[d*16 +: 16]);
+                adiff16 = rr16-gg; if (adiff16<0.0) adiff16=-adiff16;
+                if (adiff16/gmax16 > maxrel16) maxrel16 = adiff16/gmax16;
+            end
+            if (maxrel16 >= PVSM_TOL) begin errors=errors+1; $display("  closed-loop P·V OUT OF TOL: %f (tol %.3f)", maxrel16, PVSM_TOL); end
+        end
+        $display("[VecU  GL] decode Q·Kᵀ->softmax->P·V (weights = vecu_softmax GL): softmax err %f (< %.3f), attn-out rel-err %f (< %.3f): %s",
+                 wmaxrel, SM_TOL, maxrel16, PVSM_TOL, (errors==e0)?"within tol":"FAIL");
+
         $display("");
-        $display("GF180 GATE-LEVEL E2E (P·V INT8 + P·V FP16 + ACU + TIU gate-level; KVE RTL): %s",
+        $display("GF180 GATE-LEVEL E2E (full compute datapath Q·Kᵀ->softmax->P·V + ACU + TIU gate-level; KVE RTL): %s",
                  (errors==0)?"ALL PASS":"FAILED");
         $finish;
     end
