@@ -60,7 +60,7 @@ sitting between the ACU (attention compute unit) and the memory hierarchy.
 | **K/V asymmetry** | K: per-channel scale over a token group (the GQA-critical axis); V: per-token scale |
 | **Tiers** | CQ-8 (per-token INT8 K+V), CQ-4 (per-channel INT4 K / per-token INT4 V), CQ-4+ (CQ-4 with k=2 FP16 outlier channels — top-2 static-calibrated, C16/`outlier_calibration.py`), **CQ-3-rot** (CQ-4+ keys + WHT-rotated per-token **INT3** values — flat 3.0 b/val (`pack_int3`: 8 INT3 codes → 3 bytes = 3.000 b/val), ~4.8× (= 16-bit FP16 ÷ ~3.3 eff b/val); see [`docs/wht_value_rotation.md`](docs/wht_value_rotation.md)) |
 | **Verified** | RTL bit-exact vs golden (`sim_kpath`/`sim_top`), 3-way Python↔C++↔SV parity, **all CI gates green** incl. Sky130 sign-off |
-| **Accuracy** | HellaSwag acc_norm within ~0.4–0.8 pt of FP16 (CQ-4+ tier) on Qwen2-0.5B/1.5B (see below) |
+| **Accuracy** | HellaSwag acc_norm within ~0.5 pt of FP16 at the best value tier per model (CQ-4 on Qwen2-0.5B, CQ-4+ on 1.5B; the FP16-outlier lane only helps at D=128 — see below) |
 | **Status** | RTL complete through Sky130 physical sign-off (all CI gates green). 16nm (Lambda) sign-off is future work; full-chip tape-out target Summer 2027 via TSMC University Program |
 
 ---
@@ -102,23 +102,23 @@ is bit-exact with the behavioral oracle and place-and-routes at a real clock.
 
 ## Accuracy — verified end-to-end on Qwen2
 
-HellaSwag `acc_norm`, n=1000, G=128, ChannelQuant K̂/V̂ inserted into the model's KV path
-(methodology: `../channelquant/analysis/c23_headline.py`; eff-bits column =
-`eff_bits(G=128, D, k=2)`, HW_CONTRACT §6). **Reconciliation note:** the frozen Qwen2-1.5B
-headline run `../channelquant/analysis/c23_q15_headline.json` records **0.522 / 0.505 / 0.517**
-(CQ-4+ Δ −0.005); the 1.5B point estimates below differ slightly and the Qwen2-0.5B row is not
-yet backed by a committed `c23` run — treat the point estimates as screening pending a refreshed
-`c23_headline.py --n-items 1000` run for both models (the eff-bits columns are exact):
+HellaSwag `acc_norm`, n=1000, G=128, ChannelQuant K̂/V̂ inserted into the model's KV path.
+Source: `../channelquant/analysis/c23_headline.py --n-items 1000` → `c23_q05_headline.json`
+/ `c23_q15_headline.json`; eff-bits column = `eff_bits(G=128, D, k=2)`, HW_CONTRACT §6.
+Regenerated 2026-07-21 on real Qwen2 (GPU, both rows reproduced; 1.5B matches the frozen run):
 
 | Model | FP16 | CQ-4 (Δ) | CQ-4+ (Δ) | bits/value |
 |---|---|---|---|---|
-| Qwen2-0.5B (D=64) | 0.4260 | 0.4170 (−0.009) | 0.4220 (−0.004) | ~4.19 / 4.38 |
-| Qwen2-1.5B (D=128) | 0.5210 | 0.5050 (−0.016) | **0.5130 (−0.008)** | ~4.13 / 4.22 |
+| Qwen2-0.5B (D=64) | 0.4260 | **0.4210 (−0.005)** | 0.4150 (−0.011) | ~4.19 / 4.38 |
+| Qwen2-1.5B (D=128) | 0.5220 | 0.5050 (−0.017) | **0.5170 (−0.005)** | ~4.13 / 4.22 |
 
-Both tiers clear the ≤0.02 acceptance gate (C12′, `../channelquant` spec §7) at **~4 bits/value (≈3.8× KV
-compression)** (bits/value = `eff_bits(G=128, D, k=2)`, HW_CONTRACT §6; ≈3.8× = 16 ÷ ~4.2); the CQ-4+ outlier lane earns its keep at D=128. Combined with the
-ACU precision controller (INT8/FP16-routed S·V) the system holds accuracy at FP16
-(no measurable loss on Qwen2-0.5B).
+Both tiers clear the ≤0.02 acceptance gate (C12′, `../channelquant` spec §7) at **~4 bits/value
+(≈3.8× KV compression)** (bits/value = `eff_bits(G=128, D, k=2)`, HW_CONTRACT §6; ≈3.8× = 16 ÷ ~4.2).
+**The CQ-4+ FP16-outlier lane earns its keep only at D=128** (1.5B: 0.517 vs CQ-4's 0.505, Δ+0.012,
+McNemar p=0.088); at **D=64 (0.5B) it slightly hurts** (0.415 vs CQ-4's 0.421, Δ−0.006, p=0.50), so
+plain CQ-4 is the better value tier on the smaller model. The best tier per model lands within
+**~0.5 pt of FP16** (CQ-4 on 0.5B, CQ-4+ on 1.5B). Combined with the ACU precision controller
+(INT8/FP16-routed S·V) the system holds near-FP16 accuracy.
 
 ---
 
