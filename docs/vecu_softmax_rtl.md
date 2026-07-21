@@ -1,6 +1,6 @@
 # `vecu_softmax` — synthesizable VecU decode online-softmax slice (RTL)
 
-**Status:** RTL complete + **pipelined**, bit-exact to the LUT online-softmax golden, Yosys-clean (718 FFs at N=16, no latches). GF180MCU hardening is a later phase (chipathon shuttle PDK).
+**Status:** RTL complete + **micro-sequenced (rebalanced timing)**, bit-exact to the LUT online-softmax golden, Yosys-clean (1062 FFs at N=16, no latches). GF180MCU hardening is a later phase (chipathon shuttle PDK).
 **Home:** `rtl/vecu_softmax.sv` (+ `rtl/tb/tb_vecu_softmax.sv`, `rtl/tb/gen_vecu_softmax_vectors.py`, golden `sw/reference_model/vecu_softmax_ref.py`).
 **One line:** the decode-time softmax of the VecU vector unit — turns a row of Q·Kᵀ scores into attention weights in hand-written synthesizable Verilog, replacing the last reference stand-in in the cross-block cosim.
 
@@ -50,35 +50,54 @@ This is the number the cosim's P·V-vs-reference tolerance is set from.
 
 - **LOAD** — one fp16 score per clock on `s_data`, `s_valid=1`, `s_last=1` on the
   final score. Scores are buffered (depth `N`).
-- **EMIT** — after the pipeline drains the block streams the L weights: `w_valid`
-  pulses each cycle with the fp16 weight on `w_data`, `w_last` on the final one.
-  The consumer just waits on the `w_valid` handshake, so the (data-independent)
-  pipeline latency is transparent.
+- **EMIT** — after the compute micro-sequence finishes the block streams the L
+  weights: `w_valid` pulses (one weight every ~8 cycles) with the fp16 weight on
+  `w_data`, `w_last` on the final one. The consumer just waits on the `w_valid`
+  handshake, so the (data-independent) latency is transparent — the cosim/TB waits
+  already tolerate it.
 - `busy` is high from the first score until the last weight. `N` is the max row
   length (buffer depth); a single N-elaborated block handles any L ≤ N.
 
-## Pipeline (closes the GF180 slow corner)
+## Timing structure — micro-sequenced (closes GF180 ss with normal resizing)
 
-The un-pipelined block ran the whole `fp16 → exp-LUT → fp32 → fp16` online-softmax
-chain in a single cycle (~366 ns post-route at GF180 `ss_125C_4v50`, missing setup
-by −26.5 ns; clean at tt/ff). It is now split into **3 register stages** so no
-register-to-register path holds more than one fp32 multiply:
+Two revisions closed / then rebalanced the GF180 slow corner:
 
-| stage | LOAD | EMIT |
-|---|---|---|
-| 1 | running-max + subtract + exp index/lookup/`diff = hi−lo` (**no mult**) | subtract + exp index/lookup/diff |
-| 2 | exp interpolation `lo + frac·diff` (**one mult**) | exp interpolation |
-| 3 | rescale + accumulate `ℓ = ℓ·resc + e` (**one mult**) | `·(1/ℓ)` + round-to-fp16 (**one mult**) |
+1. **Un-pipelined** ran the whole `fp16 → exp-LUT → fp32 → fp16` chain in one cycle
+   (~366 ns post-route at `ss_125C_4v50`, missing setup by −26.5 ns).
+2. **3-stage pipeline** (superseded) split it into 3 stages and closed ss (+19.2 ns),
+   but the split was **uneven** — the longest stage held a full `fp32 mul + add`
+   (or two `fp32_sub`s), ~263 ns at ss, forcing a 300 ns clock **plus an aggressive
+   resize that ~2×'d the cell count (55k → 101k, 1.49 mm²)**.
+3. **Micro-sequenced (this revision)** rebalances so every register-to-register path
+   holds **at most one fp32 op** — evenly ~½ the 3-stage's longest stage:
 
-The exp evaluation is **feed-forward** per score, so pipelining it is pure delay —
-throughput stays **1 score/cycle** (`m` updates in stage 1, `ℓ` in stage 3, each
-loop-carried once per cycle) and the emitted weights are **identical** (bit-exact
-to the same golden; same idea as pipelining `mate_pv` kept the same Σ). Latency
-grows by the pipeline depth (a few cycles per phase) — transparent via the
-`w_valid` handshake. Longest register-to-register path is now ≈ one fp32
-multiply + one fp32 add (**~½ the old chain, est. ~150–190 ns at ss**), which
-clears the GF180 ss corner with comfortable setup margin. Cost: **+358 flip-flops**
-(360 → 718 at N=16) for the pipeline registers.
+Scores are buffered on load (1/cycle), then the recurrence and the emit run as
+micro-sequences executing one fp32 op per cycle, registering the intermediate each
+cycle:
+
+| phase | per-item cycle sequence (one fp32 op each) |
+|---|---|
+| COMPUTE (per score) | read · `max`+`sub` · index/LUT · `diff sub` · `interp mul` · `interp add` · `rescale mul` · `accumulate add` |
+| EMIT (per weight)   | read · `sub` · index/LUT · `diff sub` · `interp mul` · `interp add` · `·(1/ℓ) mul` · `round-to-fp16` |
+
+Because the op sequence and rounding are **unchanged**, the result is **identical**
+(bit-exact to the same golden). The recurrence is single-issue (no overlap hazards)
+and the intermediate registers are reused across scores/weights. Added latency
+(~8 cycles/score compute + ~8 cycles/weight emit) is transparent via the `w_valid`
+handshake — decode is latency-tolerant.
+
+**Why this brings area back down:** the longest path is now **one fp32 op (est.
+~170–190 ns at ss)** instead of two (~263 ns aggressively-resized / ~340 ns normal),
+so ss closes at a faster clock with **normal, non-aggressive resizing** — no cell
+cloning / buffer explosion, so the combinational cells return to ~their base count
+(the ~2× resize blow-up is what drove the 101k / 1.49 mm²). The multi-cycle datapath
+uses the same fp32 hardware as the pipeline but reuses one register set, so
+combinational area is comparable while avoiding the resize. Sequential cost:
+**1062 FFs at N=16** (256 score buffer + fp32 ℓ / m / 1/ℓ + one reused set of
+COMPUTE + EMIT intermediates + pointers/steps) — FFs are small; the combinational
+resize-avoidance dominates the net area. The one-fp32-op path is the floor without
+pipelining *inside* the adder/multiplier (a deeper, higher-FF change reserved for a
+later round if ss needs an even faster clock).
 
 ## Verification
 
@@ -86,11 +105,12 @@ clears the GF180 ss corner with comfortable setup margin. Cost: **+358 flip-flop
   corners: L=1, L=520 long context, peaked, near-uniform, all-negative,
   monotone-increasing (forces the rescale every step), subnormal scores, and a
   far-below-max score that clamps to 0. Plus a 400-row random stress, 0 errors.
-  Bit-exactness is unchanged by the pipeline. Golden is pure Python
+  Bit-exactness is unchanged by the timing rebalance. Golden is pure Python
   (bit-manipulation fp16/fp32) so the TB needs no numpy.
-- **Synthesis:** Yosys — **718 FFs (N=16)** (256 score buffer + fp32 ℓ + m +
-  1/ℓ + the 3-stage LOAD & EMIT pipeline registers + pointers/state), **no
-  latches** (`t:$dlatch`-free assertion).
+- **Synthesis:** Yosys — **1062 FFs (N=16)** (256 score buffer + fp32 ℓ / m / 1/ℓ +
+  one reused set of COMPUTE + EMIT intermediates + pointers/steps), **no latches**
+  (`t:$dlatch`-free assertion; function locals default-initialised so no transient
+  latch-inference either).
 
 ## Cross-block cosim — closes Q·Kᵀ → softmax → P·V
 

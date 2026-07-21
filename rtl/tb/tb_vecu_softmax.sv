@@ -49,7 +49,8 @@ module tb_vecu_softmax;
             end
             // collect L emitted weights on w_valid
             got_cnt = 0; guard = 0;
-            while (got_cnt < L && guard < (L + 32)) begin
+            // micro-sequenced core: COMPUTE ~8 cyc/score + EMIT ~8 cyc/weight => ~16*L
+            while (got_cnt < L && guard < (L * 20 + 64)) begin
                 @(negedge clk);
                 if (w_valid) begin
                     if (w_data !== gold[got_cnt]) begin
