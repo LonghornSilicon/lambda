@@ -161,8 +161,8 @@ read-side bus is \textbf{IEEE-754 fp32} (contract \S1).
 \medskip
 \noindent\textbf{Compression:} $\approx$4 effective bits/value, $\approx$3.8$\times$
 vs.\ FP16, near-lossless.\\
-\textbf{Accuracy (HellaSwag acc\_norm, n=1000):} Qwen2-0.5B 0.417/0.422 (CQ-4/CQ-4+)
-vs.\ 0.426 FP16; Qwen2-1.5B 0.505/0.513 vs.\ 0.521 FP16.\\
+\textbf{Accuracy (HellaSwag acc\_norm, n=1000):} Qwen2-0.5B 0.421/0.415 (CQ-4/CQ-4+)
+vs.\ 0.426 FP16; Qwen2-1.5B 0.505/0.517 vs.\ 0.522 FP16 (CQ-4+ helps at D=128, not D=64).\\
 \textbf{Bit-exact reference:} \path{sw/reference_model/channelquant_ref.{hpp,cpp}}
 and the frozen Python reference in \path{../channelquant/reference/}.
 
