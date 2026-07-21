@@ -46,4 +46,6 @@ docs/isa/*.toc
 
 # mate_pv generated artifacts
 rtl/tb/mate_pv_vectors.txt
+rtl/tb/mate_pv_fp16_vectors.txt
 rtl/sim_mate.out
+rtl/sim_mate_fp16.out

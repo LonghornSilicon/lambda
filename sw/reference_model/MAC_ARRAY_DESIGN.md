@@ -97,6 +97,17 @@ they are a reasonable order-of-magnitude estimate. The compiler should
 use them for relative comparison (INT8 vs FP16, which shape is faster)
 rather than absolute timing.
 
+> **Synthesized delta (P·V tile, Sky130A N=4 proxy).** Both the INT8 and
+> FP16 P·V tiles now have synthesizable RTL taken to GDSII
+> (`rtl/mate_pv.sv`, `rtl/mate_pv_fp16.sv`; see `docs/mate_pv_fp16_rtl.md`).
+> Measured: FP16 is **≈ 2.8× the std-cell area, ≈ 3.2× the cell count, and
+> ≈ 11.5× the energy per MAC** of INT8, and clocks **≈ 6× slower** (the
+> single-cycle fp32 accumulate is the limiter) — the "~4× FP16 PE area" /
+> "5× energy" placeholders above are the right order of magnitude, a bit
+> low on area and high-ish on relative throughput for the P·V reduction.
+> FP16 flip-flop count is ≈ equal to INT8. These replace the earlier
+> "FP16 P·V area/power delta — TBD pending re-synthesis" caveat.
+
 ## What's NOT in v0.1
 
 - Sparsity acceleration (skip-zero PEs)
