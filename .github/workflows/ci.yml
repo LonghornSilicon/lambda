@@ -13,6 +13,8 @@ jobs:
     with:
       block-name: precision_controller
       expected-ff-count: 30
-      has-rtl: true                 # this is the RTL home
+      has-rtl: true                 # this is the RTL home (Yosys synth smoke runs every push)
       has-reference-model: true     # golden vectors live here with the RTL
       has-paper: false              # the paper builds on main
+      has-qwen-test: true           # real-Qwen accuracy gate (rtl branch only)
+      # qwen-test-deps uses the default; CPU torch is installed by the reusable job.
