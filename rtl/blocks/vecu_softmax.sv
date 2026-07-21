@@ -27,11 +27,21 @@
 // INTERFACE (house streaming style):
 //   LOAD  — present one fp16 score per clock on s_data with s_valid=1; assert
 //           s_last=1 on the final score. Scores are buffered (depth N).
-//   EMIT  — two cycles after s_last the block streams the L weights: w_valid pulses
-//           each cycle with the fp16 weight on w_data, w_last on the final one.
+//   EMIT  — after the pipeline drains, the block streams the L weights: w_valid
+//           pulses each cycle with the fp16 weight on w_data, w_last on the final
+//           one. The consumer just waits on the w_valid handshake, so the (data-
+//           independent) pipeline latency is transparent.
 //   busy is high from the first score until the last weight is emitted.
 //
-// Synthesis: registered FSM + score buffer + fp32 accumulator; no latches.
+// PIPELINED (this revision): the exp evaluation (LUT lookup + interp + fp16↔fp32)
+// and the rescale/accumulate are split into 3 register stages so no register-to-
+// register path holds more than one fp32 multiply — this closes the GF180 slow
+// corner (the un-pipelined ~366 ns fp16→exp→fp32→fp16 chain missed ss setup). The
+// exp evaluation is feed-forward, so pipelining is pure delay: throughput stays
+// 1 score/cycle and the result is UNCHANGED (bit-exact to vecu_softmax_ref.py).
+//
+// Synthesis: registered 3-stage pipeline + FSM + score buffer + fp32 accumulator;
+// no latches.
 
 `timescale 1ns/1ps
 
@@ -55,22 +65,12 @@ module vecu_softmax #(
     localparam integer PTRW    = (N <= 1) ? 1 : $clog2(N + 1);
     localparam [FW-1:0] NEG_INF = 16'hFC00;   // -inf fp16 (initial running max)
 
-    // SYNTH-COMPAT PATCH (chipathon GF180, 2026-07-21): `gi_unused` was declared
-    // at module scope but is used ONLY as the subnormal-normalize loop counter
-    // inside function `fp16_to_fp32` below. A module-scope reg written from an
-    // automatic function makes yosys latch-infer it -> 320 multiple-driver check
-    // errors, aborting synthesis. Moved the declaration into the function
-    // (per-call in `function automatic`) — behaviorally identical, sim-identical.
-    // This is the ONLY divergence from the byte-identical vendored source
-    // (architecture rtl/blocks/acu/vecu_softmax.sv); see rtl/blocks/PROVENANCE.md.
-
     // =======================================================================
     // fp16 -> fp32 widen (exact)
     // =======================================================================
     function automatic [31:0] fp16_to_fp32;
         input [15:0] h;
-        reg s; reg [4:0] e; reg [9:0] m; integer e2; reg [10:0] mm; reg [7:0] eo;
-        integer gi_unused;
+        reg s; reg [4:0] e; reg [9:0] m; integer e2, jj; reg [10:0] mm; reg [7:0] eo;
         begin
             s = h[15]; e = h[14:10]; m = h[9:0];
             if (e == 5'h1F)      fp16_to_fp32 = {s, 8'hFF, m, 13'b0};
@@ -78,7 +78,7 @@ module vecu_softmax #(
                 if (m == 10'b0)  fp16_to_fp32 = {s, 31'b0};
                 else begin
                     e2 = -14; mm = {1'b0, m};
-                    for (gi_unused = 0; gi_unused < 10; gi_unused = gi_unused + 1)
+                    for (jj = 0; jj < 10; jj = jj + 1)
                         if (!mm[10]) begin mm = mm << 1; e2 = e2 - 1; end
                     eo = (e2 + 127);
                     fp16_to_fp32 = {s, eo, mm[9:0], 13'b0};
@@ -408,58 +408,106 @@ module vecu_softmax #(
         end
     endfunction
 
-    // exp(x) for x <= 0 via the LUT + linear interpolation; returns fp32
-    function automatic [31:0] exp_lut_fp32;
+    // exp "front" — neg conversion + LUT index/lookup + diff(hi-lo) + frac. Returns
+    // the pre-multiply state {zero(1), lo32(32), frac32(32), diff32(32)} of exp(x);
+    // no fp32 multiply here (that is the pipelined "interp" stage). This is the first
+    // half of the old exp_lut_fp32, split so the exp evaluation can be pipelined.
+    function automatic [96:0] exp_front;
         input [31:0] x32;
         reg [31:0] neg32; reg [16:0] fixed; reg [5:0] i; reg [9:0] frac10;
-        reg [31:0] lo32, hi32, diff32, term32;
+        reg [31:0] lo32, hi32, diff32, frac32; reg zero;
         begin
             if ((x32 & 32'h7FFFFFFF) == 32'b0) neg32 = 32'b0;   // x == 0
             else                               neg32 = x32 ^ 32'h80000000;
             if (neg32[31])                     neg32 = 32'b0;   // x > 0 (should not occur)
-            if ((neg32 & 32'h7FFFFFFF) >= 32'h41800000)         // neg >= 16 -> exp ~ 0
-                exp_lut_fp32 = 32'b0;
-            else begin
+            if ((neg32 & 32'h7FFFFFFF) >= 32'h41800000) begin   // neg >= 16 -> exp ~ 0
+                zero = 1'b1; lo32 = 32'b0; frac32 = 32'b0; diff32 = 32'b0;
+            end else begin
+                zero   = 1'b0;
                 fixed  = neg_to_fixed(neg32);
                 i      = fixed[15:10];
                 frac10 = fixed[9:0];
                 lo32   = fp16_to_fp32(exp_lut_entry(i));
                 hi32   = fp16_to_fp32((i < 6'd63) ? exp_lut_entry(i + 6'd1) : 16'h0002);
                 diff32 = fp32_add(hi32, lo32 ^ 32'h80000000);
-                term32 = fp32_mul(frac_to_fp32(frac10), diff32);
-                exp_lut_fp32 = fp32_add(lo32, term32);
+                frac32 = frac_to_fp32(frac10);
             end
+            exp_front = {zero, lo32, frac32, diff32};
+        end
+    endfunction
+
+    // exp "interp" — lo + frac·diff (the one fp32 multiply of the exp evaluation).
+    // exp_interp(exp_front(x)) == the old exp_lut_fp32(x), so results are unchanged.
+    function automatic [31:0] exp_interp;
+        input        zero;
+        input [31:0] lo32;
+        input [31:0] frac32;
+        input [31:0] diff32;
+        begin
+            exp_interp = zero ? 32'b0 : fp32_add(lo32, fp32_mul(frac32, diff32));
         end
     endfunction
 
     // =======================================================================
-    // Datapath state + combinational cones
+    // Pipelined datapath.  The exp evaluation is split across pipeline stages so no
+    // single register-to-register path holds more than one fp32 multiply:
+    //   LOAD   stage 1 : running-max + subtract + exp index/lookup/diff  (no mul)
+    //          stage 2 : exp interpolation  lo + frac·diff               (one mul)
+    //          stage 3 : rescale + accumulate  ℓ = ℓ·resc + e            (one mul)
+    //   EMIT   stage 1 : subtract + exp index/lookup/diff                (no mul)
+    //          stage 2 : exp interpolation                               (one mul)
+    //          stage 3 : ·(1/ℓ) + round-to-fp16                          (one mul)
+    // The exp evaluation is FEED-FORWARD per score, so pipelining it is pure delay —
+    // the emitted weights are identical to the un-pipelined block (bit-exact to
+    // vecu_softmax_ref.py). Only m (updated in stage 1) and ℓ (updated in stage 3)
+    // are loop-carried; each updates once per cycle, so throughput stays 1
+    // score/cycle and the streaming interface is unchanged (added latency only).
     // =======================================================================
-    localparam [1:0] S_IDLE = 2'd0, S_LOAD = 2'd1, S_PREP = 2'd2, S_EMIT = 2'd3;
-    reg [1:0]      state;
+    localparam [2:0] S_IDLE = 3'd0, S_LOAD = 3'd1, S_PREP = 3'd2, S_EMIT = 3'd3;
+    reg [2:0]      state;
     reg [FW-1:0]   m16;                 // running max (fp16)
     reg [31:0]     l32;                 // running sum-of-exp (fp32 accumulator)
     reg [FW-1:0]   inv_l16;             // 1/ℓ_final (fp16)
     reg [FW-1:0]   score_mem [0:N-1];   // buffered scores
     reg [PTRW-1:0] wr_ptr, rd_ptr, count;
 
-    // LOAD cone (this cycle's score against the running state)
+    // ---- LOAD stage-1 combinational (input score vs running max) ----
     wire [FW-1:0] m_new  = fp16_gt(s_data, m16) ? s_data : m16;
     wire [31:0]   x_resc = fp32_sub(fp16_to_fp32(m16),    fp16_to_fp32(m_new));
     wire [31:0]   x_cur  = fp32_sub(fp16_to_fp32(s_data), fp16_to_fp32(m_new));
-    wire [31:0]   resc32 = exp_lut_fp32(x_resc);
-    wire [31:0]   e32    = exp_lut_fp32(x_cur);
-    wire [31:0]   l_next = fp32_add(fp32_mul(l32, resc32), e32);
+    wire [96:0]   frontr = exp_front(x_resc);
+    wire [96:0]   frontc = exp_front(x_cur);
 
-    // PREP cone (reciprocal of the final sum)
+    // LOAD pipeline registers (stage 1 -> 2 -> 3)
+    reg        p1_v, p1_last, p1_zr, p1_zc;
+    reg [31:0] p1_lor, p1_fracr, p1_diffr, p1_loc, p1_fracc, p1_diffc;
+    reg        p2_v, p2_last;
+    reg [31:0] p2_resc, p2_e;
+
+    // ---- LOAD stage-2 combinational (exp interpolation) ----
+    wire [31:0] resc32 = exp_interp(p1_zr, p1_lor, p1_fracr, p1_diffr);
+    wire [31:0] e32    = exp_interp(p1_zc, p1_loc, p1_fracc, p1_diffc);
+    // ---- LOAD stage-3 combinational (rescale + accumulate) ----
+    wire [31:0] l_next = fp32_add(fp32_mul(l32, p2_resc), p2_e);
+
+    // ---- PREP combinational (reciprocal of the final sum) ----
     wire [FW-1:0] l16        = fp32_to_fp16(l32);
     wire [FW-1:0] inv_l_comb = fp16_div(16'h3C00, l16);
 
-    // EMIT cone (weight for the current read pointer)
+    // ---- EMIT stage-1 combinational (stored score vs final max) ----
     wire [FW-1:0] s_rd   = score_mem[rd_ptr];
     wire [31:0]   x_emit = fp32_sub(fp16_to_fp32(s_rd), fp16_to_fp32(m16));
-    wire [31:0]   e_emit = exp_lut_fp32(x_emit);
-    wire [FW-1:0] w_emit = fp32_to_fp16(fp32_mul(e_emit, fp16_to_fp32(inv_l16)));
+    wire [96:0]   fronte = exp_front(x_emit);
+
+    // EMIT pipeline registers (stage 1 -> 2 -> 3)
+    reg        e1_v, e1_last, e1_ze;
+    reg [31:0] e1_loe, e1_frace, e1_diffe;
+    reg        e2_v, e2_last;
+    reg [31:0] e2_e;
+
+    // ---- EMIT stage-2 / stage-3 combinational ----
+    wire [31:0]   ee32   = exp_interp(e1_ze, e1_loe, e1_frace, e1_diffe);
+    wire [FW-1:0] w_comb = fp32_to_fp16(fp32_mul(e2_e, fp16_to_fp32(inv_l16)));
 
     integer i;
     always @(posedge clk) begin
@@ -468,31 +516,48 @@ module vecu_softmax #(
             w_valid <= 1'b0; w_last <= 1'b0; busy <= 1'b0;
             m16     <= NEG_INF; l32 <= 32'b0; inv_l16 <= 16'b0;
             wr_ptr  <= {PTRW{1'b0}}; rd_ptr <= {PTRW{1'b0}}; count <= {PTRW{1'b0}};
+            p1_v <= 1'b0; p2_v <= 1'b0; e1_v <= 1'b0; e2_v <= 1'b0;
+            p1_last <= 1'b0; p2_last <= 1'b0; e1_last <= 1'b0; e2_last <= 1'b0;
         end else begin
-            w_valid <= 1'b0; w_last <= 1'b0;
+            // ---------- pipelines advance every cycle (defaults) ----------
+            // LOAD stage 1 -> 2
+            p2_v <= p1_v; p2_last <= p1_last; p2_resc <= resc32; p2_e <= e32;
+            // LOAD stage 3: accumulate the registered exp into ℓ
+            if (p2_v) l32 <= l_next;
+            p1_v <= 1'b0;                                  // no new stage-1 input unless fed below
+            // EMIT stage 1 -> 2 -> 3
+            e2_v <= e1_v; e2_last <= e1_last; e2_e <= ee32;
+            w_valid <= e2_v; w_last <= e2_last; w_data <= w_comb;
+            e1_v <= 1'b0;                                  // no new emit input unless fed below
+
             case (state)
                 S_IDLE: begin
-                    busy <= 1'b0;
-                    if (s_valid) begin
-                        busy               <= 1'b1;
-                        m16                <= m_new;
-                        l32                <= l_next;
-                        score_mem[0]       <= s_data;
-                        wr_ptr             <= { {(PTRW-1){1'b0}}, 1'b1 };
-                        if (s_last) begin count <= { {(PTRW-1){1'b0}}, 1'b1 }; state <= S_PREP; end
-                        else state <= S_LOAD;
-                    end else begin
-                        m16 <= NEG_INF; l32 <= 32'b0; wr_ptr <= {PTRW{1'b0}};
+                    busy   <= 1'b0;
+                    m16    <= NEG_INF; l32 <= 32'b0; wr_ptr <= {PTRW{1'b0}};
+                    if (s_valid) begin                     // feed the first score into stage 1
+                        busy   <= 1'b1;
+                        m16    <= m_new;
+                        score_mem[0] <= s_data;
+                        wr_ptr <= { {(PTRW-1){1'b0}}, 1'b1 };
+                        p1_v   <= 1'b1; p1_last <= s_last;
+                        p1_zr  <= frontr[96]; p1_lor <= frontr[95:64]; p1_fracr <= frontr[63:32]; p1_diffr <= frontr[31:0];
+                        p1_zc  <= frontc[96]; p1_loc <= frontc[95:64]; p1_fracc <= frontc[63:32]; p1_diffc <= frontc[31:0];
+                        if (s_last) count <= { {(PTRW-1){1'b0}}, 1'b1 };
+                        state  <= S_LOAD;
                     end
                 end
                 S_LOAD: begin
-                    if (s_valid) begin
-                        m16               <= m_new;
-                        l32               <= l_next;
+                    if (s_valid) begin                     // feed the next score into stage 1
+                        m16    <= m_new;
                         score_mem[wr_ptr] <= s_data;
-                        wr_ptr            <= wr_ptr + 1'b1;
-                        if (s_last) begin count <= wr_ptr + 1'b1; state <= S_PREP; end
+                        wr_ptr <= wr_ptr + 1'b1;
+                        p1_v   <= 1'b1; p1_last <= s_last;
+                        p1_zr  <= frontr[96]; p1_lor <= frontr[95:64]; p1_fracr <= frontr[63:32]; p1_diffr <= frontr[31:0];
+                        p1_zc  <= frontc[96]; p1_loc <= frontc[95:64]; p1_fracc <= frontc[63:32]; p1_diffc <= frontc[31:0];
+                        if (s_last) count <= wr_ptr + 1'b1;
                     end
+                    // the row's ℓ is final when the last score reaches stage 3
+                    if (p2_v && p2_last) state <= S_PREP;
                 end
                 S_PREP: begin
                     inv_l16 <= inv_l_comb;
@@ -500,14 +565,15 @@ module vecu_softmax #(
                     state   <= S_EMIT;
                 end
                 S_EMIT: begin
-                    w_valid <= 1'b1;
-                    w_data  <= w_emit;
-                    w_last  <= (rd_ptr == count - 1'b1);
-                    rd_ptr  <= rd_ptr + 1'b1;
-                    if (rd_ptr == count - 1'b1) begin
-                        state  <= S_IDLE;
-                        busy   <= 1'b0;
-                        m16    <= NEG_INF; l32 <= 32'b0; wr_ptr <= {PTRW{1'b0}};
+                    if (rd_ptr < count) begin              // feed a stored score into the emit pipeline
+                        e1_v   <= 1'b1; e1_last <= (rd_ptr == count - 1'b1);
+                        e1_ze  <= fronte[96]; e1_loe <= fronte[95:64]; e1_frace <= fronte[63:32]; e1_diffe <= fronte[31:0];
+                        rd_ptr <= rd_ptr + 1'b1;
+                    end
+                    // the row is done when the last weight leaves stage 3
+                    if (w_valid && w_last) begin
+                        state <= S_IDLE; busy <= 1'b0;
+                        m16   <= NEG_INF; l32 <= 32'b0; wr_ptr <= {PTRW{1'b0}};
                     end
                 end
                 default: state <= S_IDLE;

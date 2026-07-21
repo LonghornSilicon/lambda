@@ -1,15 +1,19 @@
 # LibreLane Classic-flow hardening config for the vecu_softmax macro.
 #
-# STATUS: REAL RTL — vecu_softmax is the decode online-softmax slice: it buffers
-# a score row (up to N fp16 scores), does the streaming max-subtract + exp-LUT +
-# normalize, and emits N fp16 attention weights (probabilities). Passed the RTL
-# cross-block cosim (architecture/rtl/tb/tb_chip_cosim.sv, BLOCK 2d). Re-targeted
-# to GF180MCU here. The exp is a ~2%-accurate LUT (documented tolerance).
+# STATUS: REAL RTL (PIPELINED) — vecu_softmax is the decode online-softmax slice:
+# it buffers a score row (up to N fp16 scores), does the streaming max-subtract +
+# exp-LUT + normalize, and emits N fp16 attention weights (probabilities). Passed
+# the RTL cross-block cosim (architecture/rtl/tb/tb_chip_cosim.sv, BLOCK 2d).
+# Re-targeted to GF180MCU here. The exp is a ~2%-accurate LUT (documented tol).
 #
 # Provenance (source repo, branch, commit): ../rtl/blocks/PROVENANCE.md
 #
-# Shares the fp16/fp32 arithmetic of the MatE fp16 path, so the clock is retimed
-# loose and closed cleanly.
+# PIPELINING: the exp eval (two serial fp32 multiplies) is now split across 3
+# feed-forward register stages. Measured: the longest single stage is ~263ns at
+# the ss corner (down from the un-pipelined ~366ns — the split is uneven, one
+# stage still carries an fp32 mult + LUT + normalize). A 240ns clock still missed
+# ss (-22.7ns) and over-bloated on resize; 300ns closes ss with margin and is
+# still TIGHTER than the un-pipelined 340ns (which failed ss).
 
 meta:
   version: 3
@@ -28,7 +32,7 @@ SYNTH_PARAMETERS:
 
 CLOCK_PORT: clk
 CLOCK_NET: clk
-CLOCK_PERIOD: 340    # ns — GF180 retime (long fp16->exp-LUT->fp32->fp16 softmax chain; worst ss-corner path ~300ns, +40ns margin so the resizer converges)
+CLOCK_PERIOD: 300    # ns — GF180 retime (3-stage-pipelined; longest ss stage ~263ns, +margin; tighter than the un-pipelined 340ns that failed ss)
 
 FP_SIZING: relative
 FP_CORE_UTIL: 45

@@ -30,27 +30,28 @@ loosest clocks).
 | `mate_pv`               | N=4                 | 40 ns  | 170 348 | 9 833  | **+11.83** | +0.493 | 0 | 0 | 0 | 0 | 69 (ss only) |
 | `mate_pv_fp16`          | N=4                 | 180 ns | 508 460 | 32 287 | **+31.21** | +0.876 | 0 | 0 | 0 | 0 | 319 (ss only) |
 | `mate_qkt`              | N=8                 | 200 ns | 904 834 | 61 255 | **+50.82** | +0.863 | 0 | 0 | 0 | 20 (ss) | 2706 (ss; 87 tt, 30 ff) |
-| `vecu_softmax`          | N=8                 | 340 ns | 779 671 | 54 800 | **+140.0 (tt) / −26.5 (ss)** | +0.856 | 0 | 0 | 0 | 2 (ss) | 2117 (ss; 22 tt) |
+| `vecu_softmax` (pipelined) | N=8              | 300 ns | 1 486 490 | 101 236 | **+149 (tt) / +207 (ff) / +19.2 (ss)** | +0.919 | 0 | 0 | 0 | 5 (ss) | 5292 (ss; 20 tt) |
 | `kv_cache_engine` (kve) | SRAM_DEPTH=2, VECTOR_DIM=8, KEY_GROUP=2 | 200 ns | 621 960 | 32 294 | **+109.82** | +0.261 | 0 | 0 | 0 | 7 (ss) | 2392 (ss; 83 tt) |
 
-**Implied fmax** (min period = clk − setup WS; loose clocks chosen for clean
-closure, so conservative): precision_controller ≈ 40 MHz, token_importance_unit
-≈ 58 MHz, mate_pv ≈ 36 MHz, mate_pv_fp16 ≈ 6.7 MHz, mate_qkt ≈ 6.7 MHz,
-vecu_softmax ≈ 5.0 MHz **at the tt corner** (ss does not close — see below),
+**Implied fmax** (min period = clk − worst-corner setup WS; loose clocks chosen
+for clean closure, so conservative): precision_controller ≈ 40 MHz,
+token_importance_unit ≈ 58 MHz, mate_pv ≈ 36 MHz, mate_pv_fp16 ≈ 6.7 MHz,
+mate_qkt ≈ 6.7 MHz, vecu_softmax ≈ 3.6 MHz (worst ss corner; ~6.5 MHz at tt),
 kve ≈ 11 MHz.
 
 ### The 6 signoff checks
-- **Setup:** six of seven **meet setup across all corners** with positive margin
-  (TNS = 0). The **one honest exception is `vecu_softmax`**: it meets setup at
-  the `tt` (+140 ns) and `ff` (+213 ns) corners by a wide margin but **misses at
-  the extreme `ss_125C_4v50` corner by −26.5 ns** (TNS −696 ns, 32 endpoints).
-  The failing path is the online-softmax fp16→exp-LUT→fp32→fp16 chain, which is
-  ~366 ns post-route at the ss corner — the longest single combinational path in
-  the whole datapath. Even at a 340 ns clock (2.7× the fp16 P·V period) the ss
-  corner + post-route parasitics push it over. Closing it needs **pipelining the
-  exp/normalize path** (the right fix) or a ≥400 ns clock + denser floorplan; a
-  documented follow-up. The netlist is functionally valid and is used in the GL
-  e2e (§2) — timing closure at ss is orthogonal to logical correctness.
+- **Setup:** **all seven now meet setup across ALL corners** (TNS = 0),
+  **including the extreme `ss_125C_4v50` corner**. `vecu_softmax` was the lone
+  Stage-2 exception (−26.5 ns at ss on the un-pipelined ~366 ns online-softmax
+  fp16→exp-LUT→fp32→fp16 chain); it has since been **pipelined** — the two-serial-
+  fp32-multiply exp eval is split across 3 feed-forward register stages (+358 FFs,
+  throughput unchanged at 1 score/cycle, bit-exact, +3-cycle data-independent
+  latency). Re-hardened, it now closes at **ss WS +19.2 ns** (tt +149, ff +207),
+  TNS = 0, at a **tighter 300 ns clock** than the un-pipelined 340 ns that failed.
+  The 3-stage split is uneven (the longest single stage is ~263 ns at ss, not the
+  hoped ~183 ns), and the aggressive resize to hit ss roughly doubled the cell
+  count (55k → 101k, 1.49 mm²) — a size/timing trade the follow-up (a more even
+  pipeline split or higher utilisation) can reclaim.
 - **Hold:** all seven **meet hold** (WS positive, TNS = 0, all corners).
 - **Magic DRC:** **0** on all seven.
 - **Netgen LVS:** **0** on all seven (0 device/net/pin/property mismatches).
@@ -60,13 +61,16 @@ kve ≈ 11 MHz.
   extreme slow corner** `max_ss_125C_4v50` (the `tt`/`ff` corners are clean or
   near-clean). Known GF180 wide-corner artifact: GF180's ss corner is very slow,
   so min-size drivers that pass transition at tt/ff exceed it at ss. The big
-  fp16 blocks (`mate_qkt`, `vecu_softmax`, `mate_pv_fp16`) and the register-array
+  fp16 blocks (`vecu_softmax`, `mate_qkt`, `mate_pv_fp16`) and the register-array
   `kve` show the largest counts (un-optimised high-fanout nets on sprawling
   floorplans). DRC/LVS are unaffected (those are physical-rule / connectivity).
 
-Closing the ss-corner setup + transition fully needs pipelining the long fp16
-paths, driver up-sizing, and denser floorplans (multi-corner repair) — follow-ups
-that do not affect functional correctness or the gate-level sim.
+**Setup now closes at every corner across all seven macros** (the pipelined
+`vecu_softmax` removed the last ss-corner setup miss). The remaining follow-up is
+the **ss-corner max-transition** (slew) on the big fp16/register-array blocks —
+driver up-sizing / a tighter placement-time transition target / denser
+floorplans (multi-corner repair). It is a physical-optimisation item that does
+not affect functional correctness or the gate-level sim.
 
 ## 2. GF180 gate-level end-to-end (the deliverable)
 
@@ -148,13 +152,12 @@ hole** in gate-level datapath coverage. The entire *compute* datapath
 (Q·Kᵀ → softmax → P·V, plus ACU + TIU) is GF180 gate-level verified end to end;
 the only piece not on real gate-level SRAM is the KV *store* in `kv_cache_engine`.
 
-**`vecu_softmax` — one documented RTL synth-compat patch:** the vendored source
-declares its fp16-subnormal-normalize loop counter (`gi_unused`) at module scope
-but uses it only inside `function automatic fp16_to_fp32`; the default yosys
-frontend latch-infers it → 320 multiple-driver check errors. Moved the
-declaration into that function (per-call) — **behaviorally + simulation
-identical**, the only divergence from the byte-identical vendored source, flagged
-inline and in `rtl/blocks/PROVENANCE.md`. `mate_qkt` is verbatim.
+**Both `mate_qkt` and `vecu_softmax` are now VERBATIM vendored sources — no local
+edits.** The **pipelined** `vecu_softmax` (`attention-compute-unit` `rtl`
+`f36daa2`) restructured the exp datapath and no longer has the module-scope
+`gi_unused` loop counter that the earlier un-pipelined version needed a
+synth-compat patch for, so it synthesizes cleanly with the default yosys frontend
+as-is. See `rtl/blocks/PROVENANCE.md`.
 
 ## 4. Reproduce
 
@@ -182,9 +185,12 @@ Notes / friction encountered (for the next runner):
 - The Sky130 `token_importance_unit` config's `MAX_TRANSITION_CONSTRAINT: 1.5`
   sent OpenROAD `repair_design` into a non-converging loop on the slower GF180
   cells — dropped it (GF180 default max-transition) and it closes.
-- **`vecu_softmax` is the hard one.** Its fp16→exp-LUT→fp32→fp16 chain is the
-  longest path in the datapath; the post-CTS/post-GRT resizers grind for tens of
-  minutes asymptotically closing it, and even at a 340 ns clock the ss corner is
-  −26.5 ns post-route (tt/ff pass by >140 ns). The real fix is to **pipeline the
-  exp/normalize path**, not to keep raising the period. Its netlist is logically
-  correct and passes the GL e2e regardless of ss-corner timing.
+- **`vecu_softmax` was the hard one — now fixed by pipelining.** Its
+  fp16→exp-LUT→fp32→fp16 chain is the longest path in the datapath. The
+  un-pipelined version missed ss setup by −26.5 ns even at a 340 ns clock, and the
+  post-CTS/post-GRT resizers ground for tens of minutes asymptotically (never
+  closing) — a sign the *base* path, not the clock, was the limit. The upstream
+  RTL was then **pipelined** (3-stage feed-forward exp eval); re-hardened, it
+  closes ss at **+19.2 ns** at a *tighter* 300 ns clock, and the resizers now pass
+  in seconds (margin to spare). Lesson: when the resizer grinds asymptotically,
+  pipeline the path — don't keep raising the period.

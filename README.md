@@ -61,17 +61,17 @@ for full per-macro signoff + the gate-level end-to-end match numbers.
 | `mate_pv_fp16`          | FP16 P·V MAC (fp32 internal accumulate)    | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 508 460 µm², ~6.7 MHz | ✅ **rel_err 1.7e-4** (< 5e-3) | `mate_pv_fp16.yaml` ✅ |
 | `kv_cache_engine` (kve) | ChannelQuant KV-cache codec (store/stream) | 🟠 hardens standalone (DRC/LVS/antenna clean) but **flop-array storage, no SRAM macro**; slew@ss; 621 960 µm² | RTL-fed in the GLS (see boundary) | `kve.yaml` ✅ (synth set) |
 | `mate_qkt`              | Q·Kᵀ decode scoring (fp16, fp32 accum)     | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 904 834 µm², ~6.7 MHz | ✅ **scores rel_err 0.0** (< 5e-3) → gate | `mate_qkt.yaml` ✅ |
-| `vecu_softmax`          | decode online softmax (exp-LUT)            | 🟠 DRC/LVS/antenna/hold clean; setup clean at tt/ff, **−26.5 ns at ss** (long exp path); 779 671 µm² | ✅ **softmax 2.1e-4 / attn-out 5.4e-4** (within tol) | `vecu_softmax.yaml` ✅ (1 synth-compat patch) |
+| `vecu_softmax` (pipelined) | decode online softmax (exp-LUT)         | ✅ setup/hold/DRC/LVS/antenna clean; **ss +19.2 ns** (pipelined); slew@ss; 1 486 490 µm², ~3.6 MHz | ✅ **softmax 2.1e-4 / attn-out 5.4e-4** (within tol) | `vecu_softmax.yaml` ✅ |
 
 All seven compute blocks are **re-hardened on GF180MCU** (LibreLane 3.0.5 Classic;
 clocks re-timed — GF180 180 nm is much slower). The **full compute datapath
 Q·Kᵀ → softmax → P·V** (plus the ACU gate and TIU) passes a **GF180 gate-level
 end-to-end** check (INT bit-exact / FP16 rel_err < 5e-3 / softmax within LUT tol)
 on a real Qwen tile (`tb/tb_gls_e2e.sv`, `make test-gls-e2e`). Signoff is
-setup/hold/DRC/LVS/antenna clean across the datapath, with two honest caveats:
-`vecu_softmax` meets setup at tt/ff but **misses at the ss slow corner by
-−26.5 ns** (its long exp-LUT path — needs pipelining), and the big fp16 blocks
-carry slow-corner max-transition violations. **KVE boundary:** the full
+**setup + hold + DRC + LVS + antenna clean across the whole datapath at every
+corner** (`vecu_softmax` was pipelined to close the last ss-corner setup miss —
+now ss +19.2 ns); the one remaining physical item is slow-corner (`ss`)
+max-transition on the big fp16 / register-array blocks. **KVE boundary:** the full
 `kv_cache_engine` hardens on GF180 but with **flip-flop register-array storage**
 (gate-proxy `SRAM_DEPTH=2`) — real KV capacity needs `gf180mcu_fd_ip_sram` macro
 integration (**the one remaining gate-level hole**); in the GLS the KVE
