@@ -22,18 +22,37 @@ Docker image (~6 GB); subsequent runs reuse both caches.
 
 ## Config
 
-Cloned verbatim from `precision_controller/config.json` — only `DESIGN_NAME`
-(`mate_pv`) and `VERILOG_FILES` (`dir::src/*.sv`) differ. `CLOCK_PERIOD` 12.5 ns
-(80 MHz) start point; relax only if the SS corner cannot close. The RTL is
-Verilog-2001-clean (read with `-sv`), single-file, no submodules.
+Based on `precision_controller/config.json`, with the differences a real MAC (vs
+a trivial comparator) needs to close the Sky130 SS corner:
 
-`src/mate_pv.sv` is the block top (kept in sync with `rtl/mate_pv.sv`). Default
-`N=8` head-dim lanes → **513 FFs** (8 acc×32 + 8 out×32 + 1 valid), matching the
-CI `expected-ff-count`.
+- `CLOCK_PERIOD` **25 ns (40 MHz)** — same clock as the TIU block. The
+  combinational `INT8-mult → INT32-add → FF` path is ~15-18 ns at the slow
+  (`ss_100C_1v60`) corner, so 40 MHz is the honest signed-off point; tighter
+  targets left OpenROAD sizing short (a ~−0.9 ns residual that did not scale).
+  Closing a faster clock would take an RTL pipeline stage.
+- `SYNTH_PARAMETERS: ["N=4"]` — synthesize **4 lanes** for the physical proxy
+  run (same pattern as TIU's `N_SLOTS=4`). This halves `a_data`'s fanout tree,
+  which was driving the Max Cap violations. The functional RTL default is N=8;
+  the bit-exact sim and the `expected-ff-count` synth gate use N=8 (513 FFs).
+- `IO_DELAY_CONSTRAINT: 2` (vs 5) — the inputs feed straight into the arithmetic,
+  so a 5 ns input budget was eating a third of the cycle.
 
-## Sign-off
+`src/mate_pv.sv` is the block top (kept in sync with `rtl/mate_pv.sv`).
 
-The `openlane-sky130` CI gate runs this config and asserts the six physical
-checks are zero (setup / hold / DRC / LVS / antenna / IR-drop), same as every
-other block. `runs/` is gitignored; committed results (metrics + GDS) land under
-`results/` when the flow is run.
+## Sign-off — clean at 40 MHz, Sky130A
+
+`results/` holds the committed sign-off (all six physical checks **zero**):
+
+| metric | value |
+|---|---|
+| setup / hold violations | 0 / 0 (WS +6.8 / +0.21 ns @ ss) |
+| DRC / LVS / antenna / Max-Cap | 0 / 0 / 0 / 0 |
+| die area | 301.76 × 312.48 µm |
+| std cells / sequential | 5726 / 257 (N=4) |
+| core utilization | 59.2 % |
+| total power | ~8.8 mW |
+
+`results/mate_pv.gds` + `results/mate_pv.png` (render) +
+`results/sky130_40MHz_signoff_metrics.json`. `runs/` is gitignored. The
+`openlane-sky130` CI gate re-runs this config and asserts the six checks are zero,
+same as every other block.

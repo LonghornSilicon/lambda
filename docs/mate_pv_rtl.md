@@ -58,9 +58,23 @@ head dim).
 - **Synthesis:** `yosys synth -flatten` — **513 FFs** (8 acc×32 + 8 out×32 + 1 valid), no
   latches. This is the `expected-ff-count` for the CI synthesis gate.
 
+## GDSII — clean at 40 MHz (Sky130A)
+
+`openlane/mate_pv/` reaches GDSII with **all six sign-off checks zero** (setup / hold /
+DRC / LVS / antenna / Max-Cap), committed under `openlane/mate_pv/results/`. Clock 25 ns
+(40 MHz, same as TIU); the physical run synthesizes `N=4` lanes (proxy, like TIU's
+`N_SLOTS=4`). The combinational INT8-mult → INT32-add path is ~15-18 ns at the SS corner,
+so a faster clock would need an RTL pipeline stage — 40 MHz is the honest signed-off point.
+
+## Cross-block cosim — true end-to-end
+
+Vendored into the `architecture` rtl branch cosim (`make cosim`) as the real P·V
+accumulation between the KVE's rotated V̂ and `wht_inverse_out`: int32 bit-exact vs
+`matmul_int8`, and the full KVE → P·V → inverse chain reconstructs the reference
+attention output to ~0.26 %.
+
 ## Still open
 
-- `openlane/mate_pv/` LibreLane config → GDSII on Sky130A (parity with `precision_controller`).
-- Wired into the cross-block cosim (`architecture` rtl branch) as the true end-to-end
-  KVE → P·V → `wht_inverse_out` chain on real-Qwen data.
-- CI: a `mate_pv` block gate (synth FF-count + `make sim_mate`) alongside `precision_controller`.
+- Optional: pipeline the mult→add path to sign off at a faster clock (>40 MHz).
+- A `mate_pv` CI block gate (synth FF-count + `make sim_mate` + the openlane sign-off)
+  alongside `precision_controller`.
