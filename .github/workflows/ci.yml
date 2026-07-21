@@ -30,7 +30,7 @@ jobs:
     uses: LonghornSilicon/.github/.github/workflows/block-ci.yml@main
     with:
       block-name: mate_pv
-      expected-ff-count: 513        # default synth N=8 (8 acc×32 + 8 out×32 + 1)
+      expected-ff-count: 643        # default synth N=8: 8 acc×32 + 8 out×32 + 8 prod_reg×16 + v1 + last1 + c_valid
       sim-target: sim_mate          # its directed TB (bit-exact vs matmul_int8)
       has-rtl: true
       has-reference-model: false    # mac_array_ref runs under the block-1 job

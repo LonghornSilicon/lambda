@@ -59,9 +59,14 @@ module tb_mate_pv;
                 code = $fscanf(fd, "%d", cexp);
                 gold[n*ACC_W +: ACC_W] = cexp;
             end
-            // c_valid pulses the cycle after s_last; sample it, then idle
+            // wait for the c_valid handshake (pipelined: emerges 2 cycles after
+            // s_last — the wait makes the TB latency-agnostic)
             @(negedge clk);
             s_valid = 0; s_last = 0;
+            begin : wait_cv
+                integer w;
+                for (w = 0; w < 6 && c_valid !== 1'b1; w = w + 1) @(negedge clk);
+            end
             if (c_valid !== 1'b1) begin
                 errors = errors + 1;
                 $display("  row %0d (K=%0d): c_valid did not pulse", r, K);

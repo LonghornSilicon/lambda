@@ -1,6 +1,6 @@
 # `mate_pv` — synthesizable INT8 P·V MAC tile (RTL)
 
-**Status:** RTL complete, bit-exact to the reference, Yosys-clean (513 FFs, no latches).
+**Status:** RTL complete + pipelined, bit-exact to the reference, Yosys-clean (643 FFs, no latches), GDSII-signed-off on Sky130A at 71 MHz.
 **Home:** `rtl/mate_pv.sv` (+ `rtl/tb/tb_mate_pv.sv`, `rtl/tb/gen_mate_pv_vectors.py`).
 **One line:** the token-reduction vector-MAC core of the MatE matrix engine, in
 hand-written synthesizable Verilog for the Sky130 flow — the piece of the P·V datapath
@@ -44,27 +44,28 @@ the INT32 register.
 ## Interface (house streaming style)
 
 One token per clock, `s_valid=1`; scalar A-code on `a_data`, the N-wide packed V-row on
-`v_data`; `s_last=1` on the final token. `c_valid` pulses the cycle after `s_last` with the
-N int32 results on `c_data`; accumulators auto-reset on `s_last` (same pattern as
-`precision_controller`). Latency 1 cycle after `s_last`; throughput 1 token/cycle. `N` is
-the parallel head-dim lane count (default 8 for the physical run; the cosim uses the full
-head dim).
+`v_data`; `s_last=1` on the final token. `c_valid` pulses when the row's Σ is ready, with
+the N int32 results on `c_data`; accumulators auto-reset for the next row. **Pipelined:**
+the per-lane product is registered (`prod_reg`) between the multiply and the accumulate, so
+the result is emitted **2 cycles after `s_last`** (the value is identical — same Σ, just
+delayed — so still bit-exact; downstream uses the `c_valid` handshake). Throughput 1
+token/cycle. `N` is the head-dim lane count (default 8; the cosim uses the full head dim).
 
 ## Verification
 
 - **Bit-exact:** `make sim_mate` — `mate_pv` vs `matmul_int8` on 7 rows incl. the K=520
   flat corner: **7/7, 0 errors**. Golden computed in pure Python (integer `Σ A·V`, provably
   identical to the reference's `int32` matmul) so it runs on the bare venv (no numpy).
-- **Synthesis:** `yosys synth -flatten` — **513 FFs** (8 acc×32 + 8 out×32 + 1 valid), no
-  latches. This is the `expected-ff-count` for the CI synthesis gate.
+- **Synthesis:** `yosys synth -flatten` — **643 FFs** (8 acc×32 + 8 out×32 + 8 prod_reg×16
+  + v1 + last1 + c_valid), no latches. This is the `expected-ff-count` for the CI synth gate.
 
-## GDSII — clean at 40 MHz (Sky130A)
+## GDSII — clean at 71 MHz (Sky130A)
 
 `openlane/mate_pv/` reaches GDSII with **all six sign-off checks zero** (setup / hold /
-DRC / LVS / antenna / Max-Cap), committed under `openlane/mate_pv/results/`. Clock 25 ns
-(40 MHz, same as TIU); the physical run synthesizes `N=4` lanes (proxy, like TIU's
-`N_SLOTS=4`). The combinational INT8-mult → INT32-add path is ~15-18 ns at the SS corner,
-so a faster clock would need an RTL pipeline stage — 40 MHz is the honest signed-off point.
+DRC / LVS / antenna / Max-Cap), committed under `openlane/mate_pv/results/`. Clock 14 ns
+(**71 MHz** — nearly 2× the un-pipelined 40 MHz, thanks to `prod_reg`); the physical run
+synthesizes `N=4` lanes (proxy, like TIU's `N_SLOTS=4`). The openlane README documents each
+sign-off metric's derivation and rough 16 nm (TSMC N16) estimates with disclaimers.
 
 ## Cross-block cosim — true end-to-end
 
@@ -75,6 +76,5 @@ attention output to ~0.26 %.
 
 ## Still open
 
-- Optional: pipeline the mult→add path to sign off at a faster clock (>40 MHz).
-- A `mate_pv` CI block gate (synth FF-count + `make sim_mate` + the openlane sign-off)
-  alongside `precision_controller`.
+- Nothing blocking. Further fmax would come from a wider pipeline (register the add too)
+  or a real N16 PDK; the Sky130 proxy is signed off clean at 71 MHz.
