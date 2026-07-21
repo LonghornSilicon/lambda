@@ -261,10 +261,10 @@ lands.
 \toprule
 Parameter                & Value (v0.1) & Notes \\
 \midrule
-\texttt{pe\_grid\_m}     & 16           & PE grid rows; area-budget estimate \\
-\texttt{pe\_grid\_n}     & 16           & PE grid cols; area-budget estimate \\
-\texttt{int8\_throughput}& 256 MACs/cyc & One INT8 MAC per PE \\
-\texttt{fp16\_throughput}& 64 MACs/cyc  & FP16 PE is $\sim$$4\times$ INT8 area, so $\frac{1}{4}$ the count \\
+\texttt{pe\_grid\_m}     & 8            & PE grid rows (chip: 8$\times$8 = 64 PEs) \\
+\texttt{pe\_grid\_n}     & 8            & PE grid cols (chip: 8$\times$8 = 64 PEs) \\
+\texttt{int8\_throughput}& 64 MACs/cyc  & One INT8 MAC per PE; 64 PEs $\to$ 128 GOPS at 1\,GHz \\
+\texttt{fp16\_throughput}& 16 MACs/cyc  & FP16 PE is $\sim$$4\times$ INT8 area, so $\frac{1}{4}$ the count \\
 \texttt{pipeline\_depth} & 16 cycles    & Fixed startup latency \\
 \bottomrule
 \end{tabular}

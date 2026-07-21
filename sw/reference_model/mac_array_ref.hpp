@@ -32,10 +32,10 @@ namespace lhsi::mac {
 // Configuration. Mirrors MacArrayInfo in the chip's INFO_* registers.
 // ---------------------------------------------------------------------------
 struct MacArrayInfo {
-    std::uint32_t pe_grid_m            = 16;     // PE grid M dimension
-    std::uint32_t pe_grid_n            = 16;     // PE grid N dimension
-    std::uint32_t int8_throughput      = 256;    // INT8 MACs per cycle (1/PE)
-    std::uint32_t fp16_throughput      = 64;     // FP16 MACs per cycle (¼/PE)
+    std::uint32_t pe_grid_m            = 8;      // PE grid M dimension (chip: 8×8)
+    std::uint32_t pe_grid_n            = 8;      // PE grid N dimension (chip: 8×8)
+    std::uint32_t int8_throughput      = 64;     // INT8 MACs per cycle (1/PE, 64 PEs → 128 GOPS)
+    std::uint32_t fp16_throughput      = 16;     // FP16 MACs per cycle (¼/PE)
     std::uint32_t int8_accumulator_bits = 32;    // int32 internal accumulator
     std::uint32_t fp16_accumulator_bits = 32;    // fp32 internal accumulator
     std::uint32_t pipeline_depth_cyc   = 16;     // fixed-startup latency

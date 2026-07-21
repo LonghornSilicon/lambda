@@ -36,10 +36,10 @@ import numpy as np
 # ---------------------------------------------------------------------------
 @dataclass
 class MacArrayInfo:
-    pe_grid_m: int = 16
-    pe_grid_n: int = 16
-    int8_throughput: int = 256       # INT8 MACs / cycle (1 per PE)
-    fp16_throughput: int = 64        # FP16 MACs / cycle (¼ per PE)
+    pe_grid_m: int = 8               # chip: 8×8 grid = 64 PEs
+    pe_grid_n: int = 8
+    int8_throughput: int = 64        # INT8 MACs / cycle (1 per PE, 64 PEs → 128 GOPS)
+    fp16_throughput: int = 16        # FP16 MACs / cycle (¼ per PE)
     int8_accumulator_bits: int = 32
     fp16_accumulator_bits: int = 32
     pipeline_depth_cyc: int = 16

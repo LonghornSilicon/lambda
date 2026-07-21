@@ -234,13 +234,13 @@ void test_cost_estimate() {
     std::printf("[6] cost estimate is sane..."); std::fflush(stdout);
     lhsi::mac::MacArray mac;
 
-    // For a 64x64x64 INT8 matmul:
+    // For a 64x64x64 INT8 matmul (8x8 chip config, 64 INT8 MACs/cyc):
     //   ops = 262 144
-    //   int8 throughput = 256/cyc -> 1024 cycles + 16 pipeline = 1040
-    //   energy = 262 144 * 0.5 pJ = 131 µJ ... wait, pJ -> 131 072 pJ = 131 nJ
+    //   int8 throughput = 64/cyc -> 4096 cycles + 16 pipeline = 4112
+    //   energy = 262 144 * 0.5 pJ = 131 072 pJ = 131 nJ
     auto e_int8 = mac.estimate(64, 64, 64, lhsi::mac::MacArray::DType::Int8);
-    check(e_int8.cycles >= 1000 && e_int8.cycles <= 2000,
-          "INT8 cycle estimate for 64x64x64 not in 1000-2000 range");
+    check(e_int8.cycles >= 4000 && e_int8.cycles <= 5000,
+          "INT8 cycle estimate for 64x64x64 not in 4000-5000 range");
     check(e_int8.energy_pj > 0.0, "INT8 energy must be positive");
 
     // FP16 takes 4x longer for the same work in v0.1's placeholder cost model.

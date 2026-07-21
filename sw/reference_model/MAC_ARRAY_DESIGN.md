@@ -78,10 +78,11 @@ in its own scheduler. We will revisit when the MAC array RTL lands.
 
 `MacArrayInfo` exposes:
 
-- `pe_grid_m × pe_grid_n` — 16 × 16 in v0.1 (256 PEs, area-budget
-  estimate; subject to revision after physical-design exploration)
-- `int8_throughput`: 256 INT8 MACs per cycle (one per PE)
-- `fp16_throughput`: 64 FP16 MACs per cycle (FP16 PE is ~4× INT8 area,
+- `pe_grid_m × pe_grid_n` — 8 × 8 (64 PEs), matching the canonical chip
+  config (`architecture/arch.yml` `matrix_engine`, `STATUS.md`): 128 GOPS
+  peak = 64 PE × 2 ops × 1 GHz
+- `int8_throughput`: 64 INT8 MACs per cycle (one per PE)
+- `fp16_throughput`: 16 FP16 MACs per cycle (FP16 PE is ~4× INT8 area,
   so ¼ the count)
 
 `estimate(M, K, N, dtype)` returns:
