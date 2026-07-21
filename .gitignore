@@ -48,6 +48,8 @@ docs/isa/*.toc
 rtl/tb/mate_pv_vectors.txt
 rtl/tb/mate_pv_fp16_vectors.txt
 rtl/tb/mate_qkt_vectors.txt
+rtl/tb/vecu_softmax_vectors.txt
 rtl/sim_mate.out
 rtl/sim_mate_fp16.out
 rtl/sim_mate_qkt.out
+rtl/sim_vecu_softmax.out

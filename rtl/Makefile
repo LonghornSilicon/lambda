@@ -7,6 +7,7 @@ RTL          := precision_controller.sv
 MATE_RTL     := mate_pv.sv
 MATE_FP16_RTL := mate_pv_fp16.sv
 MATE_QKT_RTL := mate_qkt.sv
+VECU_SM_RTL  := vecu_softmax.sv
 TB_DIR       := tb
 TV_DIR       := $(TB_DIR)/testvectors
 GEN_SCRIPT   := ../analysis/gen_rtl_testvectors.py
@@ -16,11 +17,12 @@ SIM_REAL_OUT     := sim_realdata.out
 SIM_MATE_OUT     := sim_mate.out
 SIM_MATE_FP16_OUT := sim_mate_fp16.out
 SIM_MATE_QKT_OUT := sim_mate_qkt.out
+SIM_VECU_SM_OUT  := sim_vecu_softmax.out
 SYNTH_LOG        := synth.log
 
-.PHONY: all sim sim_realdata sim_mate sim_mate_fp16 sim_mate_qkt testvectors synth clean help
+.PHONY: all sim sim_realdata sim_mate sim_mate_fp16 sim_mate_qkt sim_vecu_softmax testvectors synth clean help
 
-all: sim sim_realdata sim_mate sim_mate_fp16 sim_mate_qkt
+all: sim sim_realdata sim_mate sim_mate_fp16 sim_mate_qkt sim_vecu_softmax
 
 help:
 	@echo "Targets:"
@@ -29,6 +31,7 @@ help:
 	@echo "  sim_mate      — mate_pv INT8 P.V MAC bit-exact vs matmul_int8 reference"
 	@echo "  sim_mate_fp16 — mate_pv_fp16 FP16 P.V MAC bit-exact vs matmul_fp16 (fp32 accum)"
 	@echo "  sim_mate_qkt  — mate_qkt Q.Kt decode-scoring bit-exact vs matmul_fp16 (fp32 accum)"
+	@echo "  sim_vecu_softmax — vecu_softmax decode online-softmax bit-exact vs LUT golden"
 	@echo "  testvectors   — regenerate scores.hex / expected.hex / labels.txt"
 	@echo "  synth         — Yosys area report (FFs + NAND2-equivalent gate count)"
 	@echo "  clean         — remove sim binaries, hex vectors, synth logs"
@@ -76,6 +79,19 @@ sim_mate_qkt: $(MATE_QKT_RTL) $(TB_DIR)/tb_mate_qkt.sv $(TB_DIR)/gen_mate_qkt_ve
 	done
 
 # ---------------------------------------------------------------------------
+# vecu_softmax — decode online-softmax slice (LUT exp), bit-exact to the golden
+# ---------------------------------------------------------------------------
+
+sim_vecu_softmax: $(SIM_VECU_SM_OUT) $(TB_DIR)/vecu_softmax_vectors.txt
+	cd $(TB_DIR) && ./../$(SIM_VECU_SM_OUT)
+
+$(TB_DIR)/vecu_softmax_vectors.txt: $(TB_DIR)/gen_vecu_softmax_vectors.py ../sw/reference_model/vecu_softmax_ref.py
+	cd $(TB_DIR) && $(PYTHON) gen_vecu_softmax_vectors.py
+
+$(SIM_VECU_SM_OUT): $(VECU_SM_RTL) $(TB_DIR)/tb_vecu_softmax.sv
+	iverilog -g2012 -o $@ $^
+
+# ---------------------------------------------------------------------------
 # Functional simulation (existing testbench)
 # ---------------------------------------------------------------------------
 
@@ -116,4 +132,5 @@ synth: $(RTL) synth.ys
 clean:
 	rm -f $(SIM_OUT) $(SIM_REAL_OUT) $(SIM_MATE_OUT) $(SIM_MATE_FP16_OUT) $(SIM_MATE_QKT_OUT) $(SYNTH_LOG)
 	rm -f $(TV_DIR)/scores.hex $(TV_DIR)/expected.hex $(TV_DIR)/labels.txt
-	rm -f $(TB_DIR)/mate_pv_vectors.txt $(TB_DIR)/mate_pv_fp16_vectors.txt $(TB_DIR)/mate_qkt_vectors.txt
+	rm -f $(TB_DIR)/mate_pv_vectors.txt $(TB_DIR)/mate_pv_fp16_vectors.txt $(TB_DIR)/mate_qkt_vectors.txt $(TB_DIR)/vecu_softmax_vectors.txt
+	rm -f $(SIM_MATE_QKT_OUT) $(SIM_VECU_SM_OUT)
