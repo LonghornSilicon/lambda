@@ -13,6 +13,8 @@ meta:
 
 DESIGN_NAME: mate_pv
 
+PDK: gf180mcuD
+
 VERILOG_FILES:
   - dir::../rtl/blocks/mate_pv.sv
 
@@ -21,7 +23,7 @@ SYNTH_PARAMETERS:
 
 CLOCK_PORT: clk
 CLOCK_NET: clk
-CLOCK_PERIOD: 14     # ns — from Sky130 signoff; TODO re-time for GF180
+CLOCK_PERIOD: 40     # ns — GF180 retime (loose start)
 
 FP_SIZING: relative
 FP_CORE_UTIL: 50

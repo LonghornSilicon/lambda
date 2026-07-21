@@ -16,3 +16,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# gate-level sim binary
+tb/*.out

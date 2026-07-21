@@ -50,20 +50,28 @@ streamed out over a narrow serial (SPI) link — see [Host serial protocol](#hos
 Each block is hardened as its **own GF180 LibreLane macro**, then instantiated in
 `rtl/lambda_acu.sv` and stitched into the padring via `rtl/chip_core.sv`.
 
-| Macro (`DESIGN_NAME`)   | Function                                   | RTL status                          | `rtl/blocks/` source              | LibreLane config                    |
-|-------------------------|--------------------------------------------|-------------------------------------|-----------------------------------|-------------------------------------|
-| `kv_cache_engine` (kve) | ChannelQuant KV-cache codec (store/stream) | **REAL** — Sky130-signed            | `kve/*.sv`                        | `librelane/kve.yaml` ✅ real        |
-| `token_importance_unit` | H2O heavy-hitter scoring / eviction        | **REAL** — Sky130-signed            | `token_importance_unit.sv`        | `librelane/token_importance_unit.yaml` ✅ real |
-| `precision_controller`  | per-tile INT8-vs-FP16 decision (no divide) | **REAL** — Sky130-signed            | `precision_controller.sv`         | `librelane/precision_controller.yaml` ✅ real  |
-| `mate_pv`               | INT8 P·V token-reduction MAC               | **REAL** — Sky130-signed, bit-exact | `mate_pv.sv`                      | `librelane/mate_pv.yaml` ✅ real    |
-| `mate_pv_fp16`          | FP16 P·V MAC (fp32 internal accumulate)    | **REAL** — Sky130-signed            | `mate_pv_fp16.sv`                 | `librelane/mate_pv_fp16.yaml` ✅ real |
-| `mate_qkt`              | Q·Kᵀ score tile (INT24 K-axis GEMM)        | **Phase 1 — RTL IN PROGRESS**       | — (not yet)                       | `librelane/mate_qkt.yaml` 🟡 stub   |
-| `vecu_softmax`          | streaming softmax / normalize              | **Phase 2 — RTL NOT STARTED**       | — (not yet)                       | `librelane/vecu_softmax.yaml` 🟡 stub |
+GF180 status below is **measured** — see [`docs/gf180_gls_report.md`](docs/gf180_gls_report.md)
+for full per-macro signoff + the gate-level end-to-end match numbers.
 
-The five "REAL" blocks were signed off on **Sky130** in their sibling repos; the
-LibreLane configs here **re-target them to GF180** (clock periods are ported from
-the Sky130 signoff and still need GF180 re-timing — see the `TODO` in each yaml).
-Provenance (source repo, branch, commit) is recorded in
+| Macro (`DESIGN_NAME`)   | Function                                   | GF180 hardened (LibreLane Classic)                 | GF180 gate-level match vs reference | LibreLane config |
+|-------------------------|--------------------------------------------|----------------------------------------------------|-------------------------------------|------------------|
+| `precision_controller`  | per-tile INT8-vs-FP16 decision (no divide) | ✅ **clean** (6/6, all corners); 20 911 µm², ~40 MHz | ✅ gate decision matches, discriminates | `precision_controller.yaml` ✅ |
+| `token_importance_unit` | H2O heavy-hitter scoring / eviction        | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 35 966 µm², ~58 MHz | ✅ keep-tier + evict victim match | `token_importance_unit.yaml` ✅ |
+| `mate_pv`               | INT8 P·V token-reduction MAC               | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 170 348 µm², ~36 MHz | ✅ **INT32 bit-exact** vs matmul_int8 | `mate_pv.yaml` ✅ |
+| `mate_pv_fp16`          | FP16 P·V MAC (fp32 internal accumulate)    | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 508 460 µm², ~6.7 MHz | ✅ **rel_err 1.7e-4** (< 5e-3) | `mate_pv_fp16.yaml` ✅ |
+| `kv_cache_engine` (kve) | ChannelQuant KV-cache codec (store/stream) | 🟠 hardens standalone (DRC/LVS/antenna clean) but **flop-array storage, no SRAM macro**; slew@ss; 621 960 µm² | RTL-fed in the GLS (see boundary) | `kve.yaml` ✅ (synth set) |
+| `mate_qkt`              | Q·Kᵀ score tile (INT24 K-axis GEMM)        | ⬜ Phase 1 — RTL IN PROGRESS                         | —                                   | `mate_qkt.yaml` 🟡 stub |
+| `vecu_softmax`          | streaming softmax / normalize              | ⬜ Phase 2 — RTL NOT STARTED                         | —                                   | `vecu_softmax.yaml` 🟡 stub |
+
+All five blocks with RTL were **signed off on Sky130** in their sibling repos and
+are **re-hardened here on GF180MCU** (LibreLane 3.0.5 Classic; clocks re-timed —
+GF180 180 nm is much slower). The four compute macros pass a **GF180 gate-level
+end-to-end** check (INT bit-exact / FP16 rel_err < 5e-3) on a real Qwen tile
+(`tb/tb_gls_e2e.sv`, `make test-gls-e2e`). **KVE boundary:** the full
+`kv_cache_engine` hardens on GF180 but with **flip-flop register-array storage**
+(gate-proxy `SRAM_DEPTH=2`) — real KV capacity needs `gf180mcu_fd_ip_sram` macro
+integration (**TODO**); in the GLS the KVE value-reconstruct is RTL, feeding the
+gate-level P·V. Provenance (source repo, branch, commit) is in
 [`rtl/blocks/PROVENANCE.md`](rtl/blocks/PROVENANCE.md).
 
 ## Repository layout
@@ -175,10 +183,14 @@ To turn this skeleton into a real, tapeout-ready submission:
    and `vecu_softmax` (Phase 2, not started) — then copy them into `rtl/blocks/`,
    promote their `librelane/*.yaml` from stub to real, and add per-macro cocotb
    tests.
-2. **GF180 re-harden of the five Sky130-signed blocks** — re-run each
-   `librelane/<macro>.yaml` on GF180MCU and **re-time the clocks** (the ported
-   periods are Sky130 numbers; GF180 is a slower node). Confirm Classic-flow
-   signoff (DRC/LVS/STA) per macro, then GL cocotb against gf180 cells.
+2. **GF180 signoff polish + real KVE SRAM** — Stage 1 hardened all five blocks on
+   GF180 with a passing gate-level end-to-end (see
+   [`docs/gf180_gls_report.md`](docs/gf180_gls_report.md)); setup/hold/DRC/LVS/
+   antenna are clean. Remaining: close the **slow-corner (`ss`) max-transition**
+   violations (driver up-sizing / multi-corner slew repair) on the four blocks
+   that still show them, and **integrate the `gf180mcu_fd_ip_sram` hard macro**
+   into `kv_cache_engine` (today it hardens with flip-flop register-array storage
+   at the `SRAM_DEPTH=2` proxy — not real KV capacity).
 3. **Padring-fork integration + full datapath wiring** — clone
    `Mauricio-xx/chipathon-2026-gf180mcu-padring`, drop in `rtl/chip_core.sv`,
    merge the macros into `librelane/config.yaml`, and complete `lambda_acu.sv`:

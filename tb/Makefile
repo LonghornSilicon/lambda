@@ -42,5 +42,30 @@ test-smoke:
 
 test-all: test-smoke
 
+# ----- GF180 gate-level end-to-end (the Stage-1 deliverable) ---------------
+# Compiles the GF180 LibreLane gate-level netlists (../librelane/runs/<macro>/
+# final/nl/<macro>.nl.v) against the gf180mcu_fd_sc_mcu7t5v0 Verilog cell
+# models + KVE value-path RTL + the tb_gls_e2e reference TB, and checks each
+# block's output matches the reference (INT bit-exact / FP rel_err<5e-3).
+# Requires the four macros hardened first (scripts/harden.sh).
+#
+#   PDK_VLOG=<...>/gf180mcu_fd_sc_mcu7t5v0/verilog make test-gls-e2e
+PDK_VLOG ?= $(HOME)/.ciel/gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu7t5v0/verilog
+RUNS      = ../librelane/runs
+KVE_RTL   = $(BLOCKS)/kve/cq_fp_pkg.sv $(BLOCKS)/kve/cq_units.sv \
+            $(BLOCKS)/kve/wht_unit.sv $(BLOCKS)/kve/cq_value_path_wht.sv \
+            $(BLOCKS)/kve/wht_inverse_out.sv
+GL_NL     = $(RUNS)/mate_pv/final/nl/mate_pv.nl.v \
+            $(RUNS)/mate_pv_fp16/final/nl/mate_pv_fp16.nl.v \
+            $(RUNS)/precision_controller/final/nl/precision_controller.nl.v \
+            $(RUNS)/token_importance_unit/final/nl/token_importance_unit.nl.v
+
+test-gls-e2e:
+	iverilog -g2012 -DFUNCTIONAL -I $(BLOCKS)/kve -o sim_gls_e2e.out \
+	    timescale.v \
+	    $(PDK_VLOG)/primitives.v $(PDK_VLOG)/gf180mcu_fd_sc_mcu7t5v0.v \
+	    $(KVE_RTL) $(GL_NL) tb_gls_e2e.sv
+	vvp sim_gls_e2e.out
+
 clean:
-	rm -rf sim_build sim_build_smoke results.xml
+	rm -rf sim_build sim_build_smoke results.xml sim_gls_e2e.out
