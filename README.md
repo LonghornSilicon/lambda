@@ -22,9 +22,9 @@ sitting between the ACU (attention compute unit) and the memory hierarchy.
 >
 > **The block stays; the codec it implements was replaced and is now fully
 > integrated, synthesizable, and signed off.** TurboQuant+ (PolarQuant + QJL +
-> Walsh–Hadamard rotation) was **retired 2026-06-22**: it reaches ~3.5×
+> Walsh–Hadamard rotation) was **retired 2026-06-22**: it reaches ~3.5× (3.56× K / 4.92× V combined; `../channelquant/REVAMP_SPEC.md`)
 > compression but with a **−0.10 HellaSwag acc_norm collapse on GQA** models
-> (0.316 vs 0.420 FP16 on Qwen2-0.5B). Root cause: KV quant error on GQA is
+> (0.316 vs 0.420 FP16 on Qwen2-0.5B — TurboQuant+ acc_norm vs FP16 baseline, HellaSwag; APA `c13`–`c17` post-mortem, `../channelquant/REVAMP_SPEC.md`). Root cause: KV quant error on GQA is
 > dominated by a few fixed high-magnitude **key channels**, and the rotation step
 > delocalizes that error so no per-token protection catches it.
 >
@@ -55,10 +55,10 @@ sitting between the ACU (attention compute unit) and the memory hierarchy.
 | | |
 |---|---|
 | **What** | Streaming compress/decompress engine for transformer KV-cache tensors |
-| **Why** | Cuts off-chip LPDDR5X KV-cache bandwidth ~3.8× (near-lossless), enabling longer context in the same memory budget |
-| **How** | ChannelQuant — per-channel INT4 keys (grouped, G=128) + per-token INT4 values + static top-k FP16 outlier-channel isolation (CQ-4+) |
+| **Why** | Cuts off-chip LPDDR5X KV-cache bandwidth ~3.8× (= 16-bit FP16 ÷ ~4.2 combined K+V effective bits/value; `eff_bits()` in `../channelquant/analysis/c23_headline.py`, HW_CONTRACT §6) (near-lossless), enabling longer context in the same memory budget |
+| **How** | ChannelQuant — per-channel INT4 keys (grouped, G=128 — the accuracy-flat group-size knee, C14/C14′, `../channelquant/analysis/c22_group_size_sweep.py`) + per-token INT4 values + static top-k FP16 outlier-channel isolation (CQ-4+) |
 | **K/V asymmetry** | K: per-channel scale over a token group (the GQA-critical axis); V: per-token scale |
-| **Tiers** | CQ-8 (per-token INT8 K+V), CQ-4 (per-channel INT4 K / per-token INT4 V), CQ-4+ (CQ-4 with k=2 FP16 outlier channels), **CQ-3-rot** (CQ-4+ keys + WHT-rotated per-token **INT3** values — flat 3.0 b/val, ~4.8×; see [`docs/wht_value_rotation.md`](docs/wht_value_rotation.md)) |
+| **Tiers** | CQ-8 (per-token INT8 K+V), CQ-4 (per-channel INT4 K / per-token INT4 V), CQ-4+ (CQ-4 with k=2 FP16 outlier channels — top-2 static-calibrated, C16/`outlier_calibration.py`), **CQ-3-rot** (CQ-4+ keys + WHT-rotated per-token **INT3** values — flat 3.0 b/val (`pack_int3`: 8 INT3 codes → 3 bytes = 3.000 b/val), ~4.8× (= 16-bit FP16 ÷ ~3.3 eff b/val); see [`docs/wht_value_rotation.md`](docs/wht_value_rotation.md)) |
 | **Verified** | RTL bit-exact vs golden (`sim_kpath`/`sim_top`), 3-way Python↔C++↔SV parity, **all CI gates green** incl. Sky130 sign-off |
 | **Accuracy** | HellaSwag acc_norm within ~0.4–0.8 pt of FP16 (CQ-4+ tier) on Qwen2-0.5B/1.5B (see below) |
 | **Status** | RTL complete through Sky130 physical sign-off (all CI gates green). 16nm (Lambda) sign-off is future work; full-chip tape-out target Summer 2027 via TSMC University Program |
@@ -84,7 +84,7 @@ channels get their own scale) and isolates the worst top-k as FP16 outliers:
   amax/INT3 quant (`wht_unit` + `cq_wht_value`) drops values to a flat **3.0 bits/value**,
   near-lossless (idea: Abhiram Bandi + Chaithu Talasila). Keys are untouched. Hardware runs
   "Path B": store rotated, sum A·V in rotated space, undo the rotation once on the MatE output
-  (`wht_inverse_out`). Reference + RTL bit-exact on real Qwen (348,160/348,160). See
+  (`wht_inverse_out`). Reference + RTL bit-exact on real Qwen (348,160/348,160 = D=128 245,760 + D=64 102,400, across 44 real-Qwen value slices). See
   [`docs/wht_value_rotation.md`](docs/wht_value_rotation.md).
 
 **Unified per-channel SRAM record** `{tag, D×FP16 field, D×INT4 code}`
@@ -102,16 +102,21 @@ is bit-exact with the behavioral oracle and place-and-routes at a real clock.
 
 ## Accuracy — verified end-to-end on Qwen2
 
-HellaSwag `acc_norm`, n=1000, ChannelQuant K̂/V̂ inserted into the model's KV path
-(reproduced this repo via the frozen `../channelquant` reference):
+HellaSwag `acc_norm`, n=1000, G=128, ChannelQuant K̂/V̂ inserted into the model's KV path
+(methodology: `../channelquant/analysis/c23_headline.py`; eff-bits column =
+`eff_bits(G=128, D, k=2)`, HW_CONTRACT §6). **Reconciliation note:** the frozen Qwen2-1.5B
+headline run `../channelquant/analysis/c23_q15_headline.json` records **0.522 / 0.505 / 0.517**
+(CQ-4+ Δ −0.005); the 1.5B point estimates below differ slightly and the Qwen2-0.5B row is not
+yet backed by a committed `c23` run — treat the point estimates as screening pending a refreshed
+`c23_headline.py --n-items 1000` run for both models (the eff-bits columns are exact):
 
 | Model | FP16 | CQ-4 (Δ) | CQ-4+ (Δ) | bits/value |
 |---|---|---|---|---|
 | Qwen2-0.5B (D=64) | 0.4260 | 0.4170 (−0.009) | 0.4220 (−0.004) | ~4.19 / 4.38 |
 | Qwen2-1.5B (D=128) | 0.5210 | 0.5050 (−0.016) | **0.5130 (−0.008)** | ~4.13 / 4.22 |
 
-Both tiers clear the ≤0.02 acceptance gate at **~4 bits/value (≈3.8× KV
-compression)**; the CQ-4+ outlier lane earns its keep at D=128. Combined with the
+Both tiers clear the ≤0.02 acceptance gate (C12′, `../channelquant` spec §7) at **~4 bits/value (≈3.8× KV
+compression)** (bits/value = `eff_bits(G=128, D, k=2)`, HW_CONTRACT §6; ≈3.8× = 16 ÷ ~4.2); the CQ-4+ outlier lane earns its keep at D=128. Combined with the
 ACU precision controller (INT8/FP16-routed S·V) the system holds accuracy at FP16
 (no measurable loss on Qwen2-0.5B).
 
