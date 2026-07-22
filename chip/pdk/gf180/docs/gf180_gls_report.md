@@ -79,8 +79,8 @@ not affect functional correctness or the gate-level sim.
 
 ## 2. GF180 gate-level end-to-end (the deliverable)
 
-`tb/tb_gls_e2e.sv` reproduces the cross-block check from the architecture repo's
-`rtl/tb/tb_chip_cosim.sv` — now the **full compute datapath**: KVE reconstruct V̂
+`tb/tb_gls_e2e.sv` reproduces the cross-block check from the `chip/verif` cosim
+(`tb_chip_cosim.sv`) — now the **full compute datapath**: KVE reconstruct V̂
 → **mate_qkt** Q·Kᵀ scoring → ACU gate → **vecu_softmax** → **mate_pv/_fp16** P·V,
 plus TIU keep/evict, on a **real Qwen attention tile** (`tb/vectors/qwen_*.hex`).
 It reuses the cosim's reference computations + tolerance gates, but instantiates
@@ -158,7 +158,7 @@ as-is. See `rtl/blocks/PROVENANCE.md`.
 
 ## 4. KV store on a real GF180 SRAM macro (closing the SRAM hole)
 
-**RTL refactor (PDK-agnostic, kv-cache-engine repo `rtl`):** the raw storage array
+**RTL refactor (PDK-agnostic, `kve` block `rtl/`):** the raw storage array
 was extracted out of `sram_controller` into a new **`kv_sram`** module with a clean
 `addr/data/we/re` interface (registered 1-cycle read). The default `kv_sram` is
 behavioral (a reg array) so sim + other PDKs are unchanged; the GF180 build swaps
@@ -239,7 +239,7 @@ cd tb && make test-gls-e2e
 # KV store on the real SRAM macro (§4)
 scripts/harden.sh kve_store_gf180          # hardens kv_sram + 4 gf180 SRAM macros
 cd tb && make test-kv-sram-gf180           # KV round-trip bit-exact thru real SRAM
-# (kve RTL regression, in the kv-cache-engine repo: make sim_top sim sim_realdata)
+# (kve RTL regression, in the `kve` block: make sim_top sim sim_realdata)
 ```
 
 Notes / friction encountered (for the next runner):

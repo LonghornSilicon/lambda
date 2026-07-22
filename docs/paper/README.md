@@ -80,4 +80,4 @@ Every reference in `lambda.bib` is a real, arXiv-traceable or proceedings-publis
 
 ## Companion repository
 
-The paper cites and links to <https://github.com/LonghornSilicon/architecture>, which holds the canonical machine-readable spec (`arch.yml`), the audit log (`STATUS.md`), the literature deep-dive log (`docs/literature_audit.md`), the per-block HLS scaffolding (`src/`), and the visual floorplan (`floorplan.html`).
+The paper cites and links to <https://github.com/LonghornSilicon/lambda>, which holds the canonical machine-readable spec (`arch.yml`), the audit log (`docs/STATUS.md`), the literature deep-dive log (`docs/literature_audit.md`), the per-block HLS scaffolding (`src/`), and the visual floorplan (`floorplan.html`).

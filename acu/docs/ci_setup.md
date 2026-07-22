@@ -40,7 +40,7 @@ pip show librelane
 
 ### Register the runner with GitHub
 
-1. Go to https://github.com/LonghornSilicon/attention-compute-unit/settings/actions/runners
+1. Go to https://github.com/LonghornSilicon/lambda/settings/actions/runners
 2. Click **New self-hosted runner** → choose **Linux** / **x64**.
 3. GitHub gives you a small shell script. It looks like:
 
@@ -49,7 +49,7 @@ mkdir actions-runner && cd actions-runner
 curl -o actions-runner-linux-x64-2.X.X.tar.gz -L \
     https://github.com/actions/runner/releases/download/v2.X.X/actions-runner-linux-x64-2.X.X.tar.gz
 tar xzf actions-runner-linux-x64-2.X.X.tar.gz
-./config.sh --url https://github.com/LonghornSilicon/attention-compute-unit \
+./config.sh --url https://github.com/LonghornSilicon/lambda \
             --token <ONE-TIME-TOKEN>
 ```
 

@@ -57,8 +57,8 @@ kit has different names, just substitute them in step 3.
 ```sh
 # On the chamber:
 cd ~/work
-git clone git@github.com:LonghornSilicon/kv-cache-engine.git
-cd kv-cache-engine/rtl
+git clone git@github.com:LonghornSilicon/lambda-kve.git   # kve block mirror (or clone the monorepo: LonghornSilicon/lambda, then cd lambda/kve/rtl)
+cd lambda-kve/rtl
 ls *.tcl                  # genus.tcl, innovus.tcl, mmmc.tcl
 ```
 

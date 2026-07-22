@@ -57,9 +57,9 @@ kit has different names, just substitute them in step 3.
 ```sh
 # On the chamber:
 cd ~/work
-git clone git@github.com:LonghornSilicon/attention-compute-unit.git
-cd attention-compute-unit/rtl
-ls *.tcl                  # genus.tcl, innovus.tcl, mmmc.tcl
+git clone git@github.com:LonghornSilicon/lambda-mate.git   # MatE mirror — shared ACU synth/EDA harness (or clone the monorepo: LonghornSilicon/lambda, then cd lambda/acu/mate/rtl)
+cd lambda-mate/rtl
+ls eda/*.tcl              # genus.tcl, innovus.tcl, mmmc.tcl
 ```
 
 If the chamber is air-gapped, scp the repo from a machine that has it:

@@ -69,7 +69,7 @@ sign-off metric's derivation and rough 16 nm (TSMC N16) estimates with disclaime
 
 ## Cross-block cosim — true end-to-end
 
-Vendored into the `architecture` rtl branch cosim (`make cosim`) as the real P·V
+Vendored into the `chip/verif` cross-block cosim (`make -C chip/verif cosim`) as the real P·V
 accumulation between the KVE's rotated V̂ and `wht_inverse_out`: int32 bit-exact vs
 `matmul_int8`, and the full KVE → P·V → inverse chain reconstructs the reference
 attention output to ~0.26 %.

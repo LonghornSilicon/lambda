@@ -6,8 +6,8 @@ compress-on-write / decompress-on-read engine for transformer KV-cache tensors,
 sitting between the ACU (attention compute unit) and the memory hierarchy.
 
 > **Building a compiler / integrating this block?** Start with the chip-level
-> [Compiler Programming Guide](https://github.com/LonghornSilicon/architecture/blob/main/docs/compiler_programming_guide.md)
-> (KV data format = §5) and the [documentation standard](https://github.com/LonghornSilicon/architecture/blob/main/docs/documentation_standard.md).
+> [Compiler Programming Guide](https://github.com/LonghornSilicon/lambda/tree/main/docs)
+> (KV data format = §5) and the [documentation standard](https://github.com/LonghornSilicon/lambda/blob/main/docs/documentation_standard.md).
 > This block's interface spec is [`docs/isa/kv_cache_engine_isa.md`](docs/isa/kv_cache_engine_isa.md).
 
 > ## ✅ ChannelQuant revamp COMPLETE — codec: TurboQuant+ → ChannelQuant
@@ -146,7 +146,7 @@ plain CQ-4 is the better value tier on the smaller model. The best tier per mode
 
 | Block | This repo? | Role |
 |---|---|---|
-| **ACU (Attention Compute Unit)** | no ([repo](https://github.com/LonghornSilicon/adaptive-precision-attention)) | Decides INT8 vs FP16 per tile, runs the MAC array |
+| **ACU (Attention Compute Unit)** | no ([acu](https://github.com/LonghornSilicon/lambda/tree/main/acu)) | Decides INT8 vs FP16 per tile, runs the MAC array |
 | **KV Cache Engine** | **this repo** | ChannelQuant compress on write, decompress on read |
 | **Token Importance Unit** | not yet | Tracks attention weight per cached token → keep / demote / evict |
 | **Memory Hierarchy Controller** | not yet | Routes between on-die SRAM and off-chip LPDDR5X (direct; no eDRAM tier) |
@@ -314,7 +314,7 @@ Full ISA specification: [`docs/isa/kv_cache_engine_isa.pdf`](docs/isa/kv_cache_e
             (Per-Channel INT4) KV-Cache Compression},
   author = {LonghornSilicon},
   year   = {2026},
-  url    = {https://github.com/LonghornSilicon/kv-cache-engine}
+  url    = {https://github.com/LonghornSilicon/lambda-kve}
 }
 ```
 

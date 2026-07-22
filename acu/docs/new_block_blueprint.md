@@ -363,7 +363,7 @@ foundry's memory compiler will provide actual SRAM macros.
 **Read first** before starting: the KV Cache Engine's codec is decided —
 **ChannelQuant** (per-channel INT4 keys, grouped G=128 / per-token INT4
 values + FP16 outlier-channel lane), and the block's RTL is already complete
-through Sky130 sign-off in the `kv-cache-engine` repo. The Memory Hierarchy
+through Sky130 sign-off in the `kve` block. The Memory Hierarchy
 Controller routes 0.8 MB on-die SRAM ↔ off-chip LPDDR5X directly — the current
 design has no separate eDRAM tier.
 

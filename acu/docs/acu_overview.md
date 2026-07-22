@@ -8,9 +8,9 @@
 
 
 > **Building a compiler / integrating this block?** Start with the chip-level
-> [Compiler Programming Guide](https://github.com/LonghornSilicon/architecture/blob/main/docs/compiler_programming_guide.md)
-> and the [documentation standard](https://github.com/LonghornSilicon/architecture/blob/main/docs/documentation_standard.md)
-> in the `architecture` repo. This block's own interface spec is [`docs/isa/precision_controller_isa.md`](docs/isa/precision_controller_isa.md).
+> [Compiler Programming Guide](https://github.com/LonghornSilicon/lambda/tree/main/docs)
+> and the [documentation standard](https://github.com/LonghornSilicon/lambda/blob/main/docs/documentation_standard.md)
+> in the monorepo `docs/` hub. This block's own interface spec is [`docs/isa/precision_controller_isa.md`](docs/isa/precision_controller_isa.md).
 
 A hardware-verified extension of [FlashAttention](https://arxiv.org/abs/2205.14135)
 that routes each attention tile to **INT8** or **FP16** at runtime based on
@@ -435,7 +435,7 @@ Detailed instructions, including troubleshooting, are in
   title  = {Adaptive Precision Attention: Evolutionary Discovery to Hardware-Verified Ratio Gates},
   author = {LonghornSilicon},
   year   = {2026},
-  url    = {https://github.com/LonghornSilicon/attention-compute-unit}
+  url    = {https://github.com/LonghornSilicon/lambda/tree/main/research/apa-precision-policy}
 }
 ```
 

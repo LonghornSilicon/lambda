@@ -1,6 +1,6 @@
 # Lambda — Unit-by-Unit Dataflow Walkthrough
 
-> **Codec-of-record note:** the KV codec of record is **ChannelQuant** (per-channel INT4 keys, grouped G=128, D per-channel FP16 scales; per-token INT4 values; static top-k (k=2) FP16 outlier-channel lane; ~3.8× at ~4 bits/value), packaged as the **KV Cache Engine (KVE)** — full block RTL complete through Sky130 sign-off in the `kv-cache-engine` repo. Stage 7 below walks the ChannelQuant compress/decompress datapath. The Llama-3.2-3B running example is a legacy teaching example (canonical target is up to 1.5B, validated on Qwen2-1.5B); its per-model *throughput/capacity numbers* are TBD — pending re-derivation for ChannelQuant / Qwen2-1.5B — and are kept here only to make the walkthrough concrete.
+> **Codec-of-record note:** the KV codec of record is **ChannelQuant** (per-channel INT4 keys, grouped G=128, D per-channel FP16 scales; per-token INT4 values; static top-k (k=2) FP16 outlier-channel lane; ~3.8× at ~4 bits/value), packaged as the **KV Cache Engine (KVE)** — full block RTL complete through Sky130 sign-off in the `kve` block. Stage 7 below walks the ChannelQuant compress/decompress datapath. The Llama-3.2-3B running example is a legacy teaching example (canonical target is up to 1.5B, validated on Qwen2-1.5B); its per-model *throughput/capacity numbers* are TBD — pending re-derivation for ChannelQuant / Qwen2-1.5B — and are kept here only to make the walkthrough concrete.
 
 A guided tour of every block in Lambda, walked through in the order data actually flows during a decode token. Each block becomes concrete as it appears in the journey of one token through one layer.
 
@@ -116,7 +116,7 @@ Why is VecU programmable instead of fixed-function for RoPE? Because the same SI
 
 ## Stage 7 — KVE compresses K and V into the scratchpad
 
-LSU fires `ISSUE_KCE_COMP k → kv_scratchpad`. The **KVE (KV Cache Engine)** wakes up and runs the **ChannelQuant** codec. (Its 16nm area/power/Fmax are **TBD — pending re-measurement for ChannelQuant**; the block RTL is complete through Sky130 sign-off in the `kv-cache-engine` repo.)
+LSU fires `ISSUE_KCE_COMP k → kv_scratchpad`. The **KVE (KV Cache Engine)** wakes up and runs the **ChannelQuant** codec. (Its 16nm area/power/Fmax are **TBD — pending re-measurement for ChannelQuant**; the block RTL is complete through Sky130 sign-off in the `kve` block.)
 
 K is a 1024-element vector (8 KV heads × 128 dim, so head dim D=128) for this token in this layer. ChannelQuant quantizes **keys per channel**, so the KVE buffers a group of G=128 keys before it can quantize:
 

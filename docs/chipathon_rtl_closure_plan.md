@@ -12,11 +12,11 @@ be added later.
 
 ## Repo-of-record split (standing convention, 2026-07-21)
 
-- **Block RTL + block-level verification** live on each block's **own repo**, on its `rtl` branch
-  (`kv-cache-engine`, `token-importance-unit`, `attention-compute-unit`, and the cross-block cosim
-  in `architecture`). This is where RTL is authored, unit-tested, and committed.
+- **Block RTL + block-level verification** live in each block's folder in this monorepo
+  (`kve/`, `tiu/`, `acu/`), with the cross-block cosim in `chip/verif/`. This is where RTL is
+  authored, unit-tested, and committed.
 - **PDK work — GF180 LibreLane hardening, multi-macro integration, padring, GDSII, the tapeout
-  package** — lives in the **`chipathon-lambda-acu`** repo. It pulls each block's RTL in as a
+  package** — lives in **`chip/pdk/gf180/`**. It pulls each block's RTL in as a
   hardened macro; it does not author block RTL.
 
 ## Why this boundary

@@ -42,7 +42,7 @@ submodules). The LibreLane config `librelane/kve.yaml` hardens the top with the
 gate-proxy parameters.
 
 `kve/kv_sram.sv` + the updated `kve/sram_controller.sv` are re-synced from the
-kv-cache-engine repo `rtl` refactor that puts the KV-store array behind a
+`kve` block's `rtl/` refactor that puts the KV-store array behind a
 swappable `kv_sram` memory interface (behavioral default). **`kve_gf180_sram/`**
 is **chipathon-authored (NOT vendored):** `kv_sram.sv` there is the GF180 view of
 the same module — it tiles the real `gf180mcu_fd_ip_sram__sram512x8m8wm1` hard

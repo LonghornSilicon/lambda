@@ -208,7 +208,7 @@ to never happen again:
 ## Where to look at run results
 
 - **Live job logs** during a run:
-  https://github.com/LonghornSilicon/attention-compute-unit/actions
+  https://github.com/LonghornSilicon/lambda/actions
 - **Downloadable artifacts** (GDS, PNG, PDF, logs): bottom of each
   completed run page, "Artifacts" section
 - **Pass/fail status badge**: green check or red X next to each

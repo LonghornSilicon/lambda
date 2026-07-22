@@ -3,7 +3,7 @@
 `std-0.1`, 2026-07-18. The conventions every block repo and the architecture hub follow
 so a compiler/verification team can build against the accelerator without reading RTL.
 If you are standing up a new block, this sits alongside
-[`attention-compute-unit/docs/new_block_blueprint.md`](https://github.com/LonghornSilicon/attention-compute-unit/blob/master/docs/new_block_blueprint.md)
+[`acu/docs/new_block_blueprint.md`](../acu/docs/new_block_blueprint.md)
 (which covers the RTL→GDS pipeline); this doc covers what to *write down*.
 
 ## 0. Lab-notebook principle (the one rule above all others)
@@ -27,11 +27,11 @@ is a backstop for what slips through, not a substitute for doing this by hand as
 - **Per-block repos** (`attention-compute-unit`, `kv-cache-engine`,
   `token-importance-unit`, …) own the RTL of record, the block's own ISA/interface spec,
   its reference model, and its paper section.
-- **`architecture`** (this repo, "Lambda") owns the chip-level spec (`arch.yml`), the
+- The monorepo **`docs/`** hub (this repo, "Lambda") owns the chip-level spec (`arch.yml`), the
   unified ISA (`src/isa/`), the compiler programming guide (`docs/`), the golden
   models index (`src/golden/`), and cross-block reconciliation (`STATUS.md`).
 
-The architecture repo **links to** per-block specs; it does not fork them. When a
+The `docs/` hub **links to** per-block specs; it does not fork them. When a
 block-level fact and `arch.yml` disagree, that is a reconciliation item for `STATUS.md`
 §7 — flag it, don't silently pick one.
 
