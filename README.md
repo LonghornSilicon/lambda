@@ -216,13 +216,28 @@ The retired TurboQuant+ modules (`rotation_unit`, `qjl_unit`, `quantizer`,
 | 3. RTL synthesis (Yosys) | Synth + FF-count assertion | ✅ |
 | 4. Formal equivalence | RTL ≡ post-synth netlist (Yosys induction) | ✅ |
 | 5. Reference model tests | C++ + Python bit-exact (3-way parity) | ✅ |
-| 6. OpenLane Sky130 sign-off | Full Sky130 PnR + DRC/LVS | ✅ |
+| 6. OpenLane Sky130 sign-off | Full Sky130A PnR, 9-corner STA + DRC/LVS | ✅ 5/6 clean |
 | 2 / 7 / 8 | coverage / paper / Cadence 16FFC | disabled |
 
+**Committed Sky130A sign-off** (LibreLane 3.0.5, PDK `8afc8346`, 9 IPVT corners) lives in
+[`openlane/kv_cache_engine/results/`](openlane/kv_cache_engine/results/) —
+[full report](openlane/kv_cache_engine/results/SIGNOFF.md). Setup, hold, DRC (Magic +
+KLayout), LVS, antenna and power-grid are **all 0 across all 9 corners**. Die **0.236 mm²**
+(core 0.220 mm², 59 % util), ~1.79 mW; implied f_max ~24 MHz (ss) / ~49 MHz (tt) /
+~78 MHz (ff) at the 100 ns constraint (WNS 0).
+
+The one residual: **max-cap = 5 (+ max-slew = 1503), entirely at the slow ss corner**,
+from the high-fanout **async reset (`rst_n`) tree** across the flop array (functionally
+clean — recovery/removal slack +90 ns). This is the tracked "ss-corner max-transition on
+register-array blocks" physical-opt item (reset-tree buffering), not a setup/hold/DRC/LVS
+failure. Enabling proper slew/cap repair cut it 61 → 5 / 5042 → 1503.
+
 The synthesis/formal/OpenLane gates run a small **flop-based gate proxy** of the
-default params (the SRAM and residual buffer are behavioral flip-flops, no Sky130
-macro); the real head-dim / group / depth are set per-instantiation (every TB
-overrides them). See the FF-count note in `.github/workflows/ci.yml`.
+default params — the SRAM store (`sram_controller.sv`) and residual buffer are behavioral
+flip-flop register arrays at `SRAM_DEPTH=2`, **not** a real Sky130 SRAM macro (that is a
+separately-tracked hole; no real SRAM is faked). The real head-dim / group / depth are set
+per-instantiation (every TB overrides them). See the FF-count note in
+`.github/workflows/ci.yml`.
 
 ---
 
