@@ -16,7 +16,7 @@ Copied on 2026-07-21 from (all read-only; not modified by this repo):
 | `mate_pv.sv`                        | `adaptive-precision-attention/rtl/mate_pv.sv`                  | `pdk-asap7` @ `e501d90`    | REAL — Sky130-signed (INT8 P·V)     |
 | `mate_pv_fp16.sv`                   | `adaptive-precision-attention/rtl/mate_pv_fp16.sv`             | `pdk-asap7` @ `e501d90`    | REAL — Sky130-signed (FP16 P·V)     |
 | `mate_qkt.sv`                       | `architecture/rtl/blocks/acu/mate_qkt.sv` (vendored)          | `attention-compute-unit` `rtl` @ `93e9960` | REAL — decode Q·Kᵀ scoring (passed RTL cosim) |
-| `vecu_softmax.sv`                   | `architecture/rtl/blocks/acu/vecu_softmax.sv` (vendored, **pipelined**) | `attention-compute-unit` `rtl` @ `f36daa2` (architecture `rtl` @ `5aa6298`) | REAL — decode online-softmax, 3-stage pipeline (passed RTL cosim) |
+| `vecu_softmax.sv`                   | `architecture/rtl/blocks/acu/vecu_softmax.sv` (vendored, **multi-cycle**) | `attention-compute-unit` `rtl` @ `2c458aa` (architecture `rtl` @ `d837b42`) | REAL — decode online-softmax, multi-cycle (one fp32-op/cycle) (passed RTL cosim) |
 
 `mate_qkt.sv` / `vecu_softmax.sv` were copied from the byte-identical vendored
 copies in the `architecture` repo (`rtl/blocks/acu/`), which themselves originate
@@ -24,14 +24,17 @@ on `attention-compute-unit` `rtl` at the commits above. Both are synthesis-clean
 (no `real`/`$fscanf`); `librelane/{mate_qkt,vecu_softmax}.yaml` harden them on
 GF180 at N=8. **Both are now VERBATIM** — no local edits.
 
-`vecu_softmax.sv` was **re-copied 2026-07-21** as the **pipelined** version
-(`attention-compute-unit` `rtl` `f36daa2`): the two-serial-fp32-multiply exp
-chain that missed ss-corner setup is now split across 3 feed-forward register
-stages (+358 FFs, throughput unchanged at 1 score/cycle, bit-exact; the +3-cycle
-latency is data-independent and transparent to the result handshake). This also
-**removed the earlier `gi_unused` synth-compat patch** — the pipelining rewrite
-no longer has the module-scope loop counter, so the source is now verbatim and
-synthesizes cleanly with the default yosys frontend (no `USE_SLANG`, no edits).
+`vecu_softmax.sv` was **re-copied 2026-07-22** as the **multi-cycle** version
+(`attention-compute-unit` `rtl` `2c458aa`, architecture `rtl` `d837b42`): the exp
+datapath is now a **micro-sequenced FSM (S_COMPUTE / S_EMIT) that executes one
+fp32 op per cycle** (each register-to-register path holds at most one fp32 add or
+multiply), reusing intermediate registers instead of the earlier 3-stage
+feed-forward pipeline. This rebalances area — the aggressive resize the 3-stage
+version needed to close the ss corner had bloated it to ~101k cells / 1.49 mm²;
+the multi-cycle datapath shrinks the reg-to-reg path so a normal-effort close is
+possible. Bit-exact (same online-softmax result); the extra latency is
+data-independent and transparent to the w_valid handshake. Still verbatim (no
+`gi_unused`/synth-compat patch), synthesizes with the default yosys frontend.
 
 Note: the `kve/*.sv` set is the full non-testbench RTL of the KV-cache engine
 (the top `kv_cache_engine.sv` plus its ChannelQuant / WHT / SRAM-controller

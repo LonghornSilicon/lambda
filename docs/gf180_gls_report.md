@@ -30,28 +30,33 @@ loosest clocks).
 | `mate_pv`               | N=4                 | 40 ns  | 170 348 | 9 833  | **+11.83** | +0.493 | 0 | 0 | 0 | 0 | 69 (ss only) |
 | `mate_pv_fp16`          | N=4                 | 180 ns | 508 460 | 32 287 | **+31.21** | +0.876 | 0 | 0 | 0 | 0 | 319 (ss only) |
 | `mate_qkt`              | N=8                 | 200 ns | 904 834 | 61 255 | **+50.82** | +0.863 | 0 | 0 | 0 | 20 (ss) | 2706 (ss; 87 tt, 30 ff) |
-| `vecu_softmax` (pipelined) | N=8              | 300 ns | 1 486 490 | 101 236 | **+149 (tt) / +207 (ff) / +19.2 (ss)** | +0.919 | 0 | 0 | 0 | 5 (ss) | 5292 (ss; 20 tt) |
+| `vecu_softmax` (multi-cycle) | N=8          | 260 ns | 1 638 550 | 111 253 | **+153 (tt) / +193 (ff) / +60.9 (ss)** | +0.418 | 0 | 0 | 0 | 16 (ss) | 5361 (ss; ~small tt/ff) |
 | `kv_cache_engine` (kve) | SRAM_DEPTH=2, VECTOR_DIM=8, KEY_GROUP=2 | 200 ns | 621 960 | 32 294 | **+109.82** | +0.261 | 0 | 0 | 0 | 7 (ss) | 2392 (ss; 83 tt) |
 
 **Implied fmax** (min period = clk − worst-corner setup WS; loose clocks chosen
 for clean closure, so conservative): precision_controller ≈ 40 MHz,
 token_importance_unit ≈ 58 MHz, mate_pv ≈ 36 MHz, mate_pv_fp16 ≈ 6.7 MHz,
-mate_qkt ≈ 6.7 MHz, vecu_softmax ≈ 3.6 MHz (worst ss corner; ~6.5 MHz at tt),
+mate_qkt ≈ 6.7 MHz, vecu_softmax ≈ 5.0 MHz (worst ss corner; ~6.5 MHz at tt),
 kve ≈ 11 MHz.
 
 ### The 6 signoff checks
-- **Setup:** **all seven now meet setup across ALL corners** (TNS = 0),
-  **including the extreme `ss_125C_4v50` corner**. `vecu_softmax` was the lone
-  Stage-2 exception (−26.5 ns at ss on the un-pipelined ~366 ns online-softmax
-  fp16→exp-LUT→fp32→fp16 chain); it has since been **pipelined** — the two-serial-
-  fp32-multiply exp eval is split across 3 feed-forward register stages (+358 FFs,
-  throughput unchanged at 1 score/cycle, bit-exact, +3-cycle data-independent
-  latency). Re-hardened, it now closes at **ss WS +19.2 ns** (tt +149, ff +207),
-  TNS = 0, at a **tighter 300 ns clock** than the un-pipelined 340 ns that failed.
-  The 3-stage split is uneven (the longest single stage is ~263 ns at ss, not the
-  hoped ~183 ns), and the aggressive resize to hit ss roughly doubled the cell
-  count (55k → 101k, 1.49 mm²) — a size/timing trade the follow-up (a more even
-  pipeline split or higher utilisation) can reclaim.
+- **Setup:** **all seven meet setup across ALL corners** (TNS = 0), **including
+  the extreme `ss_125C_4v50` corner**. `vecu_softmax` (the long online-softmax
+  fp16→exp-LUT→fp32→fp16 path) is now the **multi-cycle** RTL — a micro-sequenced
+  FSM (S_COMPUTE / S_EMIT) that executes **one fp32 op per cycle**, so the longest
+  reg-to-reg path is a single fp32 add/mult. It closes ss at **+60.9 ns** (tt
+  +153, ff +193), TNS = 0, at a **tighter 260 ns clock** and with **normal
+  (non-aggressive) resizing** — no resize-bloat, unlike the earlier 3-stage
+  pipeline which needed 300 ns + aggressive resize to reach ss +19.2 ns.
+  **HONEST caveat — the rebalance did *not* reclaim area:** the multi-cycle RTL is
+  **111 253 cells / 1.64 mm²**, *slightly larger* than the 3-stage's 101 236 cells
+  / 1.49 mm² (the FSM + reused-intermediate registers + score buffer offset the
+  fewer parallel fp32 units). The cell count is identical at 180 ns and 260 ns, so
+  1.64 mm² is the design's natural size, not resize bloat — i.e. the earlier
+  1.49 mm² was *also* largely inherent, not the ss-close resize as hypothesised.
+  What multi-cycle *does* buy: a robust ss close with big margin at normal effort
+  and a tighter clock (its cost is lower per-row throughput — ~8 fp32-op cycles
+  per score and per weight vs the 3-stage's 1 score/cycle).
 - **Hold:** all seven **meet hold** (WS positive, TNS = 0, all corners).
 - **Magic DRC:** **0** on all seven.
 - **Netgen LVS:** **0** on all seven (0 device/net/pin/property mismatches).
@@ -247,15 +252,19 @@ Notes / friction encountered (for the next runner):
 - The Sky130 `token_importance_unit` config's `MAX_TRANSITION_CONSTRAINT: 1.5`
   sent OpenROAD `repair_design` into a non-converging loop on the slower GF180
   cells — dropped it (GF180 default max-transition) and it closes.
-- **`vecu_softmax` was the hard one — now fixed by pipelining.** Its
-  fp16→exp-LUT→fp32→fp16 chain is the longest path in the datapath. The
-  un-pipelined version missed ss setup by −26.5 ns even at a 340 ns clock, and the
-  post-CTS/post-GRT resizers ground for tens of minutes asymptotically (never
-  closing) — a sign the *base* path, not the clock, was the limit. The upstream
-  RTL was then **pipelined** (3-stage feed-forward exp eval); re-hardened, it
-  closes ss at **+19.2 ns** at a *tighter* 300 ns clock, and the resizers now pass
-  in seconds (margin to spare). Lesson: when the resizer grinds asymptotically,
-  pipeline the path — don't keep raising the period.
+- **`vecu_softmax` was the hard one — the long fp16→exp-LUT→fp32→fp16 path.**
+  History (honest): (1) un-pipelined missed ss by −26.5 ns even at 340 ns, resizers
+  grinding for tens of minutes asymptotically; (2) a **3-stage feed-forward
+  pipeline** closed ss at +19.2 ns @ 300 ns but needed aggressive resize →
+  101 k cells / 1.49 mm²; (3) the current **multi-cycle** RTL (one fp32-op/cycle
+  micro-sequence) closes ss with big margin (**+60.9 ns @ 260 ns**) at *normal*
+  resize effort — but is **111 k cells / 1.64 mm², ~10 % *larger***, so the
+  rebalance improved timing/robustness, not area (the area was largely inherent,
+  not resize bloat). Two real lessons: when the resizer grinds asymptotically the
+  base path — not the clock — is the limit; and a multi-cycle rebalance trades
+  throughput+area for a shorter reg-to-reg path and easier corner closure. The
+  multi-cycle latency is longer, so the GL e2e's softmax weight-collection loop
+  waits on the `w_valid` handshake with a generous bound (`tb/tb_gls_e2e.sv`).
 - **SRAM hard-macro escaping (§4).** A `genvar` generate loop names the macro
   instances `lane[0].u_bank` → Verilog escaped identifier → ODB name
   `lane\[0\].u_bank`. Three different LibreLane fields want three different forms:

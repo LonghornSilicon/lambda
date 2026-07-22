@@ -371,8 +371,12 @@ module tb_gls_e2e;
         e0 = errors;
         for (n=0;n<LQK;n=n+1) begin step; sm_sv=1; sm_s=qkt_c[n*16 +: 16]; sm_sl=(n==LQK-1); end
         step; sm_sv=0; sm_sl=0;
+        // vecu_softmax is multi-cycle (micro-sequenced COMPUTE/EMIT, ~8 fp32-op
+        // cycles per score + per weight), so weights arrive well after s_last;
+        // the collection window is data-independent — just wait on the w_valid
+        // handshake for all LQK weights, with a generous bound.
         k=0; pd=0;
-        while (k<LQK && pd<(LQK+40)) begin
+        while (k<LQK && pd<600) begin
             step;
             if (sm_wv) begin Wsm[k]=sm_w; k=k+1; end
             pd=pd+1;

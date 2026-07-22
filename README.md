@@ -61,7 +61,7 @@ for full per-macro signoff + the gate-level end-to-end match numbers.
 | `mate_pv_fp16`          | FP16 P·V MAC (fp32 internal accumulate)    | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 508 460 µm², ~6.7 MHz | ✅ **rel_err 1.7e-4** (< 5e-3) | `mate_pv_fp16.yaml` ✅ |
 | `kv_cache_engine` (kve) | ChannelQuant KV-cache codec (store/stream) | ✅ codec hardens as logic; KV **store on a REAL `gf180mcu_fd_ip_sram` macro** — 4 macros placed, **fully clean signoff: DRC = 0, LVS = 0, setup/hold met, antenna = 0**; bit-exact round-trip | store round-trip bit-exact thru real SRAM | `kve.yaml` + `kve_store_gf180.yaml` ✅ |
 | `mate_qkt`              | Q·Kᵀ decode scoring (fp16, fp32 accum)     | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 904 834 µm², ~6.7 MHz | ✅ **scores rel_err 0.0** (< 5e-3) → gate | `mate_qkt.yaml` ✅ |
-| `vecu_softmax` (pipelined) | decode online softmax (exp-LUT)         | ✅ setup/hold/DRC/LVS/antenna clean; **ss +19.2 ns** (pipelined); slew@ss; 1 486 490 µm², ~3.6 MHz | ✅ **softmax 2.1e-4 / attn-out 5.4e-4** (within tol) | `vecu_softmax.yaml` ✅ |
+| `vecu_softmax` (multi-cycle) | decode online softmax (exp-LUT)      | ✅ setup/hold/DRC/LVS/antenna clean; **ss +60.9 ns** @ 260 ns (multi-cycle, normal resize); slew@ss; 1 638 550 µm² (~10% larger than the 3-stage — area not reclaimed), ~5.0 MHz | ✅ **softmax 2.1e-4 / attn-out 5.4e-4** (within tol) | `vecu_softmax.yaml` ✅ |
 
 All seven compute blocks are **re-hardened on GF180MCU** (LibreLane 3.0.5 Classic;
 clocks re-timed — GF180 180 nm is much slower). The **full compute datapath
@@ -69,9 +69,12 @@ Q·Kᵀ → softmax → P·V** (plus the ACU gate and TIU) passes a **GF180 gate
 end-to-end** check (INT bit-exact / FP16 rel_err < 5e-3 / softmax within LUT tol)
 on a real Qwen tile (`tb/tb_gls_e2e.sv`, `make test-gls-e2e`). Signoff is
 **setup + hold + DRC + LVS + antenna clean across the whole datapath at every
-corner** (`vecu_softmax` was pipelined to close the last ss-corner setup miss —
-now ss +19.2 ns); the one remaining physical item is slow-corner (`ss`)
-max-transition on the big fp16 / register-array blocks. **KVE store — on real SRAM,
+corner** (`vecu_softmax` is now the **multi-cycle** RTL — ss closes with big
+margin, +60.9 ns @ 260 ns, at normal resize effort; note the rebalance did **not**
+reclaim area — it is ~10% larger than the 3-stage version, see
+[`docs/gf180_gls_report.md`](docs/gf180_gls_report.md) §1); the one remaining
+physical item is slow-corner (`ss`) max-transition on the big fp16 / register-array
+blocks. **KVE store — on real SRAM,
 fully signed off:** the KV store was refactored behind a swappable `kv_sram`
 interface and backed by real **`gf180mcu_fd_ip_sram`** hard macros — a 512-word
 store round-trips KV records **bit-exact** through the real macro
