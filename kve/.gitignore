@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+*.pyo
+*.o
+*.a
+*.so
+*.dylib
+*.d
+test_kv
+*.vcd
+*.out
+*.log
+# Curated Sky130 sign-off artifacts (metrics JSON + final GDS) are committed under
+# results/; the giant per-run intermediate tree stays ignored.
+openlane/kv_cache_engine/runs/
+openlane/kv_cache_engine/src/*.sv
+!openlane/kv_cache_engine/src/kv_cache_engine.sv
+!openlane/kv_cache_engine/src/sram_controller.sv
+rtl/tb/testvectors/*
+!rtl/tb/testvectors/channelquant/
+!rtl/tb/testvectors/qwen/
+*.swp
+*.swo
+*~
+.DS_Store

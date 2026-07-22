@@ -1,0 +1,19 @@
+{
+  "model": "unsloth/Llama-3.2-1B",
+  "n": 1000,
+  "tier": "cq4+",
+  "results": {
+    "fp16": {
+      "acc_norm": 0.564,
+      "delta_vs_fp16": 0.0
+    },
+    "approx (fp32 scales)": {
+      "acc_norm": 0.559,
+      "delta_vs_fp16": -0.005
+    },
+    "hw (fp16-exact = RTL)": {
+      "acc_norm": 0.557,
+      "delta_vs_fp16": -0.007
+    }
+  }
+}

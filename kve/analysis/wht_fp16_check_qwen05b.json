@@ -1,0 +1,26 @@
+{
+  "model": "Qwen/Qwen2-0.5B",
+  "n": 1000,
+  "results": {
+    "fp16": {
+      "acc_norm": 0.489,
+      "delta_vs_fp16": 0.0
+    },
+    "val4 plain (current)": {
+      "acc_norm": 0.482,
+      "delta_vs_fp16": -0.007
+    },
+    "rand-WHT fp32 / 3b (ideal)": {
+      "acc_norm": 0.488,
+      "delta_vs_fp16": -0.001
+    },
+    "rand-WHT fp16 / 3b (SILICON)": {
+      "acc_norm": 0.488,
+      "delta_vs_fp16": -0.001
+    },
+    "fixed-WHT fp16 / 3b": {
+      "acc_norm": 0.482,
+      "delta_vs_fp16": -0.007
+    }
+  }
+}

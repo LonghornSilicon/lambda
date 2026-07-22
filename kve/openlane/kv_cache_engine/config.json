@@ -1,0 +1,19 @@
+{
+    "DESIGN_NAME": "kv_cache_engine",
+    "VERILOG_FILES": "dir::src/*.sv",
+    "PDK": "sky130A",
+    "CLOCK_PORT": "clk",
+    "CLOCK_PERIOD": 100.0,
+    "SYNTH_PARAMETERS": ["SRAM_DEPTH=2", "VECTOR_DIM=8", "KEY_GROUP=2"],
+    "IO_DELAY_CONSTRAINT": 5,
+    "CLOCK_UNCERTAINTY_CONSTRAINT": 0.1,
+    "PDN_MULTILAYER": false,
+    "FP_SIZING": "relative",
+    "FP_CORE_UTIL": 50,
+    "PL_TARGET_DENSITY_PCT": 60,
+    "DESIGN_REPAIR_MAX_SLEW_PCT": 20,
+    "DESIGN_REPAIR_MAX_CAP_PCT": 20,
+    "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 20,
+    "GRT_DESIGN_REPAIR_MAX_CAP_PCT": 20,
+    "RUN_POST_GRT_DESIGN_REPAIR": true
+}

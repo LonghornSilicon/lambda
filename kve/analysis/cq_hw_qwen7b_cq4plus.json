@@ -1,0 +1,19 @@
+{
+  "model": "Qwen/Qwen2-7B",
+  "n": 500,
+  "tier": "cq4+",
+  "results": {
+    "fp16": {
+      "acc_norm": 0.696,
+      "delta_vs_fp16": 0.0
+    },
+    "approx (fp32 scales)": {
+      "acc_norm": 0.676,
+      "delta_vs_fp16": -0.02
+    },
+    "hw (fp16-exact = RTL)": {
+      "acc_norm": 0.676,
+      "delta_vs_fp16": -0.02
+    }
+  }
+}

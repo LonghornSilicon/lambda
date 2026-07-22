@@ -1,0 +1,291 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={KV Cache Engine --- Software Overview},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={Compiler Co-Design Orientation}
+}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small KV Cache Engine --- Software Overview}
+\rhead{\small v0.2}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\definecolor{codebg}{gray}{0.97}
+\definecolor{codekey}{rgb}{0.13,0.29,0.53}
+\definecolor{codecom}{rgb}{0.25,0.5,0.25}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+  xleftmargin=0.5em,
+  xrightmargin=0.5em,
+  aboveskip=0.6em,
+  belowskip=0.6em,
+  showstringspaces=false,
+  breaklines=true,
+  keywordstyle=\color{codekey}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  numbers=none
+}
+
+\setlist{itemsep=1pt,topsep=2pt}
+
+\begin{document}
+
+%==============================================================================
+\thispagestyle{empty}
+\begin{center}
+\vspace*{1.2in}
+{\Huge\bfseries KV Cache Engine}\\[0.4em]
+{\LARGE\bfseries Software Overview}\\[1.2em]
+
+{\large \textsc{LonghornSilicon --- Compiler Co-Design Orientation}}\\[0.4em]
+{\large Block 2 of 4 --- KV Cache Compression / Decompression}\\[2em]
+
+\rule{0.7\textwidth}{0.4pt}\\[1em]
+
+\begin{tabular}{rl}
+\textbf{Version}:    & 0.2 (ChannelQuant codec) \\
+\textbf{Date}:       & 2026-07-03 \\
+\textbf{Audience}:   & Compiler team, runtime engineers \\
+\end{tabular}\\[1em]
+\rule{0.7\textwidth}{0.4pt}
+\vfill
+\end{center}
+\clearpage
+
+%==============================================================================
+\tableofcontents
+\clearpage
+
+%==============================================================================
+\section{Purpose}
+
+This document orients the compiler team on the KV cache engine block.
+It covers: what the block does, how to use the reference models, what
+the compiler should emit, and what integration phases look like.
+
+For the formal interface contract, see the ISA specification
+(\path{docs/isa/kv_cache_engine_isa.pdf}). For the API reference, see
+\path{docs/reference_model_api.pdf}.
+
+%==============================================================================
+\section{What the Block Does}
+
+The KV cache engine sits between the attention compute unit (block~1)
+and the memory hierarchy controller (block~4). It compresses key and
+value vectors before writing to on-chip SRAM, and decompresses them
+when the attention unit needs them for dot-product computation.
+
+\begin{itemize}
+\item \textbf{On write}: incoming FP16 K/V vectors are compressed via
+      \textbf{ChannelQuant} (per-channel INT4 keys grouped over $G$ tokens
+      + optional FP16 outlier channels; per-token INT4 values) and stored in SRAM.
+\item \textbf{On read}: compressed entries are decompressed back to
+      \textbf{fp32} coordinates and streamed to the attention unit via AXI-Stream.
+\item \textbf{Eviction}: when SRAM is full, the block signals the memory
+      hierarchy controller to spill entries to DRAM.
+\end{itemize}
+
+\subsection{Compression Pipeline}
+
+\begin{enumerate}
+\item \textbf{Key group buffer} --- accumulate $G$ key tokens
+      (\texttt{residual\_buffer}).
+\item \textbf{Per-channel scale} --- per-channel max over the group $\rightarrow$
+      $D$ frozen FP16 scales (\texttt{amax\_unit} + \texttt{scale\_bank}); values
+      use a per-token FP16 scale.
+\item \textbf{Quantize} --- keep channels $\rightarrow$ INT4; the top-$k$ outlier
+      channels (CQ-4+) are held FP16 from a static ROM mask. Values $\rightarrow$
+      INT4 (INT8 for the CQ-8 tier).
+\item \textbf{Store} --- a unified per-channel SRAM record (keep $\to\{$scale,
+      INT4$\}$; outlier $\to\{$fp16, code $+1\}$).
+\end{enumerate}
+
+\noindent Decompression is per channel: $\hat{x}_c = \text{code}_c \cdot
+\text{scale}_c$ in fp32; outlier channels replay their stored FP16 directly. No
+rotation, no Johnson--Lindenstrauss, no Lloyd--Max codebook (those were the
+retired TurboQuant+ codec).
+
+%==============================================================================
+\section{Reference Models}
+
+\subsection{Directory Layout}
+
+\begin{lstlisting}[language=bash]
+sw/
++-- README.md                     <- orientation (this doc's markdown form)
++-- reference_model/
+    +-- README.md                 <- API reference + build instructions
+    +-- Makefile
+    +-- channelquant_ref.hpp/.cpp <- ChannelQuant C++ reference (shipped codec)
+    +-- test_channelquant_ref.cpp <- 9 golden-vector tests
+    +-- kv_cache_engine_ref.*     <- retired TurboQuant+ reference (archival only)
+# Python algorithm reference + golden vectors: ../channelquant/reference/
+\end{lstlisting}
+
+\subsection{Which Models Are Available}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l l l@{}}
+\toprule
+Codec & Status & C++ API & Python \\
+\midrule
+ChannelQuant (shipped) & Bit-exact vs RTL + golden & \texttt{lhsi::cq::compress\_*} & \texttt{../channelquant} ref \\
+TurboQuant+ (retired) & archival regression only & \texttt{lhsi::KVCacheEngine} & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Build Everything}
+
+\begin{lstlisting}[language=bash]
+cd sw/reference_model
+make test-cq      # ChannelQuant C++ tests vs the 9 golden vectors
+make test-all     # legacy TQ + ChannelQuant + Python tests
+make shared       # libkv_cache_engine_ref.so
+make static       # libkv_cache_engine_ref.a
+\end{lstlisting}
+
+\noindent Requires Python 3.10+, NumPy, and a C++17 compiler.
+
+%==============================================================================
+\section{What the Compiler Should Emit}
+
+A compiler backend targeting the KV cache engine emits sequences of
+the operations defined in the ISA spec (\S4 of
+\path{docs/isa/kv_cache_engine_isa.pdf}):
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l p{6cm}@{}}
+\toprule
+Operation & C API & What it does \\
+\midrule
+\texttt{KV\_QUERY} & \texttt{lhsi\_kv\_info()} & Read hardware config \\
+\texttt{KV\_RESET} & \texttt{lhsi\_kv\_reset()} & Clear SRAM, reset FSM \\
+\texttt{KV\_COMPRESS\_KEY} & \texttt{lhsi\_kv\_compress\_key()} & Compress + store key \\
+\texttt{KV\_COMPRESS\_VALUE} & \texttt{lhsi\_kv\_compress\_value()} & Compress + store value \\
+\texttt{KV\_DECOMPRESS\_KEY} & \texttt{lhsi\_kv\_decompress\_key()} & Read + decompress key \\
+\texttt{KV\_DECOMPRESS\_VALUE} & \texttt{lhsi\_kv\_decompress\_value()} & Read + decompress value \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Worked Example: Attention with KV Cache}
+
+The shipped reference is head-level ChannelQuant (frozen in \path{../channelquant}):
+compress a whole KV head $[T, D]$, then reconstruct for attention.
+
+\begin{lstlisting}[language=Python]
+import channelquant_ref as cq   # ../channelquant/reference
+
+# Store phase: per-channel INT4 keys (grouped G), per-token INT4 values.
+K_hat = cq.fq_per_channel(K, bits=4, G=128)          # or fq_per_channel_outlier for CQ-4+
+V_hat = cq.fq_per_token(V, bits=4)
+
+# Attention phase: use the reconstructed K_hat / V_hat.
+scores = query @ K_hat.transpose(-1, -2) / sqrt(D)   # Q * K^T
+# Route each S*V tile through the precision controller (block 1); see below.
+\end{lstlisting}
+
+%==============================================================================
+\section{Integration Phases}
+
+\begin{table}[h]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}c p{3cm} p{4cm} p{4.5cm}@{}}
+\toprule
+Phase & Timeline & Compiler targets & We provide \\
+\midrule
+0 & now & Python + C++ reference models & Models + ISA + tests \\
+1 & when FPGA arrives & AXI-Lite + AXI-Stream on Zynq & Vivado bitstream + driver \\
+2 & all 4 blocks done & Multi-block FPGA project & Integrated attention pipeline \\
+3 & post-tape-out & PCIe-attached chip & TSMC 16FFC silicon + driver \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The ISA contract (\path{docs/isa/kv_cache_engine_isa.pdf}) is
+stable across all four phases. Only the runtime implementation changes ---
+Python function call, AXI register write, or PCIe MMIO.
+
+%==============================================================================
+\section{Interaction with Block~1 (Precision Controller)}
+
+The KV cache engine and precision controller work together during
+attention inference:
+
+\begin{enumerate}
+\item KV cache engine decompresses K/V vectors from SRAM
+\item The attention unit computes $Q \cdot K^T$ scores
+\item The precision controller decides INT8 vs FP16 per tile
+\item The MAC array computes $\mathrm{softmax}(S) \cdot V$ at the chosen precision
+\end{enumerate}
+
+\noindent A compiler backend that targets both blocks emits interleaved
+\texttt{KV\_DECOMPRESS\_*} and \texttt{PC\_PUSH\_TILE} operations. The
+reference models for both blocks can be composed in the same process:
+
+\begin{lstlisting}[language=Python]
+import channelquant_ref as cq                        # block 2 (KVE)
+from precision_controller_ref import PrecisionController  # block 1 (ACU)
+
+pc = PrecisionController()
+
+K_hat = cq.fq_per_channel(K, bits=4, G=128)          # decompressed keys
+scores = query @ K_hat.transpose(-1, -2)             # Q * K^T
+decision = pc.process_tile(scores)                   # True = FP16, False = INT8
+\end{lstlisting}
+
+%==============================================================================
+\section{Open Questions for the Compiler Team}
+
+\begin{enumerate}
+\item \textbf{Granularity}: does the compiler emit individual compress/decompress
+      ops, or a fused \texttt{kv\_attention(Q, K\_cache, V\_cache)} op?
+\item \textbf{Batch interface}: should the reference model support batched
+      compress/decompress (multiple vectors in one call) for throughput?
+\item \textbf{Async model}: should \texttt{KV\_COMPRESS\_KEY} be non-blocking
+      with a separate completion query, matching the hardware pipeline?
+\item \textbf{Cost model}: are placeholder cycle counts sufficient, or do
+      you need post-synthesis numbers for the scheduler?
+\end{enumerate}
+
+\vspace{0.5in}
+\noindent\rule{\textwidth}{0.4pt}\\
+\noindent\small\textit{LonghornSilicon KV Cache Engine --- Software Overview.
+This document is open and may be redistributed.}
+
+\end{document}

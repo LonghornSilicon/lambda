@@ -1,0 +1,33 @@
+{
+  "model": "Qwen/Qwen2-7B",
+  "tag": "q7",
+  "topk": 2,
+  "n_calib": 128,
+  "n_layers": 28,
+  "n_kv_heads": 4,
+  "head_dim": 128,
+  "max_ctx_tokens": 160,
+  "concentration_median": 8.0,
+  "concentration_p10": 5.13,
+  "concentration_p90": 22.42,
+  "layer0_idx_per_head": [
+    [
+      63,
+      126
+    ],
+    [
+      61,
+      126
+    ],
+    [
+      125,
+      127
+    ],
+    [
+      53,
+      117
+    ]
+  ],
+  "artifact": "reference/masks/q7_k2.npz",
+  "wall_s": 9.0
+}

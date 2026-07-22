@@ -1,0 +1,25 @@
+{
+  "model": "Qwen/Qwen2-1.5B",
+  "tag": "q15",
+  "topk": 2,
+  "n_calib": 128,
+  "n_layers": 28,
+  "n_kv_heads": 2,
+  "head_dim": 128,
+  "max_ctx_tokens": 160,
+  "concentration_median": 7.76,
+  "concentration_p10": 4.97,
+  "concentration_p90": 12.46,
+  "layer0_idx_per_head": [
+    [
+      63,
+      127
+    ],
+    [
+      62,
+      63
+    ]
+  ],
+  "artifact": "reference/masks/q15_k2.npz",
+  "wall_s": 3.0
+}

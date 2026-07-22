@@ -1,0 +1,267 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={KV Cache Engine --- Reference Model API},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={API Reference, Version 0.2}
+}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{\thesubsubsection}{0.6em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small KV Cache Engine --- Reference Model API}
+\rhead{\small v0.2}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\definecolor{codebg}{gray}{0.97}
+\definecolor{codekey}{rgb}{0.13,0.29,0.53}
+\definecolor{codecom}{rgb}{0.25,0.5,0.25}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+  xleftmargin=0.5em,
+  xrightmargin=0.5em,
+  aboveskip=0.6em,
+  belowskip=0.6em,
+  showstringspaces=false,
+  breaklines=true,
+  keywordstyle=\color{codekey}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  numbers=none
+}
+
+\setlist{itemsep=1pt,topsep=2pt}
+
+\begin{document}
+
+%==============================================================================
+\thispagestyle{empty}
+\begin{center}
+\vspace*{1.2in}
+{\Huge\bfseries KV Cache Engine}\\[0.4em]
+{\LARGE\bfseries Reference Model API}\\[1.2em]
+
+{\large \textsc{LonghornSilicon LLM Inference Accelerator}}\\[0.4em]
+{\large Block 2 of 4 --- Bit-Accurate C++ / Python Models (ChannelQuant)}\\[2em]
+
+\rule{0.7\textwidth}{0.4pt}\\[1em]
+
+\begin{tabular}{rl}
+\textbf{Version}:    & 0.2 (ChannelQuant codec) \\
+\textbf{Date}:       & 2026-07-03 \\
+\textbf{Status}:     & Bit-exact vs golden vectors + RTL (3-way parity) \\
+\textbf{Source}:     & \texttt{sw/reference\_model/channelquant\_ref.\{hpp,cpp\}} \\
+\end{tabular}\\[1em]
+\rule{0.7\textwidth}{0.4pt}
+\vfill
+\end{center}
+\clearpage
+
+%==============================================================================
+\tableofcontents
+\clearpage
+
+%==============================================================================
+\section{Overview}
+\label{sec:overview}
+
+The reference model is a bit-accurate implementation of the \textbf{ChannelQuant}
+KV-cache codec (the RTL's behavioral oracle, ported 1:1). It is a small
+free-function API in namespace \texttt{lhsi::cq}: compress / decompress a single
+KV head of shape $[T, D]$ (row-major fp16) through the per-channel key path and
+the per-token value path.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l l l@{}}
+\toprule
+Codec & Namespace & Entry points & Tests \\
+\midrule
+\textbf{ChannelQuant} & \texttt{lhsi::cq} & \texttt{compress\_keys/values}, \texttt{decompress\_*} & 9 golden vectors (C++), 9 (Python) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The Python algorithm reference and golden vectors are frozen in the
+sibling repository \path{../channelquant/reference/}. The retired TurboQuant+ C++
+reference (\path{kv_cache_engine_ref.{hpp,cpp}}) is retained in the same directory
+for archival/regression only; it is not the shipped codec. Top-level orientation:
+\path{sw/README.md}. ISA: \path{docs/isa/kv_cache_engine_isa.pdf}.
+
+%==============================================================================
+\section{Building and Testing}
+\label{sec:build}
+
+\begin{lstlisting}[language=bash]
+make test-cq       # ChannelQuant C++ tests vs the 9 golden vectors
+make test-py       # Python reference tests
+make test-all      # legacy TQ + ChannelQuant + Python
+make shared        # libkv_cache_engine_ref.so
+make static        # libkv_cache_engine_ref.a
+\end{lstlisting}
+
+\noindent Requires Python 3.10+, NumPy, and a C++17 compiler. The tests load the
+vendored golden vectors under
+\path{rtl/tb/testvectors/channelquant/} (committed; no generation step).
+
+%==============================================================================
+\section{ChannelQuant Reference API}
+\label{sec:cqapi}
+
+\subsection{Compress / Decompress}
+
+Single KV head, shape $[T, D]$ row-major fp16 (as \texttt{uint16\_t} bit
+patterns). \texttt{bits} = 8 (CQ-8) or 4 (CQ-4/CQ-4+).
+
+\begin{lstlisting}[language=C++]
+#include "channelquant_ref.hpp"
+using namespace lhsi::cq;
+
+// Values: per-token scale -> INT4/INT8.
+ValueBlob v = compress_values(V_f16, T, D, /*bits=*/4);
+std::vector<uint32_t> Vhat_f32 = decompress_values(v);   // [T*D] fp32 bits
+
+// Keys: per-channel scale over groups of G tokens -> INT4; the channels in
+// `outlier_idx` are held FP16 (CQ-4+). Empty outlier_idx = plain CQ-4.
+KeyBlob k = compress_keys(K_f16, T, D, /*bits=*/4, /*G=*/128, outlier_idx);
+std::vector<uint32_t> Khat_f32 = decompress_keys(k);     // [T*D] fp32 bits
+\end{lstlisting}
+
+\subsection{Core Cores (one per RTL unit)}
+
+\begin{lstlisting}[language=C++]
+uint16_t s   = scale_from_amax(amax_f16, bits);   // cq_scale_unit: max(amax/qmax, EPS)
+int      q   = quant_code(x_f16, s, bits);        // cq_quant: round-half-even + clamp
+uint32_t xh  = dequant_f32(q, s);                 // cq_dequant: code*scale -> fp32
+std::vector<uint8_t> p4 = pack_int4(codes);       // contract-ordered nibble packing
+std::vector<uint8_t> p8 = pack_int8(codes);
+// fp helpers: f16_to_real / f32_to_real / real_to_f16 / real_to_f32
+\end{lstlisting}
+
+%==============================================================================
+\section{Numerical Semantics (Frozen)}
+\label{sec:semantics}
+
+All arithmetic is fixed-function fp16/fp32, matching the RTL exactly
+(contract v0.2):
+
+\begin{itemize}
+\item \textbf{Elements}: IEEE-754 fp16 inputs; fp32 decompressed outputs
+      (read bus, contract \S1).
+\item \textbf{Scale}: $s = \max(\text{amax}/q_{\max},\ \text{EPS})$ cast to fp16,
+      with $\text{EPS}=2^{-14}$ and $q_{\max}=7$ (INT4) or $127$ (INT8).
+\item \textbf{Quantize}: $\mathrm{clamp}(\mathrm{round\_half\_even}(x/s))$ to the
+      tier's signed range (INT4 $[-8,7]$, INT8 $[-128,127]$).
+\item \textbf{Dequantize}: $\hat{x} = \text{code}\cdot s$ computed exactly in fp32
+      (the product fits the 23-bit mantissa, no rounding).
+\item \textbf{Key axis}: per channel over a group of $G$ tokens. \textbf{Value
+      axis}: per token. \textbf{Outlier} channels (CQ-4+): stored raw fp16.
+\end{itemize}
+
+\noindent There is no rotation, no Johnson--Lindenstrauss projection, and no
+Lloyd--Max codebook (those were the retired TurboQuant+ codec). If the model
+disagrees with the chip on any input, the model is wrong --- open an issue with
+the failing vector.
+
+%==============================================================================
+\section{Compressed Data Structures}
+\label{sec:structures}
+
+\subsection{\texttt{ValueBlob} (per-token path)}
+
+\begin{lstlisting}[language=C++]
+struct ValueBlob {
+    int T, D, bits;
+    std::vector<uint16_t> scales;   // [T] fp16 per-token scales
+    std::vector<int>      codes;    // [T*D] signed codes (row-major)
+    std::vector<uint8_t>  payload;  // packed byte stream (contract packing)
+};
+\end{lstlisting}
+
+\subsection{\texttt{KeyBlob} (per-channel grouped path)}
+
+\begin{lstlisting}[language=C++]
+struct KeyBlob {
+    int T, D, bits, G;
+    std::vector<std::pair<int,int>> groups;  // [(a,b), ...] token ranges
+    std::vector<int>      keep;              // non-outlier channel indices
+    std::vector<int>      outlier;           // outlier channel indices (sorted)
+    std::vector<uint16_t> scales;            // per group, nk fp16 (concatenated)
+    std::vector<uint8_t>  payload;           // per group, packed INT4 (concatenated)
+    std::vector<uint16_t> sidecar;           // [T*k] fp16, t-major (outlier cols)
+};
+\end{lstlisting}
+
+\noindent The RTL folds this into a single per-channel SRAM record (keep channel
+$\to\{$scale, INT4$\}$; outlier channel $\to\{$fp16, code $+1\}$); the blob keeps
+the fields separate so each surface (scales / payload / K̂ / sidecar) can be
+checked independently against the golden vectors.
+
+%==============================================================================
+\section{Verification Status}
+\label{sec:verification}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l l@{}}
+\toprule
+Test & Aspect & Status \\
+\midrule
+9 golden vectors (C++) & scales / payload / K̂ / V̂ / sidecar & Bit-exact \\
+9 golden vectors (Python) & same surfaces & Bit-exact \\
+3-way Python↔C++↔SV parity & compress + decompress & Closed (contract \S8) \\
+Tiers CQ-8 / CQ-4 / CQ-4+ & $D\in\{64,128\}$, full + partial groups & Pass \\
+RTL bit-exact vs golden & \texttt{sim\_cq} / \texttt{sim\_kpath} / \texttt{sim\_top} & Pass \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Because the C++ core is a verbatim port of the SV core, C++$\equiv$SV by
+construction, not just coincidence on these vectors.
+
+%==============================================================================
+\section{Co-Design Context}
+\label{sec:codesign}
+
+This directory is the deliverable for compiler-team integration: the reference
+model exposes the same numerical contract the hardware implements, so compiler
+backends can target the KV cache engine before silicon or FPGA prototypes exist.
+
+\medskip
+\noindent Next integration steps: (1) compiler targets the Python/C++ reference
+(now); (2) AXI-Lite + AXI-Stream on Zynq UltraScale+ FPGA; (3) multi-block FPGA
+project with the precision controller; (4) TSMC 16FFC silicon (2027+).
+
+\vspace{0.5in}
+\noindent\rule{\textwidth}{0.4pt}\\
+\noindent\small\textit{LonghornSilicon KV Cache Engine --- Reference Model API.
+This document is open and may be redistributed.}
+
+\end{document}

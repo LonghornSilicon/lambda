@@ -1,0 +1,41 @@
+# synth.ys — Yosys area-sanity flow for kv_cache_engine
+#
+# Run from rtl/:   yosys -s synth.ys
+# Or via Makefile: make synth
+#
+# Two area reports are produced:
+#   1. After generic synth+flatten (technology-independent gate counts, FFs)
+#   2. After abc -fast -g NAND mapping (NAND2-equivalent gate count, lower-bound)
+#
+# Estimated area budget (current hierarchy):
+#   sram_controller: ~200 FFs (behavioral reg array, SRAM_DEPTH=16)
+#   top-level FSM:   ~400 FFs
+#   Total:           ~600 FFs (synthesizable shell only)
+#
+# ChannelQuant datapath cores (cq_units.sv: scale/quant/dequant/pack) are a
+# behavioral, real-valued golden-equivalent model — proven bit-exact vs the
+# golden vectors by tb_channelquant.sv, but NOT synthesizable as-is. Their fp16
+# fixed-function lowering (reciprocal+rounder, residual-group buffer, scale bank)
+# is the P4 synthesis phase; add the lowered modules here once they land.
+
+read_verilog -sv kv_cache_engine.sv
+read_verilog -sv sram_controller.sv
+
+hierarchy -check -top kv_cache_engine
+
+# Generic synthesis with parameter elaboration and flatten
+synth -top kv_cache_engine -flatten
+
+# --- Area report after generic synth ---
+echo on
+stat -width
+echo off
+
+# Map combinational logic into NAND2 gates for technology-independent
+# gate-count lower bound.
+abc -fast -g NAND
+
+# --- Area report after NAND mapping ---
+echo on
+stat -width
+echo off

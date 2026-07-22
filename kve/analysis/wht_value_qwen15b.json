@@ -1,0 +1,26 @@
+{
+  "model": "Qwen/Qwen2-1.5B",
+  "n": 1000,
+  "results": {
+    "fp16": {
+      "acc_norm": 0.59,
+      "delta_vs_fp16": 0.0
+    },
+    "val4 naive (current)": {
+      "acc_norm": 0.58,
+      "delta_vs_fp16": -0.01
+    },
+    "val3 naive": {
+      "acc_norm": 0.567,
+      "delta_vs_fp16": -0.023
+    },
+    "val3 ROTATED": {
+      "acc_norm": 0.592,
+      "delta_vs_fp16": 0.002
+    },
+    "val2 ROTATED": {
+      "acc_norm": 0.478,
+      "delta_vs_fp16": -0.112
+    }
+  }
+}
