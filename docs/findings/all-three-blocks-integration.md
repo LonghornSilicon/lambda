@@ -26,6 +26,7 @@ HellaSwag acc_norm, n=1000, gold TIU config (25% KV budget, recent-window ratio 
 | APA only | +0.001 | −0.002 | +0.001 |
 | TIU + KVCE | −0.018 | −0.025 | −0.025 |
 | **ALL 3 (evict + cq4+ + APA)** | **−0.033** | **−0.030** | **−0.017** |
+| ALL 3 with **CQ-3-rot** values (evict + WHT-INT3 + APA) | **−0.036** | **−0.036** | — |
 | ALL 3 + graded value demotion | −0.023 | −0.029 | −0.024 |
 
 Each block alone is within (or near) the ±0.02 per-block gate. The full stack lands

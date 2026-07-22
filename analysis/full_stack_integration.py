@@ -33,6 +33,31 @@ def _q_per_token(x, bits):
     return torch.round(x / scale).clamp(qmin, qmax) * scale
 
 
+def _fwht_raw(x):
+    """Raw fixed Walsh-Hadamard over the last dim (fp16, add/sub only), matching the KVE
+    codec (channelquant_ref.hpp fwht_raw_f16 / wht_unit.sv). D must be a power of two."""
+    *lead, D = x.shape
+    y = x.reshape(-1, D).to(torch.float16); h = 1
+    while h < D:
+        y = y.reshape(-1, D // (2 * h), 2, h)
+        u, v = y[:, :, 0, :], y[:, :, 1, :]
+        y = torch.stack((u + v, u - v), dim=2).reshape(-1, D).to(torch.float16)
+        h *= 2
+    return y.reshape(*lead, D)
+
+
+def _q_wht3(v):
+    """CQ-3-rot VALUE codec (Abhiram Bandi + Chaithu Talasila): rotate the row, per-token
+    amax + INT3, dequant to fp16, inverse rotate, x(1/D). Bit-exact to the RTL."""
+    D = v.shape[-1]
+    r = _fwht_raw(v.to(torch.float16))
+    amax = r.abs().amax(-1, keepdim=True)
+    scale = torch.clamp(amax.double() / 3, min=EPS).to(torch.float16)
+    code = torch.round(r.double() / scale.double()).clamp(-4, 3)
+    rhat = (code * scale.double()).to(torch.float16)
+    return (_fwht_raw(rhat).double() * (1.0 / D)).to(torch.float32)
+
+
 def _q_keys_per_channel(k, bits, G, k_out):
     B, H, T, D = k.shape
     qmax = (1 << (bits - 1)) - 1; qmin = -(1 << (bits - 1))
@@ -58,6 +83,8 @@ def _kvce(key, value, tier):
         return key, value
     if tier == "cq8":
         return _q_per_token(key.float(), 8).to(key.dtype), _q_per_token(value.float(), 8).to(value.dtype)
+    if tier == "cq3rot":                                   # CQ-4+ keys + WHT-rotated INT3 values
+        return _q_keys_per_channel(key, 4, CFG["G"], CFG["k_out"]), _q_wht3(value).to(value.dtype)
     k_out = CFG["k_out"] if tier == "cq4+" else 0
     return _q_keys_per_channel(key, 4, CFG["G"], k_out), _q_per_token(value.float(), 4).to(value.dtype)
 
@@ -236,6 +263,8 @@ def main():
     R["apa"]             = run_cfg(lm, "apa", args.n, apa=True)
     R["tiu+kvce"]        = run_cfg(lm, "tiu+kvce", args.n, tiu=True, kvce="cq4+")
     R["ALL3"]            = run_cfg(lm, "ALL3", args.n, tiu=True, kvce="cq4+", apa=True)
+    R["kvce(cq3rot)"]    = run_cfg(lm, "kvce(cq3rot)", args.n, kvce="cq3rot")
+    R["ALL3(cq3rot)"]    = run_cfg(lm, "ALL3(cq3rot)", args.n, tiu=True, kvce="cq3rot", apa=True)
     R["ALL3+graded"]     = run_cfg(lm, "ALL3+graded", args.n, tiu=True, kvce="cq4+", apa=True, graded=True)
     # RTL tier-handshake semantics: 2-tier keep->CQ8 / demote->CQ4 by mass threshold, + APA
     R["ALL3+tier(hs)"]   = run_cfg(lm, "ALL3+tier(hs)", args.n, tiu=True, kvce="cq4+",

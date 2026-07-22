@@ -1,0 +1,68 @@
+{
+  "model": "Qwen/Qwen2-1.5B",
+  "n": 1000,
+  "frac": 0.25,
+  "recent_ratio": 0.5,
+  "results": {
+    "fp16": {
+      "acc_norm": 0.59,
+      "kept": null,
+      "int8": null,
+      "delta": 0.0
+    },
+    "tiu": {
+      "acc_norm": 0.556,
+      "kept": 0.43353688479145874,
+      "int8": null,
+      "delta": -0.034
+    },
+    "kvce": {
+      "acc_norm": 0.587,
+      "kept": null,
+      "int8": null,
+      "delta": -0.003
+    },
+    "apa": {
+      "acc_norm": 0.588,
+      "kept": null,
+      "int8": 0.9999996849925407,
+      "delta": -0.002
+    },
+    "tiu+kvce": {
+      "acc_norm": 0.565,
+      "kept": 0.43353688479145874,
+      "int8": null,
+      "delta": -0.025
+    },
+    "ALL3": {
+      "acc_norm": 0.56,
+      "kept": 0.43353688479145874,
+      "int8": 0.9999999824995855,
+      "delta": -0.03
+    },
+    "kvce(cq3rot)": {
+      "acc_norm": 0.577,
+      "kept": null,
+      "int8": null,
+      "delta": -0.013
+    },
+    "ALL3(cq3rot)": {
+      "acc_norm": 0.554,
+      "kept": 0.43353688479145874,
+      "int8": 0.9999999474987568,
+      "delta": -0.036
+    },
+    "ALL3+graded": {
+      "acc_norm": 0.561,
+      "kept": 0.43353688479145874,
+      "int8": 0.9999999649991712,
+      "delta": -0.029
+    },
+    "ALL3+tier(hs)": {
+      "acc_norm": 0.557,
+      "kept": 0.43353688479145874,
+      "int8": 1.0,
+      "delta": -0.033
+    }
+  }
+}
