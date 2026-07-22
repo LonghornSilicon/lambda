@@ -1,0 +1,427 @@
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{colortbl}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage[protrusion=true,expansion=false]{microtype}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{abstract}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{natbib}
+\usepackage[section]{placeins}
+
+\definecolor{codegray}{rgb}{0.95,0.95,0.95}
+\definecolor{codeblue}{rgb}{0.1,0.2,0.6}
+
+\lstset{
+  backgroundcolor=\color{codegray},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{codeblue}\bfseries,
+  language=Verilog,
+  frame=single,
+  framerule=0pt,
+  breaklines=true,
+  captionpos=b,
+}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=codeblue,
+  citecolor=codeblue,
+  urlcolor=codeblue,
+}
+
+% --- table breathing room ---------------------------------------------------
+% Roomier rows and clear vertical separation between floats and the surrounding
+% body text (important with parskip, where floats otherwise butt against
+% paragraphs). tabcolsep left at the default to stay safe in the narrow
+% two-column measure.
+\renewcommand{\arraystretch}{1.25}
+\setlength{\textfloatsep}{16pt plus 2pt minus 2pt}
+\setlength{\intextsep}{14pt plus 3pt minus 2pt}
+\setlength{\floatsep}{14pt plus 2pt minus 2pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\small Token Importance Unit}
+\lhead{\small Chaithu Talasila}
+\cfoot{\thepage}
+
+\title{\textbf{The Token Importance Unit:\\
+A Hardware-Verified H2O Heavy-Hitter Eviction Core\\
+for KV-Cache Budgeting}}
+
+\author{
+  Chaithu Talasila\\
+  \texttt{https://github.com/LonghornSilicon/token-importance-unit}
+}
+
+\date{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+%------------------------------------------------------------------
+\begin{abstract}
+The key--value (KV) cache of an autoregressive transformer grows linearly with
+context, and on an on-die inference accelerator it must be held within a fixed
+SRAM budget. We present the Token Importance Unit (TIU), the third block of the
+LonghornSilicon LLM inference accelerator: a hardware eviction core that
+implements the H2O heavy-hitter policy \citep{zhang2023h2o} --- retain a recent
+local window plus the tokens with the largest accumulated post-softmax attention
+mass, evict the rest. We first validate the algorithm on Qwen2: on long context
+(WikiText-2, 1024-token windows) a 25\% KV budget with a 50/50 recency/heavy-hitter
+split is near-lossless (+1.0\% perplexity), and an 8-bit fixed-point accumulator
+is loss-free for the eviction ranking ($\Delta$ $-0.002$ HellaSwag acc\_norm). We
+then carry the policy to silicon. The RTL core is deliberately minimal ---
+distributed per-slot saturating accumulators, a serialized-argmin victim scan, and
+a per-slot keep/demote tier comparator --- and passes 29/29 directed self-checking
+tests and 40/40 eviction checks replayed from real Qwen2 attention traces,
+bit-exactly matched by a Python reference model. Through the LibreLane/OpenROAD
+open flow on SkyWater Sky130A the design signs off with \emph{zero} violations of
+any kind (setup WNS $+16.6$~ns, hold WNS $+0.18$~ns) in a $13{,}833~\mu$m$^2$ die
+at $\sim$0.58\,\textmu W. Composed with the two sibling blocks (KV Cache Engine,
+Adaptive Precision Attention) on one Qwen2 attention, the full stack --- 75\%
+eviction $\times$ 4-bit KV $\times$ INT8 compute --- costs only $\Delta$ $-0.031$
+HellaSwag acc\_norm versus FP16, with the precision controller 99.99\% INT8.
+\end{abstract}
+
+%------------------------------------------------------------------
+\section{Introduction}
+
+The attention KV cache is the dominant memory cost of long-context LLM inference:
+every generated token appends a key and a value vector per layer per head, so the
+cache grows linearly with sequence length while the model weights stay fixed. On a
+custom accelerator with a bounded on-die SRAM budget, something must decide
+\emph{which} cached tokens to keep as context outgrows the budget.
+
+The Heavy-Hitter Oracle (H2O) \citep{zhang2023h2o} is the canonical answer: a
+small, stable set of tokens receives most of the attention mass across the whole
+sequence, so tracking each token's accumulated post-softmax attention and evicting
+the least-attended tokens preserves accuracy at a fraction of the cache. H2O is
+prior art \emph{as an algorithm}. The contribution of this work is the streaming
+\emph{silicon} that implements it, its bit-accurate software model for compiler
+co-design, and its integration with a mixed-precision KV codec through a
+keep/demote/evict tier signal.
+
+We follow the same discovery-to-silicon path as the sibling Adaptive Precision
+Attention block: validate the policy and its fixed-point sizing on real language
+models, reduce it to a small closed-form-FF datapath, verify it in RTL against a
+bit-exact reference, and sign it off end-to-end through an open ASIC flow.
+
+\paragraph{Contributions.}
+\begin{itemize}
+  \item An accuracy-versus-budget validation of H2O on Qwen2, establishing a gold
+    operating point (25\% KV budget, 50/50 recency/heavy-hitter split) and the
+    fixed-point accumulator width (8 bits, loss-free).
+  \item A minimal eviction-core RTL --- distributed saturating accumulators, a
+    serialized-argmin victim scan, and a per-slot tier comparator --- with a
+    closed-form flip-flop count, verified 29/29 directed and 40/40 on real Qwen2
+    replay traces, and a bit-exact Python reference model.
+  \item A zero-violation Sky130 sign-off and a 16FFC projection.
+  \item A three-block integration measurement (TIU $+$ KV Cache Engine $+$
+    Adaptive Precision Attention) showing the full stack holds within $\sim$3\% of
+    FP16.
+\end{itemize}
+
+%------------------------------------------------------------------
+\section{Related Work}
+
+\paragraph{KV-cache eviction.}
+H2O \citep{zhang2023h2o} retains heavy hitters by accumulated attention mass; our
+eviction datapath is its hardware realization. The complementary axis is
+\emph{compression} rather than eviction: KIVI \citep{liu2024kivi} quantizes keys
+per-channel and values per-token to 2 bits, and KVQuant \citep{hooper2024kvquant}
+pushes to sub-4-bit with per-channel key quantization and outlier isolation for
+very long context. The LonghornSilicon KV Cache Engine (block~2) uses a
+ChannelQuant codec in the same family; the TIU's tier signal drives its per-token
+value precision (\S\ref{sec:integration}), so eviction and compression compose.
+
+\paragraph{Attention compute.}
+FlashAttention \citep{dao2022flashattention} established the tiled, IO-aware
+attention computation that the accelerator's Attention Compute Unit targets; the
+post-softmax attention mass the TIU accumulates is a by-product of that same scan.
+
+%------------------------------------------------------------------
+\section{Algorithm Validation}
+\label{sec:algo}
+
+We validate H2O on Qwen2-0.5B before committing the policy to RTL. The signal ---
+post-softmax attention mass --- was settled by the ACU sparsity study
+(post-softmax mass predicts token importance at $r\approx0.99$; pre-softmax
+proxies at $r\approx0$). Here we size the \emph{policy}: the KV budget, the
+recency split, per-head vs.\ shared selection, and the accumulator bit-width.
+
+\subsection{Accuracy vs.\ KV budget}
+
+We apply H2O eviction to every (layer, head) of Qwen2-0.5B and measure HellaSwag
+acc\_norm as a function of the cache budget $C$ (a fraction of the sequence
+length), with a recent local window of $L = C/2$ tokens plus the top $C-L$ heavy
+hitters (Table~\ref{tab:budget}). Accuracy is near-lossless ($|\Delta|\le0.006$)
+down to a 25\% budget, then bends sharply below $\sim$15\%.
+
+\begin{table}[tbp]
+\centering
+\caption{HellaSwag acc\_norm vs.\ KV budget, Qwen2-0.5B, $n{=}500$,
+  recent-window share $L/C = 0.5$.}
+\label{tab:budget}
+\small
+\begin{tabular}{lcc}
+\toprule
+KV budget & acc\_norm & $\Delta$ vs.\ full \\
+\midrule
+1.00 & 0.498 & --- \\
+0.75 & 0.490 & $-0.008$ \\
+0.50 & 0.496 & $-0.002$ \\
+0.35 & 0.496 & $-0.002$ \\
+\textbf{0.25 (gold)} & \textbf{0.492} & $\mathbf{-0.006}$ \\
+0.15 & 0.454 & $-0.044$ \\
+0.10 & 0.376 & $-0.122$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Long-context knee}
+
+HellaSwag sequences are short, so eviction barely triggers there (kept fraction
+$\approx0.97$ at a 25\% budget) and the knee is soft. Concatenating WikiText-2 into
+non-overlapping 1024-token windows (131{,}072 tokens) exercises the budget
+properly: the kept fraction drops to 0.44 at a 25\% budget, and perplexity is flat
+to 50\% (+0.0\%), near-flat at 25\% (\textbf{+1.0\%}), then bends --- +4.0\% at
+15\%, +8.9\% at 10\%, +25.7\% at 5\%. On genuinely long context the 25\% gold
+budget is near-lossless and the knee sits around 10--15\%, sharper and cleaner than
+HellaSwag showed.
+
+\subsection{Per-head vs.\ shared budget}
+
+A shared budget (rank tokens by attention mass summed over heads, one keep-set per
+layer) is cheaper silicon --- $1/H$ the accumulator width and a single eviction
+index --- but heads disagree on which tokens matter. At the gold 25\% budget a
+shared keep-set costs $-0.040$ acc\_norm versus per-head, well past the $\pm0.02$
+per-block gate; the gap only closes at loose ($\ge$50\%) budgets where there is no
+eviction pressure. We therefore keep \textbf{per-head} selection in the RTL.
+
+\subsection{Accumulator bit-width}
+\label{sec:scorewidth}
+
+The RTL stores each token's accumulated mass in a fixed-point accumulator of
+\texttt{SCORE\_WIDTH} bits (unsigned, round-to-nearest, saturating), applied
+before the heavy-hitter selection. Table~\ref{tab:scorewidth} sweeps the width at
+the gold budget. Accuracy is flat down to \textbf{8 bits} ($\Delta$ $-0.002$ vs.\
+an fp32 accumulator), falls off a cliff at 6 bits ($-0.022$), and is broken at 4.
+We set \textbf{\texttt{SCORE\_WIDTH} $=8$}: loss-free with margin, half the storage
+of a naive 16-bit register, and a smaller argmin read-mux (which later drove the
+Sky130 max-transition closure).
+
+\begin{table}[tbp]
+\centering
+\caption{HellaSwag acc\_norm vs.\ accumulator width, gold budget,
+  Qwen2-0.5B, $n{=}500$. fp32 accumulator reference $= 0.492$.}
+\label{tab:scorewidth}
+\small
+\begin{tabular}{lcc}
+\toprule
+\texttt{SCORE\_WIDTH} & acc\_norm & $\Delta$ vs.\ fp32 \\
+\midrule
+16 & 0.498 & $+0.006$ \\
+12 & 0.496 & $+0.004$ \\
+10 & 0.498 & $+0.006$ \\
+\textbf{8} & \textbf{0.490} & $\mathbf{-0.002}$ \\
+6  & 0.470 & $-0.022$ \\
+4  & 0.456 & $-0.036$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%------------------------------------------------------------------
+\section{RTL Design and Verification}
+\label{sec:rtl}
+
+\subsection{Datapath}
+
+The DUT (\path{rtl/token_importance_unit.sv}) maintains \texttt{N\_SLOTS}
+KV-cache slots, each a (\texttt{score}, \texttt{valid}) pair, and implements three
+operations plus a combinational tier read:
+\begin{align*}
+\texttt{LOAD}(s)   &:\; \texttt{score}[s]\leftarrow0,\;\texttt{valid}[s]\leftarrow1 \\
+\texttt{ACC}(s, w) &:\; \texttt{score}[s]\leftarrow\mathrm{sat\_add}(\texttt{score}[s], w) \\
+\texttt{EVICT}()   &:\; \rightarrow\arg\min_{k:\,\texttt{valid}[k]}\texttt{score}[k] \\
+\texttt{TIER}(\theta) &:\; \texttt{tier\_keep}[k]=\texttt{valid}[k]\wedge(\texttt{score}[k]\ge\theta)
+\end{align*}
+Three design choices make it place-and-route at a real clock. First, eviction is a
+\emph{serialized} argmin (one comparator over $\texttt{N\_SLOTS}+1$ cycles), not a
+wide combinational min tree. Second, the accumulators are \emph{distributed} ---
+each slot owns a small saturating adder driven only by its own score and the
+broadcast weight, avoiding a shared adder-result net fanning out to
+\texttt{N\_SLOTS} register-input muxes. Third, only the control flip-flops
+(\texttt{state}, \texttt{valid[]}, \texttt{evict\_valid}) are reset; the
+\texttt{score[]} datapath is not (a slot is zeroed by \texttt{LOAD} before it is
+ever read), which keeps \texttt{rst\_n} fanout at $\sim$11 instead of $\sim$113.
+The flip-flop count is closed-form,
+\[
+  \mathrm{FFs}=\texttt{N\_SLOTS}\cdot(\texttt{SCORE\_WIDTH}{+}1)+\texttt{SCORE\_WIDTH}+3\,\texttt{SLOT\_WIDTH}+3,
+\]
+92 at $\texttt{N\_SLOTS}{=}8$ (95 synthesized; yosys leaves $\sim$3 slot-index FFs
+un-merged, the value the CI gate pins).
+
+The \emph{H2O recent-window and budget bookkeeping is a control-layer wrapper},
+not part of this core --- the silicon is accumulate $+$ argmin $+$ tier, and the
+software layer decides when to \texttt{LOAD} and \texttt{EVICT}, exactly as
+block~1 shipped just the ratio gate.
+
+\subsection{Functional verification}
+
+Two self-checking testbenches drive the same DUT, each maintaining a shadow model
+of the exact eviction semantics (serialized argmin, strict-less scan seeded at
+slot~0):
+\begin{itemize}
+  \item \textbf{Directed TB} (\path{tb_token_importance_unit.sv}): directed cases
+    (distinct masses, tie-breaking, saturation past \texttt{SCORE\_MAX}, tier
+    thresholding, free-on-evict) plus a 200-op randomized soak. Result: 29/29 pass.
+  \item \textbf{Replay TB} (\path{tb_realdata.sv}): 444 LOAD/ACC/EVICT ops
+    generated from a real Qwen2-0.5B forward pass by
+    \path{analysis/gen_tiu_testvectors.py} (48 tokens streamed through 8 slots,
+    40 evictions), each EVICT checked against the victim the argmin should
+    produce. Result: 40/40 evictions bit-exact.
+\end{itemize}
+
+\subsection{Bit-exact reference model}
+
+A Python model (\path{sw/reference_model/tiu_ref.py}) mirrors the RTL
+op-for-op --- the same distributed saturating accumulators, the same serialized
+argmin seeded at slot~0, the same tier comparator. Replaying the committed golden
+trace through both the model and the SystemVerilog DUT yields identical victims on
+all 40 evictions (\path{test_tiu_ref.py}), establishing Python$\leftrightarrow$RTL
+parity. The model is the compiler team's target before silicon or FPGA exists.
+
+%------------------------------------------------------------------
+\section{Sky130 Physical Sign-off}
+\label{sec:sky130}
+
+We implement the design end-to-end through the LibreLane/OpenROAD
+\citep{librelane2024} open ASIC flow (synthesis, floorplan, placement, CTS,
+routing, extraction, multi-corner STA, DRC, LVS, antenna) on SkyWater Sky130A. The
+design signs off with \emph{zero} violations of any kind
+(Table~\ref{tab:sky130}).
+
+\begin{table}[tbp]
+\centering
+\caption{Sky130A sign-off, 25~ns clock. Zero violations across every check.}
+\label{tab:sky130}
+\small
+\begin{tabular}{lc}
+\toprule
+Check & Count \\
+\midrule
+Setup (WNS $+16.6$~ns) & \textbf{0} \\
+Hold (WNS $+0.18$~ns)  & \textbf{0} \\
+Max transition (slew)  & \textbf{0} \\
+Max capacitance        & \textbf{0} \\
+Max fanout             & \textbf{0} \\
+Routing DRC / Magic DRC & \textbf{0} \\
+LVS errors             & \textbf{0} \\
+Antenna violations     & \textbf{0} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Headline numbers: a $13{,}833~\mu$m$^2$ die at $\sim$0.58\,\textmu W, 2075 cells.
+Closing slew and fanout (748 $\to$ 0 violations) took four RTL/config levers:
+resetting only the control flip-flops (\texttt{rst\_n} fanout $113\to11$),
+distributing the per-slot accumulators, dropping \texttt{SCORE\_WIDTH} from 16 to 8
+(\S\ref{sec:scorewidth}), and signing off at the Sky130 cells' real
+\texttt{max\_transition} of 1.5~ns (the flow's 0.75~ns default is half the PDK
+spec). The tier port is emitted as \texttt{N\_SLOTS} parallel comparators, adding
+no fanout to the argmin path, so it did not perturb the clean sign-off.
+
+\paragraph{Physical proxy.}
+The shipped RTL default is $\texttt{N\_SLOTS}=8$ (what the testbench verifies
+bit-exact). The physical run synthesizes an $\texttt{N\_SLOTS}=4$ proxy via
+\texttt{SYNTH\_PARAMETERS} --- exactly as the KV Cache Engine ships a
+$\texttt{VECTOR\_DIM}=8$ proxy --- to shrink the argmin-mux fanout and clock tree
+so the clock-root fanout clears the flow's limit, with the datapath
+parameter-identical. Flip-flop count: 95 at $\texttt{N\_SLOTS}{=}8$ (real), 53 at
+$\texttt{N\_SLOTS}{=}4$ (proxy).
+
+\paragraph{16FFC projection.}
+Applying the published Sky130$\to$TSMC 16FFC scaling ratios used in the sibling
+block's cross-check ($\sim$5$\times$ area reduction, $\sim$2$\times$ speed gain,
+$\sim$10$\times$ dynamic-power reduction) to the signed-off Sky130 numbers projects
+the eviction core to $\sim$2{,}800~$\mu$m$^2$ and $\sim$0.06\,\textmu W in 16FFC ---
+negligible silicon against the multi-kilobyte KV SRAM it manages. A real Genus /
+Innovus sign-off on the University Program shuttle is future work; the projection
+uses documented per-cell ratios, not measured 16FFC values.
+
+%------------------------------------------------------------------
+\section{Three-Block Integration}
+\label{sec:integration}
+
+We compose all three live LonghornSilicon blocks in one custom Qwen2 attention, in
+chip order: the KV Cache Engine (block~2) decompresses K/V $\to$ attention scores
+$\to$ the TIU (block~3) rules keep/demote/evict $\to$ Adaptive Precision Attention
+(block~1) routes the $S\!\cdot\!V$ MAC between INT8 and FP16. The TIU emits the
+tier signal the KVCE already consumes: \texttt{evict} drops a token's K and V;
+\texttt{tier\_keep}$=1$ stores its \emph{value} at CQ-8, \texttt{tier\_keep}$=0$ at
+CQ-4. The tier is a per-token \emph{value}-precision lever only --- per-token key
+demotion collapses GQA (measured $-0.17$), so keys stay uniform per-channel.
+
+\begin{table}[tbp]
+\centering
+\caption{Full-stack HellaSwag acc\_norm vs.\ FP16 full cache, Qwen2, gold TIU
+  config (25\% budget, $L/C{=}0.5$).}
+\label{tab:integration}
+\small
+\begin{tabular}{lcc}
+\toprule
+Config & 0.5B ($n{=}1000$) & 1.5B ($n{=}1000$) \\
+\midrule
+fp16 (baseline)          & 0.489 & 0.590 \\
+TIU evict only           & $-0.016$ & $-0.034$ \\
+KVCE cq4+ only           & $-0.015$ & $-0.003$ \\
+APA only                 & $+0.001$ & $-0.002$ \\
+\textbf{ALL 3}           & $\mathbf{-0.033}$ & $\mathbf{-0.030}$ \\
+ALL 3 $+$ graded demote  & $-0.023$ & $-0.029$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The full stack (Table~\ref{tab:integration}) lands at $\sim$$-0.03$ acc\_norm ---
+the expected cumulative cost of three aggressive, independent optimizations (75\%
+cache eviction $\times$ 4-bit KV $\times$ INT8 compute) --- with APA effectively
+free (99.99\% INT8, $\approx$FP16). Graded \emph{value} demotion (spend bits on
+heavy hitters, starve the rest) recovers $\sim$1 point on the 0.5B model. Using the
+exact RTL \texttt{tier\_keep} semantics (2-tier keep$\to$CQ-8 / demote$\to$CQ-4 by
+an accumulated-mass threshold), the tier-handshake configuration measures
+$\Delta$ $-0.031$ at a 25\% budget with APA fully active. To hold under a
+$\pm0.02$ combined envelope, the TIU budget backs off to $\sim$35\% (where TIU
+alone is $\approx-0.006$); 25\% is the aggressive operating point.
+
+%------------------------------------------------------------------
+\section{Conclusion}
+
+The Token Importance Unit carries the H2O heavy-hitter policy from algorithm to
+signed-off silicon. On Qwen2 a 25\% KV budget with a 50/50 recency split is
+near-lossless (+1.0\% long-context perplexity) and an 8-bit accumulator is
+loss-free. The eviction core --- distributed saturating accumulators, a
+serialized-argmin victim scan, and a per-slot tier comparator --- passes 29/29
+directed and 40/40 real-Qwen2 replay checks, is bit-exactly reproduced by a Python
+reference model, and signs off through the LibreLane/OpenROAD open flow on Sky130
+with zero violations in a $13{,}833~\mu$m$^2$ die at $\sim$0.58\,\textmu W,
+projecting to $\sim$2{,}800~$\mu$m$^2$ in TSMC 16FFC. Composed with the KV Cache
+Engine and Adaptive Precision Attention, the full three-block stack holds within
+$\sim$3\% of FP16 --- an eviction core ready for the University Program shuttle.
+
+%------------------------------------------------------------------
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

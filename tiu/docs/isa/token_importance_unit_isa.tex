@@ -1,0 +1,481 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={Token Importance Unit --- Interface Specification},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={ISA Specification, Version tiu-isa-0.1}
+}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{\thesubsubsection}{0.6em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small Token Importance Unit ISA}
+\rhead{\small \texttt{tiu-isa-0.1}}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\definecolor{codebg}{gray}{0.97}
+\definecolor{codekey}{rgb}{0.13,0.29,0.53}
+\definecolor{codecom}{rgb}{0.25,0.5,0.25}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+  xleftmargin=0.5em,
+  xrightmargin=0.5em,
+  aboveskip=0.6em,
+  belowskip=0.6em,
+  showstringspaces=false,
+  breaklines=true,
+  keywordstyle=\color{codekey}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  numbers=none
+}
+
+\setlist{itemsep=1pt,topsep=2pt}
+
+% --- table breathing room ---------------------------------------------------
+% Roomier rows, a touch more column padding, and clear vertical separation
+% between floats and the surrounding body text (important with parskip, where
+% floats otherwise butt against paragraphs).
+\renewcommand{\arraystretch}{1.25}
+\setlength{\tabcolsep}{7pt}
+\setlength{\textfloatsep}{18pt plus 2pt minus 2pt}
+\setlength{\intextsep}{16pt plus 3pt minus 2pt}
+\setlength{\floatsep}{16pt plus 2pt minus 2pt}
+
+\begin{document}
+
+%==============================================================================
+% Title page
+%==============================================================================
+\thispagestyle{empty}
+\begin{center}
+\vspace*{1.2in}
+{\Huge\bfseries Token Importance Unit}\\[0.4em]
+{\LARGE\bfseries Interface Specification}\\[1.2em]
+
+{\large \textsc{LonghornSilicon LLM Inference Accelerator}}\\[0.4em]
+{\large Block 3 of 4 --- H2O Heavy-Hitter Eviction Core}\\[2em]
+
+\rule{0.7\textwidth}{0.4pt}\\[1em]
+
+\begin{tabular}{rl}
+\textbf{Version}:    & \texttt{tiu-isa-0.1} (first public draft) \\
+\textbf{Date}:       & 2026-07-18 \\
+\textbf{Status}:     & Pre-tape-out stub for compiler integration \\
+\textbf{Author}:     & Chaithu Talasila, The University of Texas at Austin \\
+\textbf{Reference}:  & \texttt{LonghornSilicon/token-importance-unit} \\
+\end{tabular}\\[1em]
+\rule{0.7\textwidth}{0.4pt}
+
+\vfill
+\begin{minipage}{0.85\textwidth}
+\small
+\textbf{Scope.} This document describes the externally-visible interface to the
+\texttt{token\_importance\_unit} block as it will appear on the chip, on an FPGA
+prototype (Xilinx ZCU102/104), or in the bit-accurate software model. A compiler
+backend targeting the TIU writes against this interface; the hardware
+implementation must conform to it. This specification is stable for the Token
+Importance Unit block only and will be unified with the rest of the
+LonghornSilicon ISA when the Attention Compute Unit, KV Cache Engine, and Memory
+Hierarchy Controller blocks land.
+\end{minipage}
+
+\vspace{0.3in}
+\end{center}
+
+\clearpage
+\tableofcontents
+\clearpage
+
+%==============================================================================
+% 1. Block overview
+%==============================================================================
+\section{Block Overview}
+\label{sec:overview}
+
+The Token Importance Unit is the H2O heavy-hitter eviction core for the KV cache.
+It maintains \texttt{N\_SLOTS} KV-cache slots, each holding an accumulated
+attention-mass score (the heavy-hitter-oracle statistic). It exposes three
+operations and one combinational tier read:
+\begin{align*}
+\texttt{LOAD}(s)      &:\; \texttt{score}[s] \leftarrow 0,\; \texttt{valid}[s] \leftarrow 1 \\
+\texttt{ACC}(s, w)    &:\; \texttt{score}[s] \leftarrow \mathrm{sat\_add}(\texttt{score}[s], w) \\
+\texttt{EVICT}()      &:\; \rightarrow \arg\min_{k:\,\texttt{valid}[k]} \texttt{score}[k]\;\;\text{(then free it)} \\
+\texttt{TIER}(\theta) &:\; \texttt{tier\_keep}[k] = \texttt{valid}[k] \wedge (\texttt{score}[k] \geq \theta)
+\end{align*}
+
+\begin{itemize}
+\item \textbf{ACC} adds the per-step attention mass a cached token just received,
+  one weight per cycle, saturating at $\texttt{SCORE\_MAX} = 2^{\texttt{SCORE\_WIDTH}}-1$.
+  Accumulators are \emph{distributed} (one saturating adder per slot, no shared
+  broadcast net).
+\item \textbf{LOAD} installs a fresh token: zero its score, mark it valid. LOAD
+  has priority over ACC when both target the same slot in the same cycle.
+\item \textbf{EVICT} runs a \emph{serialized argmin} (one comparator, no wide
+  combinational min tree) over the valid slots, returns the minimum-mass slot ---
+  the token to drop --- then frees it.
+\item \textbf{TIER} is combinational: \texttt{N\_SLOTS} parallel comparators emit
+  a per-slot keep/demote flag against the programmable \texttt{TIER\_THRESHOLD}.
+\end{itemize}
+
+\medskip
+\noindent\textbf{The H2O recent-window and KV-budget bookkeeping is a
+control-layer wrapper, not part of this core.} The silicon core is
+\emph{accumulate + argmin + tier}; the software layer decides \emph{when} to LOAD
+and EVICT (see \path{sw/reference_model/example_compiler_use.py}). This mirrors
+how block~1 shipped just the ratio gate and left the tile loop to the compiler.
+
+\medskip
+\noindent\textbf{Latency:} \texttt{LOAD} and \texttt{ACC} complete in one cycle
+from idle; \texttt{EVICT} takes $\texttt{N\_SLOTS}+1$ cycles (the serialized
+argmin scan plus the result). \texttt{TIER} is combinational.\\
+\textbf{Throughput:} one \texttt{LOAD}/\texttt{ACC} per cycle; one eviction per
+$\texttt{N\_SLOTS}+1$ cycles.\\
+\textbf{Footprint:} 95 flip-flops at $\texttt{N\_SLOTS}=8$; $13\,833~\mu$m$^2$
+die, $\sim$0.58\,\textmu W at SkyWater Sky130A ($\texttt{N\_SLOTS}=4$ physical
+proxy; see \S\ref{sec:syntime} and \path{docs/sky130_signoff.md}).\\
+\textbf{Bit-exact reference:} \path{sw/reference_model/tiu_ref.py} (40/40 RTL
+replay evictions match).
+
+%==============================================================================
+% 2. Memory map
+%==============================================================================
+\section{Address Space and Memory Map}
+\label{sec:memmap}
+
+The block exposes a 256-byte AXI-Lite slave register window. All registers are
+32-bit, word-aligned. The base address is set at chip integration time (e.g.,
+\texttt{0x4000\_2000} on the ZCU102 PYNQ overlay). $\texttt{SLOT\_WIDTH} =
+\lceil\log_2\texttt{N\_SLOTS}\rceil$.
+
+\begin{table}[h]
+\centering
+\small
+\caption{AXI-Lite register window (offsets relative to base address).}
+\label{tab:regs}
+\begin{tabular}{@{}l l c l p{6.4cm}@{}}
+\toprule
+Offset & Name & Access & Reset & Purpose \\
+\midrule
+\texttt{0x00} & \texttt{CTRL}              & RW  & 0x0   & bit[0]: \texttt{soft\_reset} (write-1 to pulse; clears \texttt{valid[]}); bit[1]: \texttt{enable} \\
+\texttt{0x04} & \texttt{STATUS}            & R   & 0x1   & bit[0]: \texttt{idle} (= \texttt{!busy}); bit[1]: \texttt{evict\_valid}; bit[2]: \texttt{scan\_in\_progress} (= \texttt{busy}) \\
+\texttt{0x08} & \texttt{INFO\_N\_SLOTS}    & R   & (syn) & Synthesis-time \texttt{N\_SLOTS} \\
+\texttt{0x0C} & \texttt{INFO\_SCORE\_WIDTH}& R   & (syn) & Bits per accumulated-mass score \\
+\texttt{0x10} & \texttt{INFO\_WEIGHT\_WIDTH}& R  & (syn) & Bits per \texttt{ACC} increment \\
+\texttt{0x14} & \texttt{INFO\_VERSION}     & R   & 0x0001& bits[15:8] major, bits[7:0] minor \\
+\texttt{0x18} & \texttt{TIER\_THRESHOLD}   & RW  & 0x0   & Accumulated-mass keep/demote boundary (\texttt{SCORE\_WIDTH} bits) \\
+\texttt{0x1C} & \texttt{OP\_LOAD}          & W   & ---   & Write slot in bits[\texttt{SLOT\_WIDTH}$-$1:0] $\to$ LOAD \\
+\texttt{0x20} & \texttt{OP\_ACC}           & W   & ---   & bits[\texttt{SLOT\_WIDTH}$-$1:0]=slot; bits[16$+$]=weight $\to$ ACC \\
+\texttt{0x24} & \texttt{OP\_EVICT}         & W   & ---   & Write-1 to bit[0] $\to$ trigger a serialized-argmin scan \\
+\texttt{0x28} & \texttt{EVICT\_RESULT}     & R   & 0x0   & bit[31]: \texttt{valid}; bits[\texttt{SLOT\_WIDTH}$-$1:0]: victim slot \\
+\texttt{0x2C} & \texttt{TIER\_KEEP}        & R   & 0x0   & bit[$k$] = \texttt{tier\_keep}[$k$] (1 = keep/CQ-8, 0 = demote/CQ-4) \\
+\texttt{0x30} & \texttt{SLOT\_VALID}       & R   & 0x0   & bit[$k$] = \texttt{valid}[$k$] (diagnostic occupancy) \\
+\texttt{0x34} & \texttt{SCORE\_SEL}        & RW  & 0x0   & Slot index selecting \texttt{SCORE\_READ} (diagnostic) \\
+\texttt{0x38} & \texttt{SCORE\_READ}       & R   & ---   & Accumulated mass of the \texttt{SCORE\_SEL} slot (diagnostic) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Conventions.} \texttt{RW} = read/write; \texttt{R} = read-only;
+\texttt{W} = write-only trigger; (syn) = value fixed at synthesis time. Writes to
+read-only registers are silently dropped; reading reserved offsets returns zero.
+\texttt{OP\_*} writes are ignored while \texttt{STATUS.scan\_in\_progress} is
+asserted; a compiler polls \texttt{STATUS.idle} before the next op, or uses the
+streaming interface (\S\ref{sec:stream}), which handles backpressure in hardware.
+
+%==============================================================================
+% 3. Streaming interface
+%==============================================================================
+\section{Streaming Op Interface}
+\label{sec:stream}
+
+For high throughput the op stream is also exposed as an AXI-Stream channel; the
+AXI-Lite window is then used only for \texttt{INFO\_*}, \texttt{TIER\_THRESHOLD},
+and diagnostics. This is the recommended path --- one op per cycle with hardware
+backpressure, matching the RTL's native op ports.
+
+\subsection{\texttt{s\_axis\_ops} --- Operation Input (Slave)}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l c c p{7.2cm}@{}}
+\toprule
+Signal & Width & Direction & Purpose \\
+\midrule
+\texttt{tdata}  & $2{+}\texttt{SLOT\_WIDTH}{+}\texttt{WEIGHT\_WIDTH}$ & in & \{\texttt{op}[1:0], \texttt{slot}, \texttt{weight}\} \\
+\texttt{tvalid} & 1 & in  & Handshake: op is valid \\
+\texttt{tready} & 1 & out & Handshake: block is ready to accept \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\texttt{op} encoding: $0=\texttt{ACC}$, $1=\texttt{LOAD}$,
+$2=\texttt{EVICT}$ (matching the golden trace and
+\path{analysis/gen_tiu_testvectors.py}). For \texttt{LOAD}, \texttt{weight} is
+ignored; for \texttt{EVICT}, \texttt{slot} and \texttt{weight} are ignored.
+\texttt{tready} deasserts for \texttt{N\_SLOTS} cycles after an \texttt{EVICT}
+while the argmin scan runs.
+
+\subsection{\texttt{m\_axis\_evict} --- Eviction Output (Master)}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l c c p{7.2cm}@{}}
+\toprule
+Signal & Width & Direction & Purpose \\
+\midrule
+\texttt{tdata}  & \texttt{SLOT\_WIDTH} & out & The evicted (minimum-mass) victim slot \\
+\texttt{tvalid} & 1 & out & Handshake: victim is valid (one beat per \texttt{EVICT}) \\
+\texttt{tready} & 1 & in  & Handshake: downstream (KVCE) is ready \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent One beat per \texttt{EVICT}, emitted $\texttt{N\_SLOTS}+1$ cycles after
+the \texttt{EVICT} is accepted. \texttt{tier\_keep} is not streamed --- it is a
+continuously-valid combinational output the KV cache engine samples when it
+(re)compresses a token's value (\S\ref{sec:tier}).
+
+%==============================================================================
+% 4. Logical operations
+%==============================================================================
+\section{Logical Operations}
+\label{sec:ops}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l l p{5.6cm}@{}}
+\toprule
+Operation           & Inputs        & Outputs      & Description \\
+\midrule
+\texttt{TIU\_QUERY}     & ---           & INFO struct  & Read all \texttt{INFO\_*} registers in one transaction \\
+\texttt{TIU\_RESET}     & ---           & ---          & Soft reset: clear \texttt{valid[]} (empty the cache) \\
+\texttt{TIU\_ENABLE}    & ---           & ---          & Set bit[1] of \texttt{CTRL} \\
+\texttt{TIU\_LOAD}      & slot          & ---          & Install a fresh token (score $:=0$, valid $:=1$) \\
+\texttt{TIU\_ACC}       & slot, weight  & ---          & Add \texttt{weight} of mass to \texttt{slot} (saturating) \\
+\texttt{TIU\_EVICT}     & ---           & victim slot  & Run argmin; return + free the minimum-mass valid slot \\
+\texttt{TIU\_SET\_TIER} & threshold     & ---          & Program \texttt{TIER\_THRESHOLD} \\
+\texttt{TIU\_READ\_TIER}& ---           & keep bitmap  & Read \texttt{TIER\_KEEP} (per-slot keep/demote) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The block has no other externally-observable side effects: no
+clock-gating register, no power state machine, and no DFT scan-chain control at
+this stub level (those land on the chip-level ISA).
+
+\subsection{Worked Lowering Example}
+\label{sec:lowering}
+
+How a representative compiler IR operation lowers to a sequence of TIU ops. The
+example uses a generic \texttt{kv\_cache\_append} op any silicon-agnostic
+compiler is likely to have; the H2O wrapper is compiler-side.
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+info = TIU_QUERY()                 // -> n_slots=8, score_width=8, weight_width=8
+TIU_RESET(); TIU_ENABLE()
+C = min(round(0.25 * ctx_len), info.n_slots)   // gold 25% KV budget
+
+for t in tokens:
+    free = first_invalid_slot()
+    if free is None:               // cache full -> evict the argmin victim
+        victim = TIU_EVICT()       // N_SLOTS+1 cycles, returns slot
+        kvce_drop(slot=victim)     // KVCE frees this token's K and V
+        free = victim
+    TIU_LOAD(free)                 // install token t
+    for (slot, w) in attn_mass_over_cache(t):
+        TIU_ACC(slot, w)           // 1 cycle each; accumulate received mass
+\end{lstlisting}
+
+\textbf{Value-tier pass} (when the KVCE (re)compresses a surviving token's value):
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+TIU_SET_TIER(threshold)            // e.g. a percentile of accumulated mass
+keep = TIU_READ_TIER()             // bit[s] = 1 -> value @ CQ-8, else CQ-4
+for s in occupied_slots:
+    kvce_store_value(slot=s, bits = 8 if keep[s] else 4)
+\end{lstlisting}
+
+\noindent The same lowering works whether the compiler's target is the Python
+reference model (phase~0), the FPGA prototype (phase~1), or the silicon chip
+(phase~3). Only the runtime implementation of the \texttt{TIU\_*} operations
+changes underneath --- Python call, AXI register write, or PCIe MMIO.
+
+%==============================================================================
+% 5. Tier handshake
+%==============================================================================
+\section{Tier Handshake to the KV Cache Engine}
+\label{sec:tier}
+
+The TIU tells the KV Cache Engine (block~2) how to treat each cached token ---
+\textbf{keep}, \textbf{demote}, or \textbf{evict} --- via two channels:
+
+\begin{enumerate}
+\item \textbf{Evict} (\texttt{m\_axis\_evict} / \texttt{EVICT\_RESULT}): the
+  minimum-mass victim's K and V are \emph{dropped} and the slot freed. This is
+  the per-token lever that applies to \emph{both} K and V.
+\item \textbf{Keep / demote} (\texttt{TIER\_KEEP} against
+  \texttt{TIER\_THRESHOLD}): for a surviving token in slot $s$, the KVCE reads
+  \texttt{tier\_keep}[$s$] when it (re)compresses that token's \emph{value}:
+  \begin{itemize}
+  \item \texttt{tier\_keep}[$s$]$=1$ (heavy hitter) $\to$ store the \textbf{value
+    at CQ-8} (per-token INT8).
+  \item \texttt{tier\_keep}[$s$]$=0$ (demote) $\to$ store the \textbf{value at
+    CQ-4} (per-token INT4).
+  \end{itemize}
+\end{enumerate}
+
+\noindent The tier is a per-token \textbf{value}-precision lever only. Keys stay
+uniform per-channel (per-token key demotion collapses GQA; measured $-0.17$ in
+the full stack), so the whole key cache shares one ChannelQuant key tier, set
+globally. \texttt{tier\_keep} is emitted as \texttt{N\_SLOTS} parallel
+comparators (no read-mux), so it adds no fanout to the argmin datapath --- this is
+what kept the Sky130 sign-off at 0 violations after the port was added. The full
+protocol, verified end-to-end with the ACU precision controller in the loop, is in
+\path{docs/tier_handshake.md}.
+
+%==============================================================================
+% 6. Synthesis-time configuration
+%==============================================================================
+\section{Synthesis-Time Configuration}
+\label{sec:syntime}
+
+The following parameters are baked in at synthesis and cannot be changed at
+runtime. A compiler reads them via the \texttt{INFO\_*} registers and tailors its
+code generation accordingly.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l c l p{5.5cm}@{}}
+\toprule
+Parameter          & Default & Range (validated)      & Notes \\
+\midrule
+\texttt{N\_SLOTS}     & 8 & 2, 4, 8, 16, 32   & KV-cache slots (per head, or per shared group) \\
+\texttt{SCORE\_WIDTH} & 8 & 6, 8, 10, 12, 16  & Accumulated-mass width; \textbf{8 is loss-free} \\
+\texttt{WEIGHT\_WIDTH}& 8 & 4, 6, 8           & Per-step attention-mass increment width \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent \texttt{SCORE\_WIDTH} $=8$ is set from the accumulator-bit-width study
+(\path{docs/findings/h2o-deep-analysis.md}): 8 bits is loss-free for the eviction
+ranking on Qwen2 ($\Delta$ $-0.002$ acc\_norm); 6 bits breaks ($-0.022$). Fewer
+score bits also shrink the argmin read-mux, which drove the Sky130 max-transition
+closure.
+
+\medskip
+\noindent\textbf{Physical proxy: \texttt{N\_SLOTS} $=4$.} The shipped RTL default
+is \texttt{N\_SLOTS} $=8$ (what the testbench verifies bit-exact). The Sky130
+physical run synthesizes an \texttt{N\_SLOTS} $=4$ proxy via
+\texttt{SYNTH\_PARAMETERS} --- exactly as the KV Cache Engine ships a
+\texttt{VECTOR\_DIM} $=8$ proxy --- to shrink the argmin-mux fanout and clock
+tree so the clock-root fanout clears the flow's limit; the datapath is
+parameter-identical. FF count: \textbf{95 @ N\_SLOTS=8} (real),
+\textbf{53 @ N\_SLOTS=4} (proxy). Real \texttt{N\_SLOTS} is set
+per-instantiation. The count tracks the closed form
+\[
+  \mathrm{FFs} = \texttt{N\_SLOTS}\cdot(\texttt{SCORE\_WIDTH}{+}1) + \texttt{SCORE\_WIDTH} + 3\cdot\texttt{SLOT\_WIDTH} + 3
+\]
+(92 @ N\_SLOTS=8; yosys keeps $\sim{+}3$ slot-index FFs un-merged $\to$ 95
+synthesized, the value the CI gate pins).
+
+%==============================================================================
+% 7. Bit-accurate reference
+%==============================================================================
+\section{Bit-Accurate Reference}
+\label{sec:ref}
+
+The Python model at \path{sw/reference_model/tiu_ref.py} is the canonical
+bit-accurate reference for this ISA. A compiler can verify its codegen against
+the model directly:
+
+\begin{lstlisting}[language=Python]
+from tiu_ref import TokenImportanceUnit
+
+tiu = TokenImportanceUnit()
+tiu.load(0); tiu.acc(0, 200)
+victim = tiu.evict()             # exactly what the chip will return
+keep   = tiu.tier(threshold=40)  # per-slot keep/demote, exactly as tier_keep
+\end{lstlisting}
+
+\noindent The model is verified bit-exact against the RTL by replaying the
+committed golden trace \path{rtl/tb/testvectors/tiu_trace.hex} (48 real Qwen2
+tokens, 40 evictions) through both the model and the SystemVerilog replay
+testbench: all 40 eviction victims agree
+(\path{sw/reference_model/test_tiu_ref.py}). Any divergence between the model and
+the chip is a bug in this specification, not in the chip.
+
+%==============================================================================
+% 8. Integration phases
+%==============================================================================
+\section{Integration Phases}
+\label{sec:phases}
+
+\begin{table}[ht]
+\centering
+\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}c p{3.0cm} p{4.0cm} p{5.0cm}@{}}
+\toprule
+Phase & Timeline & Compiler targets & We provide \\
+\midrule
+0 & now & Bit-accurate Python reference model & Model + ISA + parity test \\
+1 & when ZCU102/104 arrives & AXI-Lite + AXI-Stream on Zynq UltraScale+ & Vivado bitstream + PYNQ driver \\
+2 & after all four blocks land & Same AXI interface; tier handshake to KVCE on hardware & Multi-block FPGA project \\
+3 & post-tape-out (2027+) & PCIe-attached custom chip & TSMC 16FFC silicon + Linux driver \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Throughout all phases, the interface described in this document is the
+stable contract.
+
+%==============================================================================
+% 9. Change log
+%==============================================================================
+\section{Change Log}
+\label{sec:changelog}
+
+\begin{itemize}
+\item \texttt{tiu-isa-0.1} (2026-07-18): First public draft. Stable for the Token
+      Importance Unit block only. Documents LOAD/ACC/EVICT plus the tier read,
+      the AXI-Lite register and streaming map, the \texttt{N\_SLOTS}$=4$ physical
+      proxy, and the KVCE tier handshake.
+\end{itemize}
+
+\vspace{0.5in}
+\noindent\rule{\textwidth}{0.4pt}\\
+\noindent\small\textit{LonghornSilicon Token Importance Unit --- Interface
+Specification. This document is open and may be redistributed. The TSMC 16FFC PDK
+referenced in the integration phases is NDA-protected and is not part of this
+document or the public repository.}
+
+\end{document}

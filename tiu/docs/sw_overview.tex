@@ -1,0 +1,285 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={Token Importance Unit --- Software Overview},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={Compiler co-design entry point}
+}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small TIU SW Overview}
+\rhead{\small Compiler Co-Design Entry Point}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\definecolor{codebg}{gray}{0.97}
+\definecolor{codekey}{rgb}{0.13,0.29,0.53}
+\definecolor{codecom}{rgb}{0.25,0.5,0.25}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+  xleftmargin=0.5em,
+  xrightmargin=0.5em,
+  showstringspaces=false,
+  breaklines=true,
+  keywordstyle=\color{codekey}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  numbers=none
+}
+
+\setlist{itemsep=2pt,topsep=3pt}
+
+% --- table breathing room ---------------------------------------------------
+% Roomier rows, a touch more column padding, and clear vertical separation
+% between floats and the surrounding body text (important with parskip, where
+% floats otherwise butt against paragraphs).
+\renewcommand{\arraystretch}{1.25}
+\setlength{\tabcolsep}{7pt}
+\setlength{\textfloatsep}{18pt plus 2pt minus 2pt}
+\setlength{\intextsep}{16pt plus 3pt minus 2pt}
+\setlength{\floatsep}{16pt plus 2pt minus 2pt}
+
+\begin{document}
+
+%==============================================================================
+\thispagestyle{empty}
+\begin{center}
+\vspace*{1.2in}
+{\Huge\bfseries Token Importance Unit}\\[0.4em]
+{\LARGE\bfseries Software \& Reference-Model Overview}\\[1.5em]
+
+\rule{0.7\textwidth}{0.4pt}\\[1em]
+
+\begin{tabular}{rl}
+\textbf{Date}:       & 2026-07-18 \\
+\textbf{Status}:     & Block 3 of 4 --- RTL signed off, reference model at parity \\
+\textbf{Audience}:   & Compiler engineers integrating against the chip \\
+\textbf{Repository}: & \texttt{LonghornSilicon/token-importance-unit} \\
+\end{tabular}\\[1em]
+\rule{0.7\textwidth}{0.4pt}
+
+\vfill
+\begin{minipage}{0.85\textwidth}
+\small
+\textbf{Purpose.} This document is the orientation map for a compiler team
+integrating against the Token Importance Unit. It points to the bit-accurate
+reference model, the ISA spec, the RTL and its test vectors, and the compiler
+entry point. Read this first; then jump to the specific references it links.
+\end{minipage}
+
+\vspace{0.3in}
+\end{center}
+
+\clearpage
+\tableofcontents
+\clearpage
+
+%==============================================================================
+\section{What the TIU Is}
+\label{sec:what}
+
+The Token Importance Unit (TIU) is block~3 of the four-block LonghornSilicon LLM
+inference accelerator targeting TSMC 16nm FinFET (N16FFC). It is the H2O
+heavy-hitter eviction core for the KV cache: it accumulates each cached token's
+received attention mass, evicts the least-attended token when the cache is full,
+and emits a per-token keep/demote tier signal to the KV Cache Engine (block~2).
+
+The silicon core is deliberately small --- \emph{accumulate + argmin + tier}. The
+H2O recent-window protection and KV-budget bookkeeping are a control-layer wrapper
+the compiler emits around the core, exactly as block~1 shipped just the ratio gate.
+
+%==============================================================================
+\section{The Software Stack}
+\label{sec:stack}
+
+Four artifacts make up the compiler-facing software for this block:
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Software artifacts and their status.}
+\label{tab:coverage}
+\begin{tabular}{@{}p{5.4cm} p{4.0cm} p{4.4cm}@{}}
+\toprule
+Artifact & Role & Status \\
+\midrule
+\path{rtl/token_importance_unit.sv}          & The DUT (parameterized SystemVerilog) & Sky130 signed off, 0 violations \\
+\path{sw/reference_model/tiu_ref.py}         & Bit-accurate Python model             & 40/40 evictions vs RTL \\
+\path{rtl/tb/testvectors/tiu_trace.hex}      & Golden replay trace (real Qwen2)      & 48 tokens, 40 evictions \\
+\path{sw/reference_model/example_compiler_use.py} & Compiler entry point (H2O wrapper) & Runnable \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The reference model is the contract: it exposes the same functional
+behavior the hardware implements (same saturating accumulators, same
+serialized-argmin eviction, same tier comparator), so a compiler backend can
+target the TIU before silicon or an FPGA prototype exists.
+
+%==============================================================================
+\section{Where Things Live}
+\label{sec:layout}
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+rtl/
++-- token_importance_unit.sv          (the DUT)
++-- tb/
+    +-- tb_token_importance_unit.sv   (directed, 29/29)
+    +-- tb_realdata.sv                (real-Qwen2 replay, 40/40)
+    +-- testvectors/tiu_trace.hex     (committed golden trace)
+
+sw/reference_model/
++-- README.md                         (API reference)
++-- tiu_ref.py                        (bit-accurate model + self-test)
++-- test_tiu_ref.py                   (Python<->RTL parity on the trace)
++-- example_compiler_use.py           (budget sizing -> schedule -> tiers)
+
+analysis/
++-- gen_tiu_testvectors.py            (regenerates the golden trace)
++-- h2o_*.py, full_stack_integration.py  (algorithm studies)
+
+docs/
++-- isa/token_importance_unit_isa.pdf (ISA / interface spec)
++-- tier_handshake.md                 (TIU<->KVCE tier protocol)
++-- sky130_signoff.md                 (0-violation physical sign-off)
++-- sw_overview.pdf                   (this document)
+\end{lstlisting}
+
+%==============================================================================
+\section{Build and Test (One Line Each)}
+\label{sec:build}
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+# RTL simulation (icarus verilog)
+cd rtl && make sim            # directed TB:  29/29 pass
+cd rtl && make sim_realdata   # replay TB:    40/40 evictions bit-exact
+
+# Reference model (Python 3.10+, no dependencies)
+python sw/reference_model/tiu_ref.py             # self-test
+python sw/reference_model/test_tiu_ref.py        # Python<->RTL parity: 40/40
+python sw/reference_model/example_compiler_use.py# compiler walkthrough
+\end{lstlisting}
+
+\noindent The parity test replays the committed golden trace through the Python
+model and checks that all 40 eviction victims match the trace's expected column
+(the same victims the SystemVerilog replay TB checks against the DUT). Agreement
+on all 40 establishes Python$\leftrightarrow$RTL bit-exactness.
+
+%==============================================================================
+\section{The Compiler Entry Point}
+\label{sec:entry}
+
+\path{example_compiler_use.py} is the shape a compiler backend's codegen should
+produce. It drives the reference model at three levels:
+
+\begin{enumerate}
+\item \textbf{Budget sizing.} Turn a context length into a cache size $C$ and
+      recent window $L$ from the validated gold config (25\% KV budget, 50/50
+      recency/heavy-hitter split), clamped to the physical \texttt{N\_SLOTS}.
+\item \textbf{Eviction schedule.} Stream a token's attention over the cache, drive
+      \texttt{LOAD}/\texttt{ACC}/\texttt{EVICT}, and collect the eviction schedule
+      the backend emits to the KV cache engine. Heavy hitters are protected;
+      background tokens are evicted.
+\item \textbf{Keep/demote tiers.} Calibrate \texttt{tier\_threshold} from
+      accumulated mass and read per-token keep (value @ CQ-8) / demote (value @
+      CQ-4) tiers off the core.
+\end{enumerate}
+
+%==============================================================================
+\section{Recommended Reading Order}
+\label{sec:reading}
+
+\begin{enumerate}
+\item \textbf{This document} (top to bottom; you are almost done).
+\item \path{docs/isa/token_importance_unit_isa.pdf}, especially \S4 (worked
+      lowering example) and \S5 (tier handshake).
+\item \path{docs/tier_handshake.md} for the TIU$\leftrightarrow$KVCE protocol
+      (keep/demote/evict semantics), verified with the ACU in the loop.
+\item \path{sw/reference_model/example_compiler_use.py} --- run it, then read it
+      side by side. The shape of that script is the shape your codegen should
+      produce.
+\item \path{paper/token_importance_unit.pdf} for the algorithm validation, RTL
+      verification, and Sky130 sign-off in full.
+\end{enumerate}
+
+%==============================================================================
+\section{Integration Phases}
+\label{sec:phases}
+
+The interface (ISA $+$ reference model) is stable across all phases; only the
+runtime implementation of the operations changes: Python function call
+$\rightarrow$ AXI register write $\rightarrow$ PCIe MMIO.
+
+\begin{table}[ht]
+\centering
+\small
+\renewcommand{\arraystretch}{1.25}
+\caption{Four-phase compiler integration plan.}
+\label{tab:phases}
+\begin{tabular}{@{}c p{3.0cm} p{4.0cm} p{4.8cm}@{}}
+\toprule
+Phase & Timeline & Compiler targets & We provide \\
+\midrule
+0 & now                     & Python reference model                    & Model, ISA, parity test \\
+1 & when ZCU102/104 arrives & AXI-Lite + AXI-Stream on Zynq UltraScale+ & Vivado bitstream + PYNQ driver \\
+2 & all four blocks land    & Same AXI; tier handshake to KVCE on HW    & Multi-block FPGA project \\
+3 & post-tape-out (2027+)   & PCIe-attached custom chip                 & TSMC 16FFC silicon + Linux driver \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{Verification Summary}
+\label{sec:verif}
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Current verification status.}
+\label{tab:verif}
+\begin{tabular}{@{}l l c@{}}
+\toprule
+Surface & Test & Status \\
+\midrule
+RTL directed        & \path{tb_token_importance_unit.sv}         & 29/29 pass \\
+RTL real-data replay & \path{tb_realdata.sv} (Qwen2 trace)       & 40/40 evictions \\
+Python reference     & self-test (directed cases)                & pass \\
+Python$\leftrightarrow$RTL parity & golden-trace replay          & 40/40 evictions \\
+Physical             & Sky130 LibreLane/OpenROAD sign-off        & 0 violations \\
+Three-block stack    & TIU $+$ KVCE $+$ APA on Qwen2             & $\Delta$ $-0.031$ vs FP16 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{0.4in}
+\noindent\rule{\textwidth}{0.4pt}\\
+\noindent\small\textit{This document is the canonical entry point for a compiler
+engineer working with the LonghornSilicon Token Importance Unit. It is versioned
+alongside the reference model and updated as the block evolves.}
+
+\end{document}

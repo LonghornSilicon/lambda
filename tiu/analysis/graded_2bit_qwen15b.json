@@ -1,0 +1,31 @@
+{
+  "model": "Qwen/Qwen2-1.5B",
+  "n": 1000,
+  "results": {
+    "fp16": {
+      "acc_norm": 0.59,
+      "avg_value_bits": 16.0,
+      "delta_vs_fp16": 0.0
+    },
+    "uniform4": {
+      "acc_norm": 0.587,
+      "avg_value_bits": 4.0,
+      "delta_vs_fp16": -0.003
+    },
+    "uniform2": {
+      "acc_norm": 0.309,
+      "avg_value_bits": 2.0,
+      "delta_vs_fp16": -0.281
+    },
+    "graded_promote": {
+      "acc_norm": 0.581,
+      "avg_value_bits": 5.882,
+      "delta_vs_fp16": -0.009
+    },
+    "graded_neutral": {
+      "acc_norm": 0.525,
+      "avg_value_bits": 4.108,
+      "delta_vs_fp16": -0.065
+    }
+  }
+}

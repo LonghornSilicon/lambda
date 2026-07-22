@@ -1,0 +1,101 @@
+{
+  "model": "Qwen/Qwen2-0.5B",
+  "n": 1000,
+  "results": {
+    "fp16": {
+      "acc_norm": 0.489,
+      "avg_value_bits": 16.0,
+      "params": {},
+      "mode": "fp16",
+      "delta_vs_fp16": 0.0
+    },
+    "uniform4": {
+      "acc_norm": 0.474,
+      "avg_value_bits": 4.0,
+      "params": {},
+      "mode": "uniform4",
+      "delta_vs_fp16": -0.015
+    },
+    "grouped2_uniform_g32": {
+      "acc_norm": 0.444,
+      "avg_value_bits": 2.5,
+      "params": {
+        "g2": 32
+      },
+      "mode": "grouped2_uniform",
+      "delta_vs_fp16": -0.045
+    },
+    "grouped2_uniform_g16": {
+      "acc_norm": 0.453,
+      "avg_value_bits": 3.0,
+      "params": {
+        "g2": 16
+      },
+      "mode": "grouped2_uniform",
+      "delta_vs_fp16": -0.036
+    },
+    "grouped2_resid_g32_r10": {
+      "acc_norm": 0.427,
+      "avg_value_bits": 2.65,
+      "params": {
+        "g2": 32,
+        "resid_frac": 0.1
+      },
+      "mode": "grouped2_resid",
+      "delta_vs_fp16": -0.062
+    },
+    "grouped2_resid_g32_r20": {
+      "acc_norm": 0.441,
+      "avg_value_bits": 2.8,
+      "params": {
+        "g2": 32,
+        "resid_frac": 0.2
+      },
+      "mode": "grouped2_resid",
+      "delta_vs_fp16": -0.048
+    },
+    "grouped2_resid_g16_r20": {
+      "acc_norm": 0.444,
+      "avg_value_bits": 3.2,
+      "params": {
+        "g2": 16,
+        "resid_frac": 0.2
+      },
+      "mode": "grouped2_resid",
+      "delta_vs_fp16": -0.045
+    },
+    "graded_grouped2_neutral_g32_t10_r10": {
+      "acc_norm": 0.444,
+      "avg_value_bits": 4.117,
+      "params": {
+        "g2": 32,
+        "top_frac": 0.1,
+        "resid_frac": 0.1
+      },
+      "mode": "graded_grouped2_neutral",
+      "delta_vs_fp16": -0.045
+    },
+    "graded_grouped2_neutral_g32_t10_r15": {
+      "acc_norm": 0.452,
+      "avg_value_bits": 4.19,
+      "params": {
+        "g2": 32,
+        "top_frac": 0.1,
+        "resid_frac": 0.15
+      },
+      "mode": "graded_grouped2_neutral",
+      "delta_vs_fp16": -0.037
+    },
+    "graded_grouped2_neutral_g16_t07_r10": {
+      "acc_norm": 0.463,
+      "avg_value_bits": 4.143,
+      "params": {
+        "g2": 16,
+        "top_frac": 0.07,
+        "resid_frac": 0.1
+      },
+      "mode": "graded_grouped2_neutral",
+      "delta_vs_fp16": -0.026
+    }
+  }
+}

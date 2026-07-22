@@ -1,0 +1,49 @@
+{
+  "model": "Qwen/Qwen2-0.5B",
+  "n": 500,
+  "recent_ratio": 0.25,
+  "results": {
+    "0.30": {
+      "frac": 0.3,
+      "acc_norm": 0.492,
+      "kept_frac": 0.9707,
+      "delta_vs_full": 0.0
+    },
+    "0.25": {
+      "frac": 0.25,
+      "acc_norm": 0.488,
+      "kept_frac": 0.9686,
+      "delta_vs_full": -0.004
+    },
+    "0.20": {
+      "frac": 0.2,
+      "acc_norm": 0.458,
+      "kept_frac": 0.9665,
+      "delta_vs_full": -0.034
+    },
+    "0.17": {
+      "frac": 0.175,
+      "acc_norm": 0.45,
+      "kept_frac": 0.9654,
+      "delta_vs_full": -0.042
+    },
+    "0.15": {
+      "frac": 0.15,
+      "acc_norm": 0.396,
+      "kept_frac": 0.9644,
+      "delta_vs_full": -0.096
+    },
+    "0.12": {
+      "frac": 0.125,
+      "acc_norm": 0.354,
+      "kept_frac": 0.9633,
+      "delta_vs_full": -0.138
+    },
+    "0.10": {
+      "frac": 0.1,
+      "acc_norm": 0.34,
+      "kept_frac": 0.9623,
+      "delta_vs_full": -0.152
+    }
+  }
+}

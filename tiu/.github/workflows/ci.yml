@@ -1,0 +1,23 @@
+name: CI (rtl branch — 130nm Sky130 proxy)
+
+on:
+  push:
+    branches: [rtl]
+  pull_request:
+    branches: [rtl]
+  workflow_dispatch:
+
+jobs:
+  block-ci:
+    uses: LonghornSilicon/.github/.github/workflows/block-ci.yml@main
+    with:
+      block-name: token_importance_unit
+      expected-ff-count: 95          # closed-form: N_SLOTS=8 (see rtl/token_importance_unit.sv)
+      has-rtl: true                  # this is the RTL home (Yosys synth smoke runs every push)
+      has-reference-model: false     # sw/reference_model is Python-only, no Makefile
+      has-paper: false
+      has-coverage-gate: false
+      has-formal-equivalence: true
+      has-qwen-test: true            # real-Qwen accuracy gate (rtl branch only)
+      # qwen-test-deps: uses the default (transformers datasets numpy accelerate lm_eval);
+      # CPU torch is installed separately by the reusable job.
