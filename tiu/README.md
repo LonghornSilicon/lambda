@@ -195,3 +195,15 @@ token-importance-unit/
 
 - Zhang et al., *H2O: Heavy-Hitter Oracle for Efficient Generative Inference of LLMs*, NeurIPS 2023.
 - LonghornSilicon ACU sparsity study (`attention-compute-unit/docs/findings/sparsity-controller-finding.md`) — post-softmax attention mass predicts token importance (r≈0.99); pre-softmax proxies do not.
+
+## Known gotchas
+Pitfalls that cost time — check before debugging. (Chip-wide gotchas: monorepo-root `README.md`.)
+
+- **LHS box venv is read-only, no numpy/pip.** Use `/home/shadeform/cuda_advisor/.venv/bin/python`
+  for numpy; reinstall `iverilog`/`yosys` each session. Prefer pure-Python golden generators.
+- **ORFS ASAP7 is 4×-drawn.** Areas read 16× too large unless de-scaled — confirm the SITE size
+  (`0.054×0.270`) before quoting µm².
+- **`DESIGN_REPAIR_MAX_SLEW_PCT=0` DISABLES slew repair** (passes `-slew_margin 0`) — restore ~20%
+  or you get thousands of false max-slew/cap violations.
+- **LibreLane escaped-identifier instance naming** takes 3 different forms across
+  `PDN_MACRO_CONNECTIONS` regex / `instances` placement / YAML quoting — match each exactly.

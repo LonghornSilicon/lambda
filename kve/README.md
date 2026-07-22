@@ -335,3 +335,20 @@ flow uses [Yosys](https://github.com/YosysHQ/yosys),
 [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD),
 [LibreLane](https://github.com/librelane/librelane), and the
 [SkyWater Sky130 PDK](https://github.com/google/skywater-pdk).
+
+## Known gotchas
+Pitfalls that cost time — check before debugging. (Chip-wide gotchas: monorepo-root `README.md`.)
+
+- **KVE synth: the behavioral `real`/`$fscanf` views abort yosys.** Use the `*_syn.sv` set
+  (`cq_units_syn`, `wht_unit_syn`, `fp16_addsub_syn`, …) for synthesis / LibreLane.
+- **FP16 can't be bit-exact to numpy `@`** (BLAS pairwise sum ≠ sequential MAC order). Verify FP16
+  RTL against a **sequential-fp32 golden**, and tolerance vs numpy (`rel_err < 5e-3`).
+- **Long combinational fp path won't close at the slow corner** (e.g. two serial fp32 mults).
+  Pipeline it (register the intermediate); decode is latency-tolerant so extra cycles are free.
+- **gf180 SRAM macro power connects on Metal3.** Route macro power to the M4 straps with a legal
+  **Via3** — a Metal1/Metal2 route forces illegal Via1/Via2 stacks (7000+ DRC).
+- **The gf180 SRAM abstract has ONE sub-min-width pin** (0.11 µm vs 0.28 µm) — an abstract artifact;
+  the vendor GDS is clean. Use a DRC-view-only maglef that widens just that pin; run LVS on the real
+  device view. (Re-DRC'ing the real GDS throws ~38k false bitcell errors.)
+- **`DESIGN_REPAIR_MAX_SLEW_PCT=0` DISABLES slew repair** (passes `-slew_margin 0`) — restore ~20%
+  or you get thousands of false max-slew/cap violations.
