@@ -67,18 +67,8 @@ On every push to `main`, `.github/workflows/mirror-blocks.yml` runs `git subtree
 
 Mirrors are **read-only** — open PRs against this monorepo; they propagate out on the next push.
 
-### ⚠️ Required user action — `MIRROR_PAT` secret (one-time)
-
-The mirror workflow pushes to **other** repos, which the default `GITHUB_TOKEN` cannot do. It needs
-a repo secret **`MIRROR_PAT`**: a fine-grained Personal Access Token with **`contents: write`** on
-the mirror repos (`lambda-kve`, `lambda-tiu`, and the future ACU mirrors). Create it, then:
-
-```
-gh secret set MIRROR_PAT --repo LonghornSilicon/lambda   # paste the PAT when prompted
-```
-
-Until this secret exists, the auto-mirror job will fail at the push step. (The mirrors have already
-been **seeded manually** once so they are non-empty and browsable — see the reorg plan.)
+Auto-mirror is **live** — the workflow uses the configured `MIRROR_PAT` repo secret to push each
+block to its mirror on every commit to `main`. No setup needed.
 
 ## Known gotchas (chip-wide) — check before debugging
 
