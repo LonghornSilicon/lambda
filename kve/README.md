@@ -6,7 +6,7 @@ compress-on-write / decompress-on-read engine for transformer KV-cache tensors,
 sitting between the ACU (attention compute unit) and the memory hierarchy.
 
 > **Building a compiler / integrating this block?** Start with the chip-level
-> [Compiler Programming Guide](https://github.com/LonghornSilicon/lambda/tree/main/docs)
+> [Compiler Programming Guide](https://github.com/LonghornSilicon/lambda/blob/main/docs/compiler_programming_guide.md)
 > (KV data format = §5) and the [documentation standard](https://github.com/LonghornSilicon/lambda/blob/main/docs/documentation_standard.md).
 > This block's interface spec is [`docs/isa/kv_cache_engine_isa.md`](docs/isa/kv_cache_engine_isa.md).
 

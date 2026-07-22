@@ -26,7 +26,7 @@ lambda/
 ├── kve/     ← KV Cache Engine (ChannelQuant codec). Complete block: sw/ rtl/ docs/ research/. Mirrors to lambda-kve.
 ├── tiu/     ← Token Importance Unit (H2O keep/demote/evict). Complete block. Mirrors to lambda-tiu.
 ├── acu/     ← Attention Compute Unit (MatE + VecU + precision_controller). Imported; all 5 tiles Sky130-signed (see acu/README.md). Mirrors to lambda-acu/-mate/-vecu/-precision-controller.
-├── chip/    ← cross-block integration: verif/ (tb_chip_cosim), pdk/gf180/ (padring — HELD).
+├── chip/    ← cross-block integration: verif/ (tb_chip_cosim), pdk/gf180/ (GF180 hardening + padring; full-chip assembly pending).
 ├── docs/    ← chip-wide: arch story, STATUS, PDK audit, closure plan, reorg plan, paper/.
 ├── research/← chip-wide research (APA RL project + exploration notes).
 ├── arch.yml ← the machine-readable architecture (blocks, tiles, dataflow).

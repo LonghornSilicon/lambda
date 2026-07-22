@@ -8,7 +8,7 @@
 
 
 > **Building a compiler / integrating this block?** Start with the chip-level
-> [Compiler Programming Guide](https://github.com/LonghornSilicon/lambda/tree/main/docs)
+> [Compiler Programming Guide](https://github.com/LonghornSilicon/lambda/blob/main/docs/compiler_programming_guide.md)
 > and the [documentation standard](https://github.com/LonghornSilicon/lambda/blob/main/docs/documentation_standard.md)
 > in the monorepo `docs/` hub. This block's own interface spec is [`docs/isa/precision_controller_isa.md`](docs/isa/precision_controller_isa.md).
 
