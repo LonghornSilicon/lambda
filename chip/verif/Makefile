@@ -1,4 +1,4 @@
-# Cross-block RTL cosim (architecture, rtl branch).
+# Cross-block RTL cosim (architecture).
 # Vendored block RTL lives under blocks/{kve,acu,tiu}/; real-Qwen vectors under vectors/.
 # 130nm Sky130 proxy RTL — used for 16nm estimates (see README.md).
 IV     = iverilog -g2012

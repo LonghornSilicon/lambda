@@ -12,8 +12,8 @@ chip/
 
 ## verif/ — the cross-block cosim
 First cross-block integration of the live block RTLs on one shared attention tile, with a real INT8
-P·V MAC so the attention output flows all the way through. Curated copy of `architecture`'s
-`rtl/` cosim (rtl branch). See `verif/README.md` for what runs.
+P·V MAC so the attention output flows all the way through. Curated copy of the `architecture`
+cosim. See `verif/README.md` for what runs.
 
 **Note (drift):** `verif/blocks/` currently **vendors copies** of the KVE/ACU/TIU block RTL (the
 copy-drift the monorepo is meant to eliminate). Once `kve/rtl`, `tiu/rtl`, and `acu/rtl` are the

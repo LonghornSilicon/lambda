@@ -1,6 +1,6 @@
-# WHT value rotation — what to integrate into ChannelQuant (branch note)
+# WHT value rotation — what to integrate into ChannelQuant
 
-**Status:** merged to `main` (reference + analysis); RTL on the `rtl` branch.
+**Status:** integrated (reference, analysis, and RTL all live in this block).
 **Idea/result:** Abhiram Bandi + Chaithu Talasila.
 **One line:** Integrate the **Walsh-Hadamard rotation only**. TurboQuant's codebook,
 L2-normalization, and dense Haar rotation add hardware for **zero or negative** accuracy
