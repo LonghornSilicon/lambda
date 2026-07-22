@@ -60,6 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0          # full history so the split has real commits
+          persist-credentials: false   # don't leave the github-actions token in git config — it overrides the MIRROR_PAT in the push URL (denies as github-actions[bot])
 
       - name: Split subtree history
         run: |

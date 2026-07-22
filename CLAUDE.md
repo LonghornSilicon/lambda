@@ -8,9 +8,17 @@
 ## What this is
 **Lambda** — the LonghornSilicon decode-attention accelerator, as a **block-major monorepo**.
 Each functional block is a self-contained top-level folder holding all its aspects
-(`sw/ rtl/ pdk/ docs/ research/`). Cross-block integration lives in `chip/`. Tape-out target:
-SSCS Chipathon 2026 on **GF180MCU** (the decode attention datapath: Q·Kᵀ→softmax→P·V + KVE +
-TIU + ACU gate); Sky130 is the flagship/dev proof.
+(`sw/ rtl/ pdk/ docs/ research/`). Cross-block integration lives in `chip/`.
+
+**Targets — one RTL, multiple PDKs.** The **product target is TSMC 16nm (N16FFC)**. That PDK is
+under NDA, so we prove/estimate on open PDKs: **GF180MCU** is the near-term *chipathon shuttle*
+(SSCS Chipathon 2026 — a real open-silicon tapeout of the decode attention datapath
+Q·Kᵀ→softmax→P·V + KVE + TIU + ACU gate); **Sky130** is the flagship dev proof; **ASAP7 (7nm
+FinFET)** is the research bracket closest to 16nm. Open-PDK hardening lives in each block's
+`pdk/{sky130,gf180,asap7}/` **folders** — coexisting, referencing the one shared RTL, **never
+branches**. The **16nm hardening is a separate PRIVATE overlay** (NDA — TSMC PDK files can't live
+in a public repo); it points at this same RTL once we have PDK access. GF180/Sky130 are proxies,
+not the destination.
 
 ## Repo map (block-major)
 ```
