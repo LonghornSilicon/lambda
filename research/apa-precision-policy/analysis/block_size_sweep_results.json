@@ -1,0 +1,183 @@
+{
+  "block_sizes": [
+    32,
+    64,
+    128
+  ],
+  "thresholds": [
+    6,
+    8,
+    10,
+    15,
+    20
+  ],
+  "score_bits": 8,
+  "n_tiles_per_config": 10000,
+  "results": {
+    "32": {
+      "n_tiles": 10000,
+      "n_gt_fp16": 800,
+      "N_tile": 1024,
+      "sum_bits": 18,
+      "comparator_bits": 22,
+      "ratio_stats": {
+        "fp16_median": 63.0358772277832,
+        "int8_median": 1.998173475265503,
+        "fp16_min": 26.976154327392578,
+        "int8_max": 2.162322759628296
+      },
+      "thresholds": {
+        "6": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        },
+        "8": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        },
+        "10": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        },
+        "15": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        },
+        "20": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        }
+      }
+    },
+    "64": {
+      "n_tiles": 10000,
+      "n_gt_fp16": 800,
+      "N_tile": 4096,
+      "sum_bits": 20,
+      "comparator_bits": 24,
+      "ratio_stats": {
+        "fp16_median": 70.4891357421875,
+        "int8_median": 1.9996123313903809,
+        "fp16_min": 28.956809997558594,
+        "int8_max": 2.066751718521118
+      },
+      "thresholds": {
+        "6": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        },
+        "8": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        },
+        "10": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        },
+        "15": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        },
+        "20": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        }
+      }
+    },
+    "128": {
+      "n_tiles": 10000,
+      "n_gt_fp16": 800,
+      "N_tile": 16384,
+      "sum_bits": 22,
+      "comparator_bits": 26,
+      "ratio_stats": {
+        "fp16_median": 76.9339828491211,
+        "int8_median": 1.9998512268066406,
+        "fp16_min": 29.864126205444336,
+        "int8_max": 2.0369162559509277
+      },
+      "thresholds": {
+        "6": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        },
+        "8": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        },
+        "10": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        },
+        "15": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        },
+        "20": {
+          "agreement_pct": 100.0,
+          "danger_n": 0,
+          "danger_pct": 0.0,
+          "false_pos_n": 0,
+          "false_pos_pct": 0.0,
+          "safe": true
+        }
+      }
+    }
+  }
+}

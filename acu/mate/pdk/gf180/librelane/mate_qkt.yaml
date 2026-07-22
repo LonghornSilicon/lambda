@@ -1,0 +1,44 @@
+# LibreLane Classic-flow hardening config for the mate_qkt macro (Q·Kᵀ scores).
+#
+# STATUS: REAL RTL — mate_qkt is the decode Q·Kᵀ scoring engine: it scores one
+# INT8 query against N per-channel-dequantized fp16 keys, reducing over the head
+# dim, and emits N fp16 scores (INT8 query promoted to fp16 at the input; fp16
+# mult -> fp32 accumulate, round-to-fp16 once). Passed the RTL cross-block cosim
+# (architecture/rtl/tb/tb_chip_cosim.sv, BLOCK 1). Re-targeted to GF180MCU here.
+#
+# Provenance (source repo, branch, commit): ../rtl/blocks/PROVENANCE.md
+#
+# It shares the fp16-mult -> fp32-add datapath with mate_pv_fp16 (which needed
+# ~180 ns on GF180), so the clock is retimed loose and closed cleanly.
+
+meta:
+  version: 3
+  flow: Classic
+
+DESIGN_NAME: mate_qkt
+
+PDK: gf180mcuD
+
+VERILOG_FILES:
+  - dir::../rtl/blocks/mate_qkt.sv
+
+SYNTH_PARAMETERS:
+  - N=8               # keys scored in parallel (= score-row length / token count)
+
+CLOCK_PORT: clk
+CLOCK_NET: clk
+CLOCK_PERIOD: 200    # ns — GF180 retime (fp16 mult + fp32 add long comb path)
+
+FP_SIZING: relative
+FP_CORE_UTIL: 45
+PL_TARGET_DENSITY_PCT: 55
+
+DESIGN_IS_CORE: false
+IO_DELAY_CONSTRAINT: 2
+CLOCK_UNCERTAINTY_CONSTRAINT: 0.1
+# hold-repair margins to cover the slow-corner hold on the deep fp16 path
+# (mate_pv_fp16 needed this); slew/hold trade is documented in the GLS report.
+PL_RESIZER_HOLD_SLACK_MARGIN: 0.8
+GRT_RESIZER_HOLD_SLACK_MARGIN: 0.8
+RUN_POST_GRT_RESIZER_TIMING: true
+GRT_ALLOW_CONGESTION: true

@@ -1,0 +1,77 @@
+max_iterations: 80
+checkpoint_interval: 10
+log_level: "INFO"
+
+llm:
+  provider: "claude_code"
+  models:
+    - name: "sonnet"
+      provider: "claude_code"
+      weight: 0.8
+      max_tokens: 16000
+      timeout: 600
+      max_budget_usd: 1.0
+    - name: "haiku"
+      provider: "claude_code"
+      weight: 0.2
+      max_tokens: 8000
+      timeout: 120
+      max_budget_usd: 0.5
+  retries: 3
+  retry_delay: 5
+
+prompt:
+  system_message: >
+    You are an expert in GPU attention mechanisms, quantization, and numerical
+    optimization. You are evolving a precision_policy function that decides
+    what precision level to use for each block of an attention computation.
+
+    Available precisions: "fp16" (16 bits), "fp8_e4m3" (8 bits), "fp8_e5m2" (8 bits),
+    "int8" (8 bits), "fp4" (4 bits), "int4" (4 bits).
+
+    The policy receives per-block statistics including score magnitudes, entropy,
+    outlier presence, and causal distance. The goal is to maximize a combined score:
+    50% accuracy (relative RMSE vs FP32 reference), 30% compression (fewer bits = better),
+    20% reliability (no NaN outputs).
+
+    Scoring details:
+    - accuracy = 1 / (1 + relative_rmse * 10), where relative_rmse = RMSE / RMS(reference_output)
+    - compression = (16 - avg_bits) / 14
+    - combined = 0.50 * accuracy + 0.30 * compression + 0.20 * reliability
+
+    Accuracy of each precision on non-outlier blocks (measured, k=10):
+    - fp16:     rel_rmse=0.0002, accuracy=0.998 (16 bits)
+    - int8:     rel_rmse=0.018,  accuracy=0.847 (8 bits) ← BEST 8-bit option
+    - fp8_e4m3: rel_rmse=0.047,  accuracy=0.681 (8 bits)
+    - fp8_e5m2: rel_rmse=0.093,  accuracy=0.519 (8 bits)
+    - fp4/int4: rel_rmse>0.5,    accuracy<0.17  (4 bits) — too aggressive
+
+    Block statistics guide:
+    - has_outlier: True for blocks with injected extreme values, False for normal data
+    - score_max: <10 means normal blocks, >50 means outlier blocks
+    - entropy: ~4.3 for uniform attention (normal data), ~0.5 for peaked (outliers)
+    - causal_dist: distance from diagonal in causal attention
+    - The baseline (all fp16) scores combined ~0.70 (accuracy ~0.997, compression 0)
+    - Outlier blocks (has_outlier=True) need fp16; compressing them destroys accuracy
+    - Non-outlier blocks can be compressed — int8 gives the best accuracy/compression ratio
+    - Try different precisions for different block characteristics
+    - Consider multi-level decisions based on score_max, entropy, causal_dist
+
+    Be creative with the policy logic. Consider thresholds, multi-level decisions,
+    and combinations of features. The function must be pure Python with no imports.
+
+database:
+  population_size: 50
+  archive_size: 20
+  num_islands: 3
+  elite_selection_ratio: 0.2
+  exploitation_ratio: 0.7
+  similarity_threshold: 0.99
+
+evaluator:
+  timeout: 180
+  cascade_thresholds: [0.3]
+  parallel_evaluations: 1
+
+diff_based_evolution: true
+max_code_length: 10000

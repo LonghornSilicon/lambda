@@ -1,0 +1,44 @@
+# LibreLane Classic-flow hardening config for the mate_pv_fp16 macro
+# (FP16 P·V MAC, fp32 internal accumulate).
+#
+# STATUS: REAL RTL — signed off on Sky130 in
+# adaptive-precision-attention/openlane/mate_pv_fp16. Re-targeted to GF180MCU.
+# Ported from that repo's config.json (it carries the extra hold/repair knobs
+# the FP16 datapath needed for closure).
+#
+# Provenance: ../rtl/blocks/PROVENANCE.md
+
+meta:
+  version: 3
+  flow: Classic
+
+DESIGN_NAME: mate_pv_fp16
+
+PDK: gf180mcuD
+
+VERILOG_FILES:
+  - dir::../rtl/blocks/mate_pv_fp16.sv
+
+SYNTH_PARAMETERS:
+  - N=4               # head-dim lanes (proxy; real target N=128)
+
+CLOCK_PORT: clk
+CLOCK_NET: clk
+CLOCK_PERIOD: 180    # ns — GF180 retime (fp16 mult + fp32 add; ~33ns setup margin)
+
+FP_SIZING: relative
+FP_CORE_UTIL: 45
+PL_TARGET_DENSITY_PCT: 55
+
+DESIGN_IS_CORE: false
+IO_DELAY_CONSTRAINT: 2
+CLOCK_UNCERTAINTY_CONSTRAINT: 0.1
+DESIGN_REPAIR_MAX_CAP_PCT: 60
+GRT_DESIGN_REPAIR_MAX_CAP_PCT: 60
+GRT_DESIGN_REPAIR_MAX_WIRE_LENGTH: 150
+CTS_CLK_MAX_WIRE_LENGTH: 100
+PL_RESIZER_HOLD_SLACK_MARGIN: 0.8
+GRT_RESIZER_HOLD_SLACK_MARGIN: 0.8
+RUN_POST_GRT_DESIGN_REPAIR: true
+RUN_POST_GRT_RESIZER_TIMING: true
+GRT_ALLOW_CONGESTION: true

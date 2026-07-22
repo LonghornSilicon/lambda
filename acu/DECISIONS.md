@@ -1,19 +1,19 @@
-<!-- ACU-level decisions, PARKED here while acu/ is a placeholder (import held 2026-07-22).
-     When MatE/VecU are imported, migrate these into acu/mate/DECISIONS.md and acu/vecu/DECISIONS.md.
-     Seeded from docs/prototypes/DECISIONS.seed.md. Format: what · why · date. Append-only. -->
+# DECISIONS — ACU (Attention Compute Unit)
 
-# DECISIONS — ACU (parked until import; see acu/README.md)
+Settled calls, append-only. Format: *what · why · date*. Do not re-litigate unless the premise
+changed. Sub-block-specific decisions now live in `mate/`, `vecu/`, `precision_controller/DECISIONS.md`
+(migrated there at import 2026-07-22, per the parked seed).
 
-## MatE (→ acu/mate)
-- **P·V accumulator = INT32, not INT24** · P·V reduces over the TOKEN axis, so width scales with
-  context; INT24 overflows past ~520 flat tokens, INT32 covers ~133k · 2026-07-20.
-- **8×8 grid = 64 PEs = 128 GOPS** · the reference-model default was a stale 16×16/256; corrected to
-  match arch.yml/STATUS · 2026-07-21.
-- **FP16 P·V escape path exists** · attention P·V routes per-tile INT8/FP16 via the precision
-  controller (`max·N > 10·Σ`); weight/FFN GEMMs stay INT8×INT4 · 2026-07-18.
-
-## VecU (→ acu/vecu)
-- **Decode softmax slice only** (single-row online softmax + 64-entry exp LUT); full programmable
-  VecU + RoPE/RMSNorm are later · the decode datapath doesn't need them · 2026-07-21.
-- **exp LUT carries ~2% error vs exact softmax** · inherent to a 64-entry linear-interp LUT over
-  [-16,0]; cosim tolerances are set FROM it, not tighter · 2026-07-21.
+## ACU-wide
+- **The ACU is a multi-block unit → block-major sub-folders** (`mate/`, `vecu/`,
+  `precision_controller/`), each self-contained (`sw/ rtl/ pdk/ docs/ research/`) · matches the
+  monorepo block-major decision and makes each sub-block a complete mirror · 2026-07-22.
+- **Canonical RTL is the ACU sub-blocks, not the chipathon copies** · `chipathon-lambda-acu` kept
+  hand-synced `.sv` copies (tracked in `PROVENANCE.md`); the monorepo keeps ONE copy per tile and
+  `pdk/gf180` references it by path. At import all 23 copies were byte-identical to canonical · 2026-07-22.
+- **The APA RL research is chip-wide, parked at `research/apa-precision-policy/`** · it birthed the
+  whole ACU (entropy → ratio-gate discovery) but is not block RTL · 2026-07-22.
+- **Sky130 = flagship dev/proof PDK; GF180 = 2026 tape-out PDK; ASAP7 = predictive bracket only** ·
+  the SSCS Chipathon 2026 shuttle is GF180MCU · 2026-07-21.
+- **Online-softmax citation = Milakov & Gimelshein 2018**, not FlashAttention-3 · the recurrence
+  predates FA; FA added the tiling · 2026-07-21.

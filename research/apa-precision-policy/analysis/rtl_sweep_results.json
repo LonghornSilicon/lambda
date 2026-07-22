@@ -1,0 +1,272 @@
+{
+  "tile_sweep": [
+    {
+      "BLOCK_M": 16,
+      "BLOCK_N": 16,
+      "N": 256,
+      "LOG2_N": 8,
+      "SCORE_WIDTH": 8,
+      "SUM_W": 16,
+      "CMP_W": 20,
+      "FF": 26,
+      "NAND": 591,
+      "NOT": 292,
+      "NAND2_eq": 737.0,
+      "total_cells": 909,
+      "raw_counts": {
+        "DFF_P": 26,
+        "NAND": 591,
+        "NOT": 292
+      }
+    },
+    {
+      "BLOCK_M": 32,
+      "BLOCK_N": 32,
+      "N": 1024,
+      "LOG2_N": 10,
+      "SCORE_WIDTH": 8,
+      "SUM_W": 18,
+      "CMP_W": 22,
+      "FF": 28,
+      "NAND": 653,
+      "NOT": 320,
+      "NAND2_eq": 813.0,
+      "total_cells": 1001,
+      "raw_counts": {
+        "DFF_P": 28,
+        "NAND": 653,
+        "NOT": 320
+      }
+    },
+    {
+      "BLOCK_M": 32,
+      "BLOCK_N": 64,
+      "N": 2048,
+      "LOG2_N": 11,
+      "SCORE_WIDTH": 8,
+      "SUM_W": 19,
+      "CMP_W": 23,
+      "FF": 29,
+      "NAND": 697,
+      "NOT": 349,
+      "NAND2_eq": 871.5,
+      "total_cells": 1075,
+      "raw_counts": {
+        "DFF_P": 29,
+        "NAND": 697,
+        "NOT": 349
+      }
+    },
+    {
+      "BLOCK_M": 64,
+      "BLOCK_N": 64,
+      "N": 4096,
+      "LOG2_N": 12,
+      "SCORE_WIDTH": 8,
+      "SUM_W": 20,
+      "CMP_W": 24,
+      "FF": 30,
+      "NAND": 686,
+      "NOT": 338,
+      "NAND2_eq": 855.0,
+      "total_cells": 1054,
+      "raw_counts": {
+        "DFF_P": 30,
+        "NAND": 686,
+        "NOT": 338
+      }
+    },
+    {
+      "BLOCK_M": 64,
+      "BLOCK_N": 128,
+      "N": 8192,
+      "LOG2_N": 13,
+      "SCORE_WIDTH": 8,
+      "SUM_W": 21,
+      "CMP_W": 25,
+      "FF": 31,
+      "NAND": 744,
+      "NOT": 382,
+      "NAND2_eq": 935.0,
+      "total_cells": 1157,
+      "raw_counts": {
+        "DFF_P": 31,
+        "NAND": 744,
+        "NOT": 382
+      }
+    },
+    {
+      "BLOCK_M": 128,
+      "BLOCK_N": 128,
+      "N": 16384,
+      "LOG2_N": 14,
+      "SCORE_WIDTH": 8,
+      "SUM_W": 22,
+      "CMP_W": 26,
+      "FF": 32,
+      "NAND": 778,
+      "NOT": 392,
+      "NAND2_eq": 974.0,
+      "total_cells": 1202,
+      "raw_counts": {
+        "DFF_P": 32,
+        "NAND": 778,
+        "NOT": 392
+      }
+    },
+    {
+      "BLOCK_M": 128,
+      "BLOCK_N": 256,
+      "N": 32768,
+      "LOG2_N": 15,
+      "SCORE_WIDTH": 8,
+      "SUM_W": 23,
+      "CMP_W": 27,
+      "FF": 33,
+      "NAND": 817,
+      "NOT": 416,
+      "NAND2_eq": 1025.0,
+      "total_cells": 1266,
+      "raw_counts": {
+        "DFF_P": 33,
+        "NAND": 817,
+        "NOT": 416
+      }
+    },
+    {
+      "BLOCK_M": 256,
+      "BLOCK_N": 256,
+      "N": 65536,
+      "LOG2_N": 16,
+      "SCORE_WIDTH": 8,
+      "SUM_W": 24,
+      "CMP_W": 28,
+      "FF": 34,
+      "NAND": 790,
+      "NOT": 395,
+      "NAND2_eq": 987.5,
+      "total_cells": 1219,
+      "raw_counts": {
+        "DFF_P": 34,
+        "NAND": 790,
+        "NOT": 395
+      }
+    }
+  ],
+  "bitwidth_sweep": [
+    {
+      "BLOCK_M": 64,
+      "BLOCK_N": 64,
+      "N": 4096,
+      "LOG2_N": 12,
+      "SCORE_WIDTH": 4,
+      "SUM_W": 16,
+      "CMP_W": 20,
+      "FF": 22,
+      "NAND": 470,
+      "NOT": 235,
+      "NAND2_eq": 587.5,
+      "total_cells": 727,
+      "raw_counts": {
+        "DFF_P": 22,
+        "NAND": 470,
+        "NOT": 235
+      }
+    },
+    {
+      "BLOCK_M": 64,
+      "BLOCK_N": 64,
+      "N": 4096,
+      "LOG2_N": 12,
+      "SCORE_WIDTH": 6,
+      "SUM_W": 18,
+      "CMP_W": 22,
+      "FF": 26,
+      "NAND": 602,
+      "NOT": 301,
+      "NAND2_eq": 752.5,
+      "total_cells": 929,
+      "raw_counts": {
+        "DFF_P": 26,
+        "NAND": 602,
+        "NOT": 301
+      }
+    },
+    {
+      "BLOCK_M": 64,
+      "BLOCK_N": 64,
+      "N": 4096,
+      "LOG2_N": 12,
+      "SCORE_WIDTH": 8,
+      "SUM_W": 20,
+      "CMP_W": 24,
+      "FF": 30,
+      "NAND": 686,
+      "NOT": 338,
+      "NAND2_eq": 855.0,
+      "total_cells": 1054,
+      "raw_counts": {
+        "DFF_P": 30,
+        "NAND": 686,
+        "NOT": 338
+      }
+    },
+    {
+      "BLOCK_M": 64,
+      "BLOCK_N": 64,
+      "N": 4096,
+      "LOG2_N": 12,
+      "SCORE_WIDTH": 10,
+      "SUM_W": 22,
+      "CMP_W": 26,
+      "FF": 34,
+      "NAND": 847,
+      "NOT": 426,
+      "NAND2_eq": 1060.0,
+      "total_cells": 1307,
+      "raw_counts": {
+        "DFF_P": 34,
+        "NAND": 847,
+        "NOT": 426
+      }
+    },
+    {
+      "BLOCK_M": 64,
+      "BLOCK_N": 64,
+      "N": 4096,
+      "LOG2_N": 12,
+      "SCORE_WIDTH": 12,
+      "SUM_W": 24,
+      "CMP_W": 28,
+      "FF": 38,
+      "NAND": 932,
+      "NOT": 461,
+      "NAND2_eq": 1162.5,
+      "total_cells": 1431,
+      "raw_counts": {
+        "DFF_P": 38,
+        "NAND": 932,
+        "NOT": 461
+      }
+    },
+    {
+      "BLOCK_M": 64,
+      "BLOCK_N": 64,
+      "N": 4096,
+      "LOG2_N": 12,
+      "SCORE_WIDTH": 16,
+      "SUM_W": 28,
+      "CMP_W": 32,
+      "FF": 46,
+      "NAND": 1148,
+      "NOT": 565,
+      "NAND2_eq": 1430.5,
+      "total_cells": 1759,
+      "raw_counts": {
+        "DFF_P": 46,
+        "NAND": 1148,
+        "NOT": 565
+      }
+    }
+  ]
+}

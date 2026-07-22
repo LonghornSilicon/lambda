@@ -1,0 +1,8 @@
+{
+  "total": 1680,
+  "n_low_entropy": 1507,
+  "pct_fp16": 89.70238095238095,
+  "pct_int8": 10.297619047619047,
+  "median_entropy": 1.2421211004257202,
+  "bimodal": false
+}

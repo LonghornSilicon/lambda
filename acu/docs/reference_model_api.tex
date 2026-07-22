@@ -1,0 +1,450 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={LonghornSilicon Reference Model API},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={C++ / C / Python API reference for the ACU blocks}
+}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{\thesubsubsection}{0.6em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small Reference Model API}
+\rhead{\small Blocks 1 \& 2}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\definecolor{codebg}{gray}{0.97}
+\definecolor{codekey}{rgb}{0.13,0.29,0.53}
+\definecolor{codecom}{rgb}{0.25,0.5,0.25}
+\definecolor{codestr}{rgb}{0.5,0.13,0.13}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+  xleftmargin=0.5em,
+  xrightmargin=0.5em,
+  showstringspaces=false,
+  breaklines=true,
+  keywordstyle=\color{codekey}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  stringstyle=\color{codestr},
+  numbers=none
+}
+
+\setlist{itemsep=2pt,topsep=3pt}
+
+\begin{document}
+
+%==============================================================================
+\thispagestyle{empty}
+\begin{center}
+\vspace*{1.2in}
+{\Huge\bfseries Reference Model API}\\[0.4em]
+{\LARGE\bfseries C++ Class \textperiodcentered\ extern "C" \textperiodcentered\ Python}\\[1.5em]
+
+{\large \textsc{LonghornSilicon ACU --- Blocks 1 \& 2}}\\[2em]
+
+\rule{0.7\textwidth}{0.4pt}\\[1em]
+
+\begin{tabular}{rl}
+\textbf{Date}:        & 2026-05-14 \\
+\textbf{Covers}:      & Precision Controller, MAC Array \\
+\textbf{Languages}:   & C++17, C99, Python 3.10+ \\
+\textbf{Build}:       & \texttt{make} in \texttt{sw/reference\_model/} \\
+\end{tabular}\\[1em]
+\rule{0.7\textwidth}{0.4pt}
+
+\vfill
+\begin{minipage}{0.85\textwidth}
+\small
+\textbf{Purpose.} Formal API reference for the bit-accurate
+reference implementations of the LonghornSilicon ACU blocks.
+Each block ships three language bindings (C++ class, extern "C",
+Python); all three pass identical test vectors. A compiler backend
+chooses whichever binding fits its build system; numerical results
+are guaranteed identical.
+\end{minipage}
+
+\vspace{0.3in}
+\end{center}
+
+\clearpage
+
+\tableofcontents
+\clearpage
+
+%==============================================================================
+\section{Quick Start}
+\label{sec:quickstart}
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+cd sw/reference_model
+make test-all      # build C++ tests, run them, run all Python tests
+make integration   # end-to-end attention-tile worked example
+\end{lstlisting}
+
+\noindent
+Requires Python 3.10+, NumPy, and a C++17 compiler.
+
+%==============================================================================
+\section{Precision Controller}
+\label{sec:pc}
+
+\subsection{C++ Class}
+\begin{lstlisting}[language=C++]
+#include "precision_controller_ref.hpp"
+
+lhsi::PrecisionController pc;
+std::vector<int32_t> scores(/* 4096 INT8 values */);
+bool decision = pc.process_tile(scores);   // true = FP16, false = INT8
+\end{lstlisting}
+
+\subsection{extern "C" API}
+\begin{lstlisting}[language=C]
+#include "precision_controller_ref.hpp"
+
+lhsi_pc_handle_t* h = lhsi_pc_create();
+int32_t scores[4096] = { /* ... */ };
+int decision = lhsi_pc_process_tile(h, scores, 4096);
+lhsi_pc_destroy(h);
+\end{lstlisting}
+
+Stateless variant (no handle):
+\begin{lstlisting}[language=C]
+int decision = lhsi_pc_decide(scores, 4096);
+\end{lstlisting}
+
+\subsection{Python}
+\begin{lstlisting}[language=Python]
+from precision_controller_ref import PrecisionController
+
+pc = PrecisionController()
+decision = pc.process_tile(scores)
+# Or stateless:
+decision = PrecisionController.decide(scores)
+\end{lstlisting}
+
+\subsection{Streaming API}
+\label{sec:pc-stream}
+
+For driver code or cycle-accurate simulators that want to issue one
+score per clock (mirrors the chip's AXI-Stream interface).
+
+\begin{lstlisting}[language=C++]
+pc.reset();
+for (size_t i = 0; i < scores.size(); ++i) {
+    pc.tick(/*s_valid=*/true, scores[i], /*s_last=*/(i == scores.size() - 1));
+    if (pc.d_valid()) {
+        bool decision = pc.d_fp16();
+    }
+}
+\end{lstlisting}
+
+The Python class has the same shape:
+\texttt{pc.tick(s\_valid=True, s\_data=x, s\_last=False)}.
+
+%==============================================================================
+\section{MAC Array}
+\label{sec:mac}
+
+\subsection{C++ Class}
+\begin{lstlisting}[language=C++]
+#include "mac_array_ref.hpp"
+
+lhsi::mac::MacArray mac;
+
+// INT8 path
+std::vector<int8_t> A(M*K), B(K*N);
+std::vector<int32_t> C(M*N);
+mac.matmul_int8(A.data(), B.data(), C.data(), M, K, N);
+
+// FP16 path (float storage; fp16 rounding on output)
+std::vector<float> Af(M*K), Bf(K*N), Cf(M*N);
+mac.matmul_fp16(Af.data(), Bf.data(), Cf.data(), M, K, N);
+
+// Cost estimate for the compiler's scheduler
+auto cost = mac.estimate(M, K, N, lhsi::mac::MacArray::DType::Int8);
+// cost.cycles, cost.energy_pj
+\end{lstlisting}
+
+\subsection{extern "C" API}
+\begin{lstlisting}[language=C]
+#include "mac_array_ref.hpp"
+
+int8_t  A[M*K], B[K*N];
+int32_t C[M*N];
+lhsi_mac_matmul_int8(A, B, C, M, K, N);
+
+float Af[M*K], Bf[K*N], Cf[M*N];
+lhsi_mac_matmul_fp16(Af, Bf, Cf, M, K, N);
+
+lhsi_mac_cost_t cost;
+lhsi_mac_estimate(M, K, N, LHSI_MAC_DTYPE_INT8, &cost);
+\end{lstlisting}
+
+\subsection{Python}
+\begin{lstlisting}[language=Python]
+import numpy as np
+from mac_array_ref import MacArray
+
+mac = MacArray()
+
+# INT8
+A = np.random.randint(-128, 128, (M, K), dtype=np.int8)
+B = np.random.randint(-128, 128, (K, N), dtype=np.int8)
+C = mac.matmul_int8(A, B)        # numpy int32 array
+
+# FP16
+A = np.random.uniform(-1, 1, (M, K)).astype(np.float16).astype(np.float32)
+B = np.random.uniform(-1, 1, (K, N)).astype(np.float16).astype(np.float32)
+C = mac.matmul_fp16(A, B)        # float32 storage, fp16-rounded output
+
+# Cost
+cost = mac.estimate(M, K, N, dtype="int8")
+print(cost.cycles, cost.energy_pj)
+\end{lstlisting}
+
+\subsection{FP16 Utility Helpers}
+\label{sec:mac-fp16-utils}
+
+Exposed for boundaries where you need explicit fp16 rounding without
+going through a matmul.
+
+\begin{lstlisting}[language=C++]
+float    rounded = lhsi::mac::round_to_fp16(x);
+uint16_t bits    = lhsi::mac::float_to_fp16_bits(x);
+float    back    = lhsi::mac::fp16_bits_to_float(bits);
+\end{lstlisting}
+
+Same functions are available in Python:
+
+\begin{lstlisting}[language=Python]
+from mac_array_ref import (
+    round_to_fp16, float_to_fp16_bits, fp16_bits_to_float,
+)
+\end{lstlisting}
+
+\clearpage
+
+%==============================================================================
+\section{Numerical Semantics (Frozen)}
+\label{sec:semantics}
+
+\subsection{Precision Controller}
+
+Pure integer arithmetic in unsigned fixed-width modular form:
+
+\begin{itemize}
+\item Input \texttt{s\_data}: \texttt{SCORE\_WIDTH}-bit signed
+      two's complement.
+\item \texttt{max\_acc}: \texttt{SCORE\_WIDTH} bits (unsigned absolute).
+\item \texttt{sum\_acc}: \texttt{SCORE\_WIDTH} $+ \log_2(N)$ bits
+      (unsigned).
+\item $\text{LHS} = \text{max} \ll \log_2(N)$ (free shift; wire
+      routing).
+\item $\text{RHS} = (\text{sum} \ll 3) + (\text{sum} \ll 1) =
+      \text{sum} \times 10$.
+\item Decision: $\text{LHS} > \text{RHS} \Rightarrow$ FP16.
+\end{itemize}
+
+If the reference disagrees with the chip on any input, the reference
+is wrong. File an issue with the failing tile from
+\texttt{rtl/tb/testvectors/}.
+
+\subsection{MAC Array, INT8 Path}
+
+Bit-exact integer matmul, \texttt{int32\_t} accumulator, no
+saturation. The compiler is responsible for any requantization after
+the matmul.
+
+\subsection{MAC Array, FP16 Path}
+
+\texttt{float} internally; IEEE-754 binary16 round-to-nearest-even
+on each output element. See \path{docs/mac_array_design.pdf}~\S3.2
+for the v0.1 simplifications and what may change in v0.2.
+
+%==============================================================================
+\section{Linking Options}
+\label{sec:linking}
+
+\subsection{Static Library}
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+make static    # produces libprecision_controller_ref.a + libmac_array_ref.a
+\end{lstlisting}
+
+Then link your compiler binary:
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+g++ my_compiler.cpp -lprecision_controller_ref -lmac_array_ref \
+    -L /path/to/sw/reference_model -o my_compiler
+\end{lstlisting}
+
+\subsection{Shared Library / FFI}
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+make shared    # produces *.so for FFI from any language
+\end{lstlisting}
+
+Python's \texttt{ctypes} or Rust's \texttt{libloading} can dlopen
+the \texttt{.so} and call any \texttt{lhsi\_*} function declared in
+\texttt{precision\_controller\_ref.hpp} or \texttt{mac\_array\_ref.hpp}.
+
+\subsection{Direct Source Inclusion}
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+g++ my_compiler.cpp \
+    sw/reference_model/precision_controller_ref.cpp \
+    sw/reference_model/mac_array_ref.cpp \
+    -I sw/reference_model -o my_compiler
+\end{lstlisting}
+
+The reference \texttt{.cpp} files are small ($\sim$300 lines combined)
+so direct inclusion is also fine.
+
+%==============================================================================
+\section{End-to-End Example}
+\label{sec:e2e}
+
+The cleanest pointer for a compiler engineer: run and read
+\path{sw/reference_model/integration_example.py}. It composes both
+blocks the way a compiler backend should --- process a $QK^{\top}$
+tile, push to the precision controller, dispatch to either the INT8
+or FP16 MAC path, accumulate.
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+make integration
+\end{lstlisting}
+
+\noindent
+Sample output (100 synthetic attention tiles, 21\% expected FP16):
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+Routed:  INT8 = 82, FP16 = 18
+Truth :  INT8 = 82, FP16 = 18
+
+Per-tile cost:
+  INT8:   1040 cycles, 131.1 nJ
+  FP16:   4112 cycles, 655.4 nJ
+
+Mixed-precision policy:       159k cycles, 22 uJ
+All-FP16 baseline:            411k cycles, 66 uJ
+Speedup:        2.58x
+Energy saving:  65.6%
+\end{lstlisting}
+
+The routing matches ground truth exactly (82/18 vs 82/18); the cost
+model shows the win from mixed-precision dispatch.
+
+%==============================================================================
+\section{Three Compiler-Use Scenarios}
+\label{sec:scenarios}
+
+\path{sw/reference_model/example_compiler_use.py} shows three levels
+of sophistication for a compiler backend using just the precision
+controller:
+
+\begin{enumerate}
+\item \textbf{Level A --- Naive per-tile dispatch.} For each tile, ask
+      the gate and emit either an INT8 or FP16 kernel call. Simplest
+      possible integration.
+\item \textbf{Level B --- Batched index lists.} Collect decisions for
+      a window of tiles, then batch all INT8 tiles to one kernel
+      launch and all FP16 tiles to another. Amortizes per-tile
+      overhead.
+\item \textbf{Level C --- Offline calibration.} Run the gate over a
+      calibration set offline, observe that some workloads are
+      overwhelmingly one precision, and emit a workload-specific
+      policy that skips the runtime gate.
+\end{enumerate}
+
+The end-to-end \texttt{integration\_example.py} (\S\ref{sec:e2e}) is
+the next level up, composing both blocks.
+
+%==============================================================================
+\section{Verification Status}
+\label{sec:verif}
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Reference-model verification status.}
+\label{tab:verif}
+\begin{tabular}{@{}l l c@{}}
+\toprule
+Block                & Test                                                & Status \\
+\midrule
+Precision Controller & 143/143 RTL replay tiles, bit-exact (C++ and Py)    & pass \\
+Precision Controller & Stateful streaming = batched = stateless            & pass \\
+Precision Controller & extern "C" = C++ class                              & pass \\
+Precision Controller & Canonical edges (spike $=$ 10 / 11)                 & pass \\
+Precision Controller & Accumulator reset between tiles                     & pass \\
+MAC Array            & INT8 matmul vs.\ naive int64 reference              & pass (exact) \\
+MAC Array            & FP16 matmul vs.\ naive double reference             & pass (within $5 \cdot 10^{-3}$) \\
+MAC Array            & Edge cases (zero, identity, signed extremes)        & pass \\
+MAC Array            & extern "C" = C++ class                              & pass \\
+MAC Array            & FP16 round-trip helpers                             & pass \\
+MAC Array            & Cost-estimate sanity                                & pass \\
+End-to-end           & Integration example routing matches ground truth    & 82/18 vs 82/18 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{Where to Find Each File}
+\label{sec:files}
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+sw/reference_model/
+  precision_controller_ref.hpp           -- block 1 header
+  precision_controller_ref.cpp           -- block 1 implementation
+  precision_controller_ref.py            -- block 1 Python ref
+  test_precision_controller_ref.cpp      -- block 1 C++ tests
+  test_precision_controller_ref.py       -- block 1 Python tests
+
+  mac_array_ref.hpp                      -- block 2 header
+  mac_array_ref.cpp                      -- block 2 implementation
+  mac_array_ref.py                       -- block 2 Python ref
+  test_mac_array_ref.cpp                 -- block 2 C++ tests
+  test_mac_array_ref.py                  -- block 2 Python tests
+
+  integration_example.py                 -- composes both blocks
+  example_compiler_use.py                -- three sophistication levels
+
+  Makefile                               -- build / test / shared / static
+  README.md                              -- markdown form of this doc
+
+docs/
+  isa/precision_controller_isa.pdf       -- ISA spec for block 1
+  mac_array_design.pdf                   -- design rationale for block 2
+  sw_overview.pdf                        -- compiler-team entry point
+  reference_model_api.pdf                -- THIS DOCUMENT
+\end{lstlisting}
+
+\vspace{0.5in}
+\noindent\rule{\textwidth}{0.4pt}\\
+\noindent\small\textit{This document is the canonical API reference
+for the LonghornSilicon ACU reference models. Updated as each new
+block lands in software.}
+
+\end{document}

@@ -1,0 +1,581 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+% Hyperref colors
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={Precision Controller --- Interface Specification},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={ISA Specification, Version pc-isa-0.1}
+}
+
+% Headings
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{\thesubsubsection}{0.6em}{}
+
+% Headers / footers
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small Precision Controller ISA}
+\rhead{\small \texttt{pc-isa-0.1}}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% Code listings
+\definecolor{codebg}{gray}{0.97}
+\definecolor{codekey}{rgb}{0.13,0.29,0.53}
+\definecolor{codecom}{rgb}{0.25,0.5,0.25}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+  xleftmargin=0.5em,
+  xrightmargin=0.5em,
+  aboveskip=0.6em,
+  belowskip=0.6em,
+  showstringspaces=false,
+  breaklines=true,
+  keywordstyle=\color{codekey}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  numbers=none
+}
+
+\setlist{itemsep=1pt,topsep=2pt}
+
+\begin{document}
+
+%==============================================================================
+% Title page
+%==============================================================================
+\thispagestyle{empty}
+\begin{center}
+\vspace*{1.2in}
+{\Huge\bfseries Precision Controller}\\[0.4em]
+{\LARGE\bfseries Interface Specification}\\[1.2em]
+
+{\large \textsc{LonghornSilicon LLM Inference Accelerator}}\\[0.4em]
+{\large Block 1 of 4 --- Attention Compute Unit (ACU)}\\[2em]
+
+\rule{0.7\textwidth}{0.4pt}\\[1em]
+
+\begin{tabular}{rl}
+\textbf{Version}:    & \texttt{pc-isa-0.1} (first public draft) \\
+\textbf{Date}:       & 2026-05-13 \\
+\textbf{Status}:     & Pre-tape-out stub for compiler integration \\
+\textbf{Author}:     & Chaithu Talasila, The University of Texas at Austin \\
+\textbf{Reference}:  & \texttt{LonghornSilicon/attention-compute-unit} \\
+\end{tabular}\\[1em]
+\rule{0.7\textwidth}{0.4pt}
+
+\vfill
+\begin{minipage}{0.85\textwidth}
+\small
+\textbf{Scope.} This document describes the externally-visible interface to the
+\texttt{precision\_controller} block as it will appear on the chip, on an
+FPGA prototype (Xilinx ZCU102/104), or in the bit-accurate software model.
+A compiler backend targeting the precision controller writes against this
+interface; the hardware implementation must conform to it. This specification
+is stable for the precision controller block (ACU) only and will be unified
+with the rest of the LonghornSilicon ISA when the KV Cache Engine, Token
+Importance Unit, and Memory Hierarchy Controller blocks land.
+\end{minipage}
+
+\vspace{0.3in}
+\end{center}
+
+\clearpage
+
+%==============================================================================
+% TOC
+%==============================================================================
+\tableofcontents
+\clearpage
+
+%==============================================================================
+% 1. Block overview
+%==============================================================================
+\section{Block Overview}
+\label{sec:overview}
+
+The precision controller is a streaming block that consumes one signed
+attention score per cycle, asserts an end-of-tile signal on the last score,
+and produces a single-bit precision decision (INT8 or FP16) one cycle later.
+The decision is computed by the integer rearrangement of an entropy-equivalent
+ratio gate, requiring no division and no transcendentals:
+\begin{equation*}
+\mathrm{decision} \;=\; \bigl(\max(|s|) \ll \log_2 N\bigr) \;>\;
+\bigl((\Sigma(|s|) \ll 3) + (\Sigma(|s|) \ll 1)\bigr)
+\end{equation*}
+or equivalently,
+\begin{equation*}
+\mathrm{decision} \;=\; \max(|s|) \cdot N \;>\; \Sigma(|s|) \cdot 10
+\end{equation*}
+where $\mathrm{decision} = 1$ means this tile needs FP16 and
+$\mathrm{decision} = 0$ means it can use INT8. The constant $N = \mathrm{BLOCK\_M}
+\cdot \mathrm{BLOCK\_N}$ is the synthesis-time tile size; the threshold $T = 10$
+is hard-coded in the synthesized netlist via the equivalent shift-and-add
+$(\Sigma \ll 3) + (\Sigma \ll 1)$. Changing either requires re-synthesis
+(see~\S\ref{sec:syntime}).
+
+\medskip
+\noindent\textbf{Latency:} one cycle after \texttt{s\_last} asserts.\\
+\textbf{Throughput:} one score per cycle, one decision per $N$ scores.\\
+\textbf{Footprint:} 30 flip-flops, $\sim$3.4\,k\,\textmu m\textsuperscript{2} stdcell at
+SkyWater Sky130A; projects to $\sim$150\,\textmu m\textsuperscript{2} at TSMC 16FFC.\\
+\textbf{Bit-exact reference:} \path{sw/reference_model/precision_controller_ref.py}
+(143/143 RTL replay tiles match).
+
+%==============================================================================
+% 2. Address space and memory map
+%==============================================================================
+\section{Address Space and Memory Map}
+\label{sec:memmap}
+
+The block exposes a 256-byte AXI-Lite slave register window. All registers
+are 32-bit, word-aligned. The base address is set at chip integration time
+(e.g., \texttt{0x4000\_0000} on the ZCU102 PYNQ overlay).
+
+\begin{table}[h]
+\centering
+\small
+\caption{AXI-Lite register window (offsets relative to base address).}
+\label{tab:regs}
+\begin{tabular}{@{}l l c l p{6.8cm}@{}}
+\toprule
+Offset & Name & Access & Reset & Purpose \\
+\midrule
+\texttt{0x00} & \texttt{CTRL}              & RW    & 0x0   & bit[0]: \texttt{soft\_reset} (write-1 to pulse); bit[1]: \texttt{enable} \\
+\texttt{0x04} & \texttt{STATUS}            & R     & 0x1   & bit[0]: \texttt{idle}; bit[1]: \texttt{decision\_valid}; bit[2]: \texttt{tile\_in\_progress}; bit[3]: \texttt{fifo\_full} \\
+\texttt{0x08} & \texttt{INFO\_BLOCK\_M}    & R     & (syn) & Synthesis-time \texttt{BLOCK\_M} \\
+\texttt{0x0C} & \texttt{INFO\_BLOCK\_N}    & R     & (syn) & Synthesis-time \texttt{BLOCK\_N} \\
+\texttt{0x10} & \texttt{INFO\_N}           & R     & (syn) & $\texttt{BLOCK\_M} \cdot \texttt{BLOCK\_N}$ \\
+\texttt{0x14} & \texttt{INFO\_SCORE\_WIDTH}& R     & (syn) & Bits per signed score on \texttt{s\_axis\_scores} \\
+\texttt{0x18} & \texttt{INFO\_THRESHOLD}   & R     & (syn) & Always 10 in \texttt{pc-isa-0.1} \\
+\texttt{0x1C} & \texttt{INFO\_VERSION}     & R     & 0x100 & bits[15:8] major, bits[7:0] minor \\
+\texttt{0x20} & \texttt{TILE\_COUNT}       & R     & 0x0   & Complete tiles processed since last reset \\
+\texttt{0x24} & \texttt{LAST\_DECISION}    & R     & 0x0   & bit[0]: most recent decision (1 = FP16) \\
+\texttt{0x28} & \texttt{DECISION\_FIFO}    & R     & ---   & Pop one entry; bit[0] = decision; bit[31] = \texttt{valid} \\
+\texttt{0x2C} & \texttt{DECISION\_FIFO\_LVL}& R    & 0x0   & Number of decisions waiting in the FIFO \\
+\texttt{0x30} & \texttt{IRQ\_MASK}         & RW    & 0x0   & bit[0]: enable interrupt on every decision \\
+\texttt{0x34} & \texttt{IRQ\_STATUS}       & R/W1C & 0x0   & bit[0]: decision-available IRQ pending; write 1 to clear \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\medskip
+\noindent\textbf{Conventions.} \texttt{RW} = read/write; \texttt{R} = read-only;
+\texttt{W1C} = write-1-to-clear; (syn) = value fixed at synthesis time.
+Writes to read-only registers are silently dropped. Reading reserved offsets
+returns zero.
+
+%==============================================================================
+% 3. Streaming data interfaces
+%==============================================================================
+\section{Streaming Data Interfaces}
+\label{sec:stream}
+
+Two AXI-Stream interfaces carry the actual scalar data. The AXI-Lite window in
+\S\ref{sec:memmap} is for control only.
+
+\subsection{\texttt{s\_axis\_scores} --- Score Input (Slave)}
+\label{sec:s_axis_scores}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l c c p{8cm}@{}}
+\toprule
+Signal      & Width                  & Direction & Purpose \\
+\midrule
+\texttt{tdata}  & \texttt{SCORE\_WIDTH} & in        & One signed two's-complement attention score \\
+\texttt{tlast}  & 1                     & in        & Assert on the final score of each tile \\
+\texttt{tvalid} & 1                     & in        & Handshake: data is valid \\
+\texttt{tready} & 1                     & out       & Handshake: block is ready to accept \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Protocol:}
+\begin{itemize}
+\item A complete tile is exactly $N$ beats. The block does not validate the
+  beat count; feeding fewer than $N$ beats and asserting \texttt{tlast}
+  mid-tile produces an undefined decision.
+\item \texttt{tlast} is asserted on the $N$th beat. The decision is computed
+  combinationally on that cycle's \texttt{tdata} (so the running max/sum
+  sees the last score), and the decision is latched on the following rising
+  edge.
+\item Backpressure: when the block is not ready (e.g., the decision FIFO is
+  full), \texttt{tready} deasserts. Upstream must hold \texttt{tdata} and
+  \texttt{tlast} stable until the handshake completes.
+\end{itemize}
+
+\subsection{\texttt{m\_axis\_decisions} --- Decision Output (Master)}
+\label{sec:m_axis_decisions}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l c c p{8cm}@{}}
+\toprule
+Signal      & Width & Direction & Purpose \\
+\midrule
+\texttt{tdata}  & 1 & out & bit[0]: decision (1 = FP16, 0 = INT8) \\
+\texttt{tvalid} & 1 & out & Handshake: decision is valid \\
+\texttt{tready} & 1 & in  & Handshake: downstream is ready to accept \\
+\texttt{tlast}  & 1 & out & Always 1 (each decision is a one-beat packet) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Protocol.} One beat per processed tile. If the downstream
+consumer is not ready, the decision queues in the internal FIFO (default depth
+16). When the FIFO fills, the block stops accepting scores via \texttt{tready}
+on \texttt{s\_axis\_scores}.
+
+%==============================================================================
+% 4. Logical operations (compiler-facing)
+%==============================================================================
+\section{Logical Operations}
+\label{sec:ops}
+
+Below are the abstract operations a compiler emits. Each maps to a short
+sequence of register writes and stream beats; the C API in \S\ref{sec:capi}
+gives the concrete library calls.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l l l p{6cm}@{}}
+\toprule
+Operation                & Inputs         & Outputs        & Description \\
+\midrule
+\texttt{PC\_QUERY}       & ---            & INFO struct    & Read all \texttt{INFO\_*} registers in one transaction \\
+\texttt{PC\_RESET}       & ---            & ---            & Soft reset accumulators + clear decision FIFO \\
+\texttt{PC\_ENABLE}      & ---            & ---            & Set bit[1] of \texttt{CTRL} \\
+\texttt{PC\_PUSH\_TILE}  & $N$ scores     & ---            & Stream a tile via \texttt{s\_axis\_scores} with \texttt{tlast} on the final beat \\
+\texttt{PC\_READ}        & ---            & decision bit   & Pop one decision from the FIFO; blocks if empty \\
+\texttt{PC\_READ\_BATCH} & count          & count bits     & Pop up to count decisions; non-blocking \\
+\texttt{PC\_STATUS}      & ---            & STATUS bits    & Read the \texttt{STATUS} register \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+The block has no other externally-observable side effects. There is no
+clock-gating register, no power state machine, and no DFT scan-chain control
+at this stub level (those land on the chip-level ISA when the full chip is
+defined).
+
+\subsection{Worked Lowering Example}
+\label{sec:lowering}
+
+This section walks through how a representative compiler IR operation lowers
+to a sequence of ISA operations. The example uses a generic high-level
+\texttt{flash\_attention} op that any silicon-agnostic compiler is likely to
+have; the binding to a specific compiler IR (MLIR, TVM Relax, ONNX, etc.) is
+discussed in \S\ref{sec:bindings}.
+
+Suppose the compiler's IR contains:
+\begin{lstlisting}[basicstyle=\ttfamily\small\itshape]
+%out = flash_attention(%q, %k, %v)
+    : tensor<S x D x f16>, tensor<S x D x f16>, tensor<S x D x f16>
+    -> tensor<S x D x f16>
+\end{lstlisting}
+
+The lowering proceeds in three stages. \textbf{Stage~1: setup.} The compiler
+queries the chip's tile dimensions once per compilation unit:
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+info = PC_QUERY()                 // -> block_m=64, block_n=64, n=4096
+PC_RESET()
+PC_ENABLE()
+\end{lstlisting}
+
+\textbf{Stage~2: per-tile loop.} For each (BLOCK\_M, BLOCK\_N) sub-block of
+the $Q \!\cdot\! K^{\top}$ matrix, the compiler emits a precision-routing
+decision before dispatching the actual matmul:
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+for (tile_i, tile_j) in tiles_of(Q, K):
+    scores = Q[tile_i] @ K[tile_j].T         // FP16, computed in shared SRAM
+    PC_PUSH_TILE(scores.flatten())           // stream N scores in
+    decision = PC_READ()                     // 1 cycle after tlast
+
+    if decision == FP16:
+        out_tile = fp16_matmul(scores, V[tile_j])
+    else:
+        scores_int8 = quantize_int8(scores)
+        out_tile = int8_matmul(scores_int8, V[tile_j])
+    accumulate(out, out_tile)
+\end{lstlisting}
+
+\textbf{Stage~3: batching (optional).} For higher throughput the compiler
+can pre-queue many tiles into \texttt{PC\_PUSH\_TILE} and pop decisions
+in batches once enough have completed:
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+for tile in tiles[:k]:
+    PC_PUSH_TILE(tile_scores(tile))      // tiles fan into the FIFO
+decisions = PC_READ_BATCH(k)              // pop k results at once
+dispatch_int8_tiles ([t for t,d in zip(tiles,decisions) if not d], V)
+dispatch_fp16_tiles ([t for t,d in zip(tiles,decisions) if     d], V)
+\end{lstlisting}
+
+\noindent
+The same three stages work whether the compiler's target is the Python
+reference model (phase~0), the FPGA prototype (phase~1), or the silicon
+chip (phase~3). Only the runtime implementation of \texttt{PC\_*} changes
+under the hood --- Python function call, AXI register write, or PCIe MMIO,
+respectively. The lowered IR is identical.
+
+\subsection{Compiler Binding Patterns}
+\label{sec:bindings}
+
+The five logical operations in Table~\ref{tab:regs} cover every interaction
+a compiler needs with the precision controller. How those operations
+surface inside a given compiler depends on the compiler's IR. Sketches of
+the four most common patterns:
+
+\noindent\textbf{MLIR dialect.} Define a \texttt{lhsi.pc.*} dialect with
+five ops corresponding to the table in \S\ref{sec:ops}. The lowering pass
+matches a \texttt{flash\_attention} (or vendor-equivalent) op and rewrites
+it into the \texttt{lhsi.pc} sequence above plus the appropriate
+\texttt{linalg.matmul} variants. Conversion to LLVM IR happens in a
+subsequent pass via a runtime call interface.
+
+\noindent\textbf{TVM Relax / TIR.} Register a backend target named
+\texttt{"lhsi-pc"}, add a pattern-matcher in the operator-fusion pass
+that recognizes attention sub-graphs, and emit calls to TVM-runtime
+extern functions named for each \texttt{PC\_*} operation. The TVM
+runtime then dispatches to either the Python reference (test mode) or
+the C driver (deployed mode).
+
+\noindent\textbf{ONNX --- graph rewriter.} Add an ONNX-Runtime
+\texttt{CustomOpDomain} with one op per \texttt{PC\_*}, then write a
+graph-transform pass that recognizes the attention pattern and inserts
+the custom ops in the right places. The runtime implementation of each
+custom op binds to either the Python reference or the C driver.
+
+\noindent\textbf{Custom IR.} If the compiler has its own IR, the
+integration point is wherever its codegen emits the lowest-level
+hardware-target operations. Replace the call-site for the existing
+attention codegen with a sequence of calls to \texttt{PC\_*} plus the
+precision-routed matmul kernels.
+
+In every case, the contract on our side is the same: a compiler binding
+that emits the ISA operations defined in this document is correct,
+testable today against the Python reference, and forward-compatible
+through every integration phase.
+
+%==============================================================================
+% 5. C API stub
+%==============================================================================
+\section{C API Stub}
+\label{sec:capi}
+
+What a runtime built on top of this ISA looks like. Concrete header sketch:
+
+\begin{lstlisting}[language=C]
+/* lhsi_precision_controller.h --- LonghornSilicon ACU driver API. */
+
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+
+typedef struct {
+    uint32_t block_m;
+    uint32_t block_n;
+    uint32_t n;            /* = block_m * block_n */
+    uint32_t score_width;  /* bits per score */
+    uint32_t threshold;
+    uint16_t isa_major;
+    uint16_t isa_minor;
+} lhsi_pc_info_t;
+
+typedef struct lhsi_pc_handle lhsi_pc_handle_t;
+
+/* Open / close */
+int  lhsi_pc_open (const char *device, lhsi_pc_handle_t **out);
+void lhsi_pc_close(lhsi_pc_handle_t *h);
+
+/* Configuration queries (read INFO_* registers) */
+int  lhsi_pc_query(lhsi_pc_handle_t *h, lhsi_pc_info_t *out);
+
+/* Control */
+int  lhsi_pc_reset (lhsi_pc_handle_t *h);
+int  lhsi_pc_enable(lhsi_pc_handle_t *h, bool enable);
+
+/* Streaming --- push a complete tile (N scores, score_width bits each).
+   Blocks until the entire tile has been accepted by the block's tready
+   handshake. */
+int  lhsi_pc_push_tile(lhsi_pc_handle_t *h,
+                       const void *scores, size_t stride);
+
+/* Pop a single decision (blocks if FIFO is empty). */
+int  lhsi_pc_read_decision (lhsi_pc_handle_t *h, bool *out_fp16);
+
+/* Pop up to `count` decisions; returns number actually popped. */
+int  lhsi_pc_read_decisions(lhsi_pc_handle_t *h,
+                            bool *out_fp16, size_t count);
+
+/* Diagnostics. */
+typedef struct {
+    bool idle;
+    bool decision_valid;
+    bool tile_in_progress;
+    bool fifo_full;
+    uint32_t fifo_level;
+    uint32_t tile_count;
+} lhsi_pc_status_t;
+int  lhsi_pc_status(lhsi_pc_handle_t *h, lhsi_pc_status_t *out);
+\end{lstlisting}
+
+\noindent
+Return codes follow the standard Linux convention: \texttt{0} on success,
+\texttt{-errno} on failure.
+
+%==============================================================================
+% 6. Synthesis-time configuration
+%==============================================================================
+\section{Synthesis-Time Configuration}
+\label{sec:syntime}
+
+The following parameters are baked in at synthesis time and cannot be changed
+at runtime. A compiler reads them via the \texttt{INFO\_*} registers and
+tailors its code generation accordingly.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l c l p{5.5cm}@{}}
+\toprule
+Parameter         & Default & Range (validated)                & Notes \\
+\midrule
+\texttt{BLOCK\_M}     & 64  & 16, 32, 64, 128, 256              & Combined product must make $N$ a power of two \\
+\texttt{BLOCK\_N}     & 64  & 16, 32, 64, 128, 256              & (same) \\
+\texttt{SCORE\_WIDTH} & 8   & 4, 6, 8, 10, 12, 16               & Defines \texttt{tdata} width on \texttt{s\_axis\_scores} \\
+\texttt{THRESHOLD}    & 10  & \textbf{10 only} in this version  & The shift-and-add hardware path implements $\times 10$ exactly \\
+\texttt{FIFO\_DEPTH}  & 16  & 4, 8, 16, 32                      & Decision output FIFO depth \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+A future revision (\texttt{pc-isa-0.2}) will expose \texttt{THRESHOLD} as a
+runtime-writable register. The RTL change is straightforward but breaks the
+current zero-cost shift-and-add multiplier on the right-hand side of the
+inequality.
+
+%==============================================================================
+% 7. Bit-Accurate Reference
+%==============================================================================
+\section{Bit-Accurate Reference}
+\label{sec:ref}
+
+The Python model at
+\path{sw/reference_model/precision_controller_ref.py} is the canonical
+bit-accurate reference for this ISA. A compiler can verify its codegen
+against the model directly:
+
+\begin{lstlisting}[language=Python]
+from precision_controller_ref import PrecisionController
+
+pc = PrecisionController()
+decision = pc.process_tile(scores)   # exactly what the chip will return
+\end{lstlisting}
+
+\noindent
+The model is verified bit-exact against the RTL testbench's 143 replay tiles
+(see \path{sw/reference_model/test_precision_controller_ref.py}). Any
+divergence between the model and the chip is a bug in this specification,
+not in the chip.
+
+%==============================================================================
+% 8. Integration phases
+%==============================================================================
+\section{Integration Phases}
+\label{sec:phases}
+
+This specification supports a staged integration that begins before silicon
+exists. The interface described in this document is the stable contract
+through every phase.
+
+\begin{table}[ht]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}c p{3.0cm} p{4.0cm} p{5.0cm}@{}}
+\toprule
+Phase & Timeline & Compiler targets & We provide \\
+\midrule
+0 & now & Bit-accurate Python and C++ reference models & Models + ISA + tests on the \texttt{compiler-integration-prep} branch \\
+1 & when ZCU102 / 104 arrives & AXI-Lite + AXI-Stream on Zynq UltraScale+ & Vivado bitstream + PYNQ driver \\
+2 & after KV-cache, token-importance, and memory-controller blocks complete & Same AXI interface, more blocks visible & Multi-block FPGA project \\
+3 & post-tape-out (2027+) & PCIe-attached custom chip & TSMC 16FFC silicon + Linux driver \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+% 9. Open questions
+%==============================================================================
+\section{Open Questions}
+\label{sec:open}
+
+The following are intentionally on the table for collaborators. None of them
+are committed in \texttt{pc-isa-0.1}.
+
+\begin{enumerate}
+\item Should \texttt{THRESHOLD} be elevated to a runtime register? Cost: one
+      register and a parameterized multiplier in place of the current
+      shift-and-add. Benefit: per-workload tuning without re-synthesis.
+\item Is a single-bit decision stream sufficient, or do we want to also
+      emit the raw \texttt{max} and \texttt{sum} values for compiler-side
+      calibration?
+\item Should the decision FIFO support coalesced reads (e.g., 32 decisions
+      packed into one 32-bit word) for high-throughput batching?
+\item Are AXI-Lite + AXI-Stream the right interfaces, or should we expose a
+      CHI / TileLink / custom protocol that matches the rest of the chip?
+\item Should the block expose a small reference-counting feature so the
+      compiler runtime can track tile-to-decision mapping when multiple
+      attention streams are in flight?
+\end{enumerate}
+
+%==============================================================================
+% 10. Change log
+%==============================================================================
+\section{Change Log}
+\label{sec:changelog}
+
+\begin{itemize}
+\item \texttt{pc-isa-0.1} (2026-05-13): First public draft. Stable for the
+      precision controller block only.
+\end{itemize}
+
+\vspace{0.5in}
+\noindent\rule{\textwidth}{0.4pt}\\
+\noindent\small\textit{LonghornSilicon Adaptive Precision Attention --- ACU Interface Specification.
+This document is open and may be redistributed. The TSMC 16FFC PDK referenced
+in the integration phases is NDA-protected and is not part of this document
+or the public repository.}
+
+\end{document}

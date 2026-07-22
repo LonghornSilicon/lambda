@@ -1,0 +1,424 @@
+{
+  "accuracy": [
+    {
+      "config": {
+        "seq_len": "512",
+        "head_dim": "64",
+        "causal": "False",
+        "outliers": "False",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "rmse_fa2": 0.00045545079199695823,
+      "rmse_evolved": 0.01805124078549702,
+      "rmse_evolved_vs_fa2": 0.018057742428763793,
+      "avg_bits": 8.0
+    },
+    {
+      "config": {
+        "seq_len": "512",
+        "head_dim": "128",
+        "causal": "True",
+        "outliers": "True",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "rmse_fa2": 0.0011668613498543381,
+      "rmse_evolved": 0.0005741307818464898,
+      "rmse_evolved_vs_fa2": 0.0013841634807934486,
+      "avg_bits": 16.0
+    },
+    {
+      "config": {
+        "seq_len": "2048",
+        "head_dim": "64",
+        "causal": "False",
+        "outliers": "True",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "rmse_fa2": 0.002266695562852229,
+      "rmse_evolved": 0.0010007942064270074,
+      "rmse_evolved_vs_fa2": 0.0026977957649284724,
+      "avg_bits": 16.0
+    },
+    {
+      "config": {
+        "seq_len": "2048",
+        "head_dim": "128",
+        "causal": "True",
+        "outliers": "False",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "rmse_fa2": 0.00041999397256679,
+      "rmse_evolved": 0.01785974107728914,
+      "rmse_evolved_vs_fa2": 0.017862307436644492,
+      "avg_bits": 8.0
+    },
+    {
+      "config": {
+        "seq_len": "8192",
+        "head_dim": "64",
+        "causal": "True",
+        "outliers": "False",
+        "batch": "1",
+        "num_heads": "4"
+      },
+      "rmse_fa2": 0.0004333651407947339,
+      "rmse_evolved": 0.016177162504228338,
+      "rmse_evolved_vs_fa2": 0.01617705428153657,
+      "avg_bits": 8.0
+    },
+    {
+      "config": {
+        "seq_len": "8192",
+        "head_dim": "128",
+        "causal": "False",
+        "outliers": "True",
+        "batch": "1",
+        "num_heads": "4"
+      },
+      "rmse_fa2": 0.0023426342295256204,
+      "rmse_evolved": 0.0011414985089451377,
+      "rmse_evolved_vs_fa2": 0.002921163011536221,
+      "avg_bits": 16.0
+    },
+    {
+      "config": {
+        "seq_len": "2048",
+        "head_dim": "64",
+        "causal": "True",
+        "outliers": "True",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "rmse_fa2": 0.0020202928483281854,
+      "rmse_evolved": 0.001063791443475394,
+      "rmse_evolved_vs_fa2": 0.002854308293080935,
+      "avg_bits": 16.0
+    },
+    {
+      "config": {
+        "seq_len": "2048",
+        "head_dim": "128",
+        "causal": "False",
+        "outliers": "False",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "rmse_fa2": 0.0004593865488062875,
+      "rmse_evolved": 0.019168517414236242,
+      "rmse_evolved_vs_fa2": 0.019174952072793693,
+      "avg_bits": 8.0
+    },
+    {
+      "config": {
+        "seq_len": "4096",
+        "head_dim": "64",
+        "causal": "False",
+        "outliers": "False",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "rmse_fa2": 0.0004733949426309482,
+      "rmse_evolved": 0.019184247430460998,
+      "rmse_evolved_vs_fa2": 0.01918835631559557,
+      "avg_bits": 8.0
+    },
+    {
+      "config": {
+        "seq_len": "4096",
+        "head_dim": "128",
+        "causal": "True",
+        "outliers": "True",
+        "batch": "1",
+        "num_heads": "8"
+      },
+      "rmse_fa2": 0.0016391448092632616,
+      "rmse_evolved": 0.0008862112247749536,
+      "rmse_evolved_vs_fa2": 0.002052569323066658,
+      "avg_bits": 16.0
+    },
+    {
+      "config": {
+        "seq_len": "8192",
+        "head_dim": "64",
+        "causal": "False",
+        "outliers": "False",
+        "batch": "1",
+        "num_heads": "4"
+      },
+      "rmse_fa2": 0.00046773984651742414,
+      "rmse_evolved": 0.01751945832670584,
+      "rmse_evolved_vs_fa2": 0.01752620364499999,
+      "avg_bits": 8.0
+    },
+    {
+      "config": {
+        "seq_len": "8192",
+        "head_dim": "128",
+        "causal": "True",
+        "outliers": "False",
+        "batch": "1",
+        "num_heads": "4"
+      },
+      "rmse_fa2": 0.0004277587122852904,
+      "rmse_evolved": 0.016837060333657793,
+      "rmse_evolved_vs_fa2": 0.01684038786245797,
+      "avg_bits": 8.0
+    }
+  ],
+  "kv_memory": [
+    {
+      "config": {
+        "seq_len": "512",
+        "head_dim": "64",
+        "causal": "False",
+        "outliers": "False",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "fp16_bytes": 2097152,
+      "quant_bytes": 1048608,
+      "compression_ratio": 1.9999389667063383,
+      "bits_per_element": 8.000244140625
+    },
+    {
+      "config": {
+        "seq_len": "512",
+        "head_dim": "128",
+        "causal": "True",
+        "outliers": "True",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "fp16_bytes": 4194304,
+      "quant_bytes": 2097184,
+      "compression_ratio": 1.9999694828875292,
+      "bits_per_element": 8.0001220703125
+    },
+    {
+      "config": {
+        "seq_len": "2048",
+        "head_dim": "64",
+        "causal": "False",
+        "outliers": "True",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "fp16_bytes": 8388608,
+      "quant_bytes": 4194432,
+      "compression_ratio": 1.9999389667063383,
+      "bits_per_element": 8.000244140625
+    },
+    {
+      "config": {
+        "seq_len": "2048",
+        "head_dim": "128",
+        "causal": "True",
+        "outliers": "False",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "fp16_bytes": 16777216,
+      "quant_bytes": 8388736,
+      "compression_ratio": 1.9999694828875292,
+      "bits_per_element": 8.0001220703125
+    },
+    {
+      "config": {
+        "seq_len": "8192",
+        "head_dim": "64",
+        "causal": "True",
+        "outliers": "False",
+        "batch": "1",
+        "num_heads": "4"
+      },
+      "fp16_bytes": 8388608,
+      "quant_bytes": 4194816,
+      "compression_ratio": 1.9997558891736849,
+      "bits_per_element": 8.0009765625
+    },
+    {
+      "config": {
+        "seq_len": "8192",
+        "head_dim": "128",
+        "causal": "False",
+        "outliers": "True",
+        "batch": "1",
+        "num_heads": "4"
+      },
+      "fp16_bytes": 16777216,
+      "quant_bytes": 8389120,
+      "compression_ratio": 1.9998779371376258,
+      "bits_per_element": 8.00048828125
+    },
+    {
+      "config": {
+        "seq_len": "2048",
+        "head_dim": "64",
+        "causal": "True",
+        "outliers": "True",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "fp16_bytes": 8388608,
+      "quant_bytes": 4194432,
+      "compression_ratio": 1.9999389667063383,
+      "bits_per_element": 8.000244140625
+    },
+    {
+      "config": {
+        "seq_len": "2048",
+        "head_dim": "128",
+        "causal": "False",
+        "outliers": "False",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "fp16_bytes": 16777216,
+      "quant_bytes": 8388736,
+      "compression_ratio": 1.9999694828875292,
+      "bits_per_element": 8.0001220703125
+    },
+    {
+      "config": {
+        "seq_len": "4096",
+        "head_dim": "64",
+        "causal": "False",
+        "outliers": "False",
+        "batch": "2",
+        "num_heads": "8"
+      },
+      "fp16_bytes": 16777216,
+      "quant_bytes": 8388864,
+      "compression_ratio": 1.9999389667063383,
+      "bits_per_element": 8.000244140625
+    },
+    {
+      "config": {
+        "seq_len": "4096",
+        "head_dim": "128",
+        "causal": "True",
+        "outliers": "True",
+        "batch": "1",
+        "num_heads": "8"
+      },
+      "fp16_bytes": 16777216,
+      "quant_bytes": 8388864,
+      "compression_ratio": 1.9999389667063383,
+      "bits_per_element": 8.000244140625
+    },
+    {
+      "config": {
+        "seq_len": "8192",
+        "head_dim": "64",
+        "causal": "False",
+        "outliers": "False",
+        "batch": "1",
+        "num_heads": "4"
+      },
+      "fp16_bytes": 8388608,
+      "quant_bytes": 4194816,
+      "compression_ratio": 1.9997558891736849,
+      "bits_per_element": 8.0009765625
+    },
+    {
+      "config": {
+        "seq_len": "8192",
+        "head_dim": "128",
+        "causal": "True",
+        "outliers": "False",
+        "batch": "1",
+        "num_heads": "4"
+      },
+      "fp16_bytes": 16777216,
+      "quant_bytes": 8389120,
+      "compression_ratio": 1.9998779371376258,
+      "bits_per_element": 8.00048828125
+    }
+  ],
+  "scaling": [
+    {
+      "seq_len": 512,
+      "outliers": false,
+      "rmse_fa2": 0.00045233604387796486,
+      "rmse_evolved": 0.01701265097438947,
+      "compression_ratio": 1.9997558891736849,
+      "avg_bits": 8.0
+    },
+    {
+      "seq_len": 512,
+      "outliers": true,
+      "rmse_fa2": 0.0012059892341104033,
+      "rmse_evolved": 0.0006282206956661216,
+      "compression_ratio": 1.9997558891736849,
+      "avg_bits": 16.0
+    },
+    {
+      "seq_len": 1024,
+      "outliers": false,
+      "rmse_fa2": 0.00047738201450541335,
+      "rmse_evolved": 0.017827386783220777,
+      "compression_ratio": 1.9997558891736849,
+      "avg_bits": 8.0
+    },
+    {
+      "seq_len": 1024,
+      "outliers": true,
+      "rmse_fa2": 0.0017577374995752246,
+      "rmse_evolved": 0.0009020676772419768,
+      "compression_ratio": 1.9997558891736849,
+      "avg_bits": 16.0
+    },
+    {
+      "seq_len": 2048,
+      "outliers": false,
+      "rmse_fa2": 0.0004735443105737604,
+      "rmse_evolved": 0.017748577581596543,
+      "compression_ratio": 1.9997558891736849,
+      "avg_bits": 8.0
+    },
+    {
+      "seq_len": 2048,
+      "outliers": true,
+      "rmse_fa2": 0.0019818446168962736,
+      "rmse_evolved": 0.0008679354202071726,
+      "compression_ratio": 1.9997558891736849,
+      "avg_bits": 16.0
+    },
+    {
+      "seq_len": 4096,
+      "outliers": false,
+      "rmse_fa2": 0.0004662256968101327,
+      "rmse_evolved": 0.017309791841043164,
+      "compression_ratio": 1.9997558891736849,
+      "avg_bits": 8.0
+    },
+    {
+      "seq_len": 4096,
+      "outliers": true,
+      "rmse_fa2": 0.0022898296606572,
+      "rmse_evolved": 0.0010689546300504257,
+      "compression_ratio": 1.9997558891736849,
+      "avg_bits": 16.0
+    },
+    {
+      "seq_len": 8192,
+      "outliers": false,
+      "rmse_fa2": 0.00047020686952798697,
+      "rmse_evolved": 0.017286451967266338,
+      "compression_ratio": 1.9997558891736849,
+      "avg_bits": 8.0
+    },
+    {
+      "seq_len": 8192,
+      "outliers": true,
+      "rmse_fa2": 0.003325498005597257,
+      "rmse_evolved": 0.001220449963543191,
+      "compression_ratio": 1.9997558891736849,
+      "avg_bits": 16.0
+    }
+  ]
+}

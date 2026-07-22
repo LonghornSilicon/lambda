@@ -1,0 +1,448 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={LonghornSilicon Documentation Library --- Proposal},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={Documentation Library Proposal, Version library-0.1}
+}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{\thesubsubsection}{0.6em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small LonghornSilicon Documentation Library}
+\rhead{\small \texttt{library-0.1}}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlist[itemize]{leftmargin=*,topsep=2pt,itemsep=1pt}
+
+\title{\textbf{LonghornSilicon Documentation Library \\
+Proposal and Inventory}}
+\author{LonghornSilicon}
+\date{Version \texttt{library-0.1} \quad 2026-05-22}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+LonghornSilicon now spans nineteen repositories and ships at least
+fourteen formal LaTeX documents --- five published or draft papers,
+seven block-level specifications, and an emerging set of integration
+findings. The volume justifies a single canonical index. This
+document proposes folding the library role into the existing
+\texttt{LonghornSilicon/architecture} repository (rather than creating
+a new one), inventories every formal document across the
+organization, and lays out a four-step implementation plan to land
+a public-facing index within one work session.
+\end{abstract}
+
+\section{Motivation}
+
+The organization's documentation footprint grew faster than its
+indexing scheme. A new collaborator (university partner, foundry
+contact, journal reviewer, future student) currently has to discover
+documents repo by repo. We have neither:
+
+\begin{itemize}
+\item A reading order across blocks (which paper covers the chip,
+which covers each block, which covers compression, which covers
+integration).
+\item A status register (which papers are submitted, which are drafts,
+which are superseded).
+\item A shared bibliography file so that all internal papers cite each
+other consistently.
+\item A public-facing entry point for an external visitor to grasp
+the program's scope without cloning each repo.
+\end{itemize}
+
+The cost of each missing piece is small in isolation but compounding.
+The Muse Semi meeting prep on 2026-05-21 is a recent example: the
+relevant artifacts (Sky130 sign-off, paper, ISA, integration audit,
+the TurboQuant+ draft) lived in five separate places, and the
+``what should I show them'' question required reconstructing the map
+from memory rather than reading it off a page.
+
+\section{Inventory}
+\label{sec:inventory}
+
+The tables below cover every formal LaTeX-source-bearing document
+across the LonghornSilicon GitHub organization as of 2026-05-22. Each
+row shows the canonical source repository, the path within that
+repository, current status, and the document's role.
+
+\subsection{System-level / architecture}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{0.30\textwidth}p{0.30\textwidth}lp{0.20\textwidth}@{}}
+\toprule
+\textbf{Document} & \textbf{Source} & \textbf{Status} & \textbf{Role} \\
+\midrule
+$\lambda$ chip architecture & \texttt{architecture/paper/lambda.tex}
+  & draft  & full chip overview \\
+Dataflow walkthrough        & \texttt{architecture/dataflow\_walkthrough.md}
+  & living & block interaction explainer \\
+Architecture status         & \texttt{architecture/STATUS.md}
+  & living & per-block development state \\
+Floorplan visualisation     & \texttt{architecture/floorplan.html}
+  & living & visual aid \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Block 1 --- ACU (Attention Compute Unit)}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{0.30\textwidth}p{0.30\textwidth}lp{0.20\textwidth}@{}}
+\toprule
+\textbf{Document} & \textbf{Source} & \textbf{Status} & \textbf{Role} \\
+\midrule
+Adaptive Precision Attention & \texttt{attention-compute-unit/}
+                                \texttt{paper/adaptive\_precision\_attention.tex}
+  & draft  & main block paper \\
+Precision Controller ISA     & \texttt{attention-compute-unit/}
+                                \texttt{docs/isa/precision\_controller\_isa.tex}
+  & v0.1 stable & interface specification \\
+MAC array design             & \texttt{attention-compute-unit/}
+                                \texttt{docs/mac\_array\_design.tex}
+  & v0.1 stable & sub-block design \\
+Reference model API          & \texttt{attention-compute-unit/}
+                                \texttt{docs/reference\_model\_api.tex}
+  & v0.1 stable & compiler-facing API \\
+SW overview                  & \texttt{attention-compute-unit/}
+                                \texttt{docs/sw\_overview.tex}
+  & v0.1 stable & compiler-team orientation \\
+Meeting handout              & \texttt{attention-compute-unit/}
+                                \texttt{docs/meeting\_handout.tex}
+  & event piece & one-pager (compiler meeting) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Block 2 --- KV Cache Engine}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{0.30\textwidth}p{0.30\textwidth}lp{0.20\textwidth}@{}}
+\toprule
+\textbf{Document} & \textbf{Source} & \textbf{Status} & \textbf{Role} \\
+\midrule
+KV Cache Engine ISA       & \texttt{kv-cache-engine/docs/isa/}
+                            \texttt{kv\_cache\_engine\_isa.tex}
+  & v0.1 stable & interface specification \\
+Reference model API       & \texttt{kv-cache-engine/docs/}
+                            \texttt{reference\_model\_api.tex}
+  & v0.1 stable & compiler-facing API \\
+SW overview               & \texttt{kv-cache-engine/docs/}
+                            \texttt{sw\_overview.tex}
+  & v0.1 stable & compiler-team orientation \\
+TurboQuant+ paper         & \texttt{turboquant/} (in progress)
+  & draft, private & compression algorithm paper \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Cross-block findings}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{0.30\textwidth}p{0.30\textwidth}lp{0.20\textwidth}@{}}
+\toprule
+\textbf{Document} & \textbf{Source} & \textbf{Status} & \textbf{Role} \\
+\midrule
+KVCE $\times$ ACU integration audit & \texttt{attention-compute-unit/}
+                                  \texttt{docs/findings/}
+                                  \texttt{kvce\_acu\_integration\_audit.tex}
+  & v0.2 current & integration test + remediation \\
+Cross-block conflict register      & \texttt{attention-compute-unit/}
+                                  \texttt{docs/findings/}
+                                  \texttt{kvce\_acu\_architectural\_conflicts.tex}
+  & v0.1 (forthcoming) & standing design-tension register \\
+Phase~1 entropy finding            & \texttt{attention-compute-unit/}
+                                  \texttt{docs/findings/}
+                                  \texttt{phase1-entropy-finding.md}
+  & frozen & evolutionary policy discovery \\
+Sparsity controller finding        & \texttt{attention-compute-unit/}
+                                  \texttt{docs/findings/}
+                                  \texttt{sparsity-controller-finding.md}
+  & shelved & XAttention proxy negative result \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Adjacent research}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{0.30\textwidth}p{0.30\textwidth}lp{0.20\textwidth}@{}}
+\toprule
+\textbf{Document} & \textbf{Source} & \textbf{Status} & \textbf{Role} \\
+\midrule
+Don't Waste Bits FPGA controller & \texttt{dont-waste-bits/research/}
+                                    \texttt{paper/fpga\_controller\_paper.tex}
+  & draft, submission-ready & variable-precision controller paper \\
+DWB original (verified)          & \texttt{dont-waste-bits/2604.04722v1.pdf}
+  & external (CVPR~2026) & reference \\
+LASSO KV coprocessor             & \texttt{lasso/writing\_outputs/}
+                                    \texttt{lasso\_paper.tex}
+  & draft & Sky130 KV-cache compressor \\
+HADES step~5                     & \texttt{decode-pipeline-optimizer/}
+                                    \texttt{paper/hades\_step5.tex}
+  & draft & speculative decoding assist \\
+FP4 multiplier                   & \texttt{fp4-multiplier/paper.pdf}
+  & PDF only & minimum-gate FP4 (E2M1) \\
+Chipathon microarchitecture      & \texttt{Chipathon/docs/}
+                                    \texttt{Microarchitecture.pdf}
+  & PDF only & SSCS Chipathon 130nm design \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Tooling / adjacent}
+
+Repositories with no LaTeX documents but supporting the library's
+context: \texttt{architecture/.github/}, \texttt{website},
+\texttt{.github}, \texttt{SRAM\_16384x32}, \texttt{kelle-simulator},
+\texttt{kelle-fpga}, \texttt{kv-accelerator-comparison},
+\texttt{OpenLane}, \texttt{openlane2}, \texttt{skywater-pdk},
+\texttt{tiny-gpu}. These appear in the library only as cross-reference
+targets, not as document sources.
+
+\section{Three structural options}
+
+\subsection{Option A: dedicated \texttt{LonghornSilicon/library} repository}
+
+Create a new repository whose sole purpose is the canonical index.
+Contains a master \texttt{index.tex}, a shared \texttt{references.bib},
+and a GitHub Pages render.
+
+\begin{description}[leftmargin=2em,style=nextline]
+\item[Pros]
+Clean separation of concerns; library has no other purpose so it
+cannot drift into being half-architecture, half-index. Discoverable
+as ``the library'' from the organization landing page.
+\item[Cons]
+Yet another repository to maintain. Risk of becoming a duplicate
+storage of papers rather than a pure index. Cross-references from
+existing repos must be added by hand.
+\end{description}
+
+\subsection{Option B: extend the existing \texttt{architecture} repository}
+
+\texttt{LonghornSilicon/architecture} already exists, already holds
+the system-level $\lambda$ paper, the dataflow walkthrough, the
+status file, and the floorplan visualisation. Add to it a
+\texttt{papers/} directory with the library index and shared
+bibliography.
+
+\begin{description}[leftmargin=2em,style=nextline]
+\item[Pros]
+Zero new repositories. The architecture repo's existing role
+(cross-block reference) generalises naturally to ``cross-block
+documentation index''. The $\lambda$ paper already pulls together
+all block claims --- the library is its natural sibling. GitHub
+Pages can render directly from this repository.
+\item[Cons]
+The architecture repo's scope widens; ``architecture'' now also
+means ``publication index''. Mitigated by clear directory boundaries
+(\texttt{paper/} for $\lambda$, \texttt{papers/} for the library
+index, \texttt{specs/} for cross-block specs).
+\end{description}
+
+\subsection{Option C: distributed cross-references, no new home}
+
+Add a \texttt{LIBRARY.md} or \texttt{INDEX.md} to each repository
+that cross-links to the others. No central index.
+
+\begin{description}[leftmargin=2em,style=nextline]
+\item[Pros]
+Lowest effort. Each repo stays self-contained.
+\item[Cons]
+No single entry point for an external visitor. Cross-references must
+be kept in sync across nineteen repositories. Does not address the
+``which paper covers what'' question for someone scanning from outside.
+\end{description}
+
+\subsection{Recommendation}
+
+\textbf{Option B}: fold the library into
+\texttt{LonghornSilicon/architecture}. The architecture repo is
+already the de-facto cross-cutting home; the $\lambda$ paper is
+already there; the dataflow walkthrough is already there; adding the
+index closes the loop without creating new repositories. Option~A
+is the second-best choice if a clean separation of concerns
+becomes preferred later; Option~C is rejected as not solving the
+external-visitor problem.
+
+\section{Proposed structure within \texttt{architecture}}
+
+\begin{verbatim}
+LonghornSilicon/architecture/
+|-- README.md                  # entry point, links to papers/INDEX
+|-- STATUS.md                  # existing per-block development status
+|-- arch.yml                   # existing structured architecture model
+|-- dataflow_walkthrough.md    # existing dataflow explainer
+|-- floorplan.html             # existing floorplan visualisation
+|-- paper/
+|   `-- lambda.tex             # existing system-level paper
+|-- papers/                    # NEW: library
+|   |-- INDEX.md               # human-readable index, rendered to Pages
+|   |-- index.tex              # LaTeX-typeset companion (this proposal's
+|   |                          #   document table, kept in sync)
+|   |-- references.bib         # NEW: shared bibliography for all
+|   |                          #   LonghornSilicon papers to cite
+|   `-- abstracts/
+|       |-- adaptive_precision_attention.md
+|       |-- precision_controller_isa.md
+|       |-- kv_cache_engine_isa.md
+|       |-- turboquant.md
+|       |-- fpga_controller_paper.md
+|       |-- lasso_paper.md
+|       |-- hades_step5.md
+|       |-- kvce_acu_integration_audit.md
+|       `-- ...
+|-- specs/                     # NEW: convenience links to canonical
+|   |                          #   block specs (symlinks or short files)
+|   `-- README.md              # ``each block's ISA + ref model API''
+`-- findings/                  # NEW: cross-block findings sourced from
+    |                          #   block repos
+    `-- README.md              # links to integration audit etc.
+\end{verbatim}
+
+The \texttt{papers/} directory is the library proper. Each entry
+in \texttt{papers/abstracts/} is a one-page markdown summary
+(canonical title, authors, status, abstract, link to the
+authoritative source repo). The \texttt{INDEX.md} aggregates these
+into a single rendered page; \texttt{index.tex} is its LaTeX-typeset
+form for inclusion in funding reports or partnership packages.
+
+\section{Shared bibliography}
+
+The single highest-leverage artifact is
+\texttt{papers/references.bib}. Today, when the
+\texttt{adaptive\_precision\_attention} paper wants to cite
+TurboQuant+, the author hand-writes a BibTeX stanza. When the
+KVCE \texttt{lasso\_paper} wants to cite the precision controller,
+another hand-written stanza appears, potentially with a different
+author list or title formatting. A canonical
+\texttt{references.bib} with stanzas like:
+
+\begin{lstlisting}[basicstyle=\ttfamily\small,frame=single]
+@misc{lhs_acu_precision_controller,
+  title  = {Adaptive Precision Attention: Evolutionary
+            Discovery to Hardware-Verified Ratio Gates},
+  author = {Talasila, Chaithu and {LonghornSilicon}},
+  year   = {2026},
+  url    = {https://github.com/LonghornSilicon/
+            attention-compute-unit},
+  note   = {Block 1 of the LonghornSilicon LLM
+            inference accelerator},
+}
+
+@misc{lhs_kvce_turboquant,
+  title  = {TurboQuant+: Asymmetric K/V Compression
+            for LLM KV Caches},
+  ...
+}
+\end{lstlisting}
+
+allows every paper in the organization to cite every other paper
+consistently. Future-us, advisors, foundry partners, and reviewers
+all encounter the same author lists and titles for the same work.
+
+\section{Implementation plan}
+
+Four steps, each landable in under thirty minutes by a single
+session.
+
+\begin{enumerate}
+\item \textbf{Bootstrap the \texttt{papers/} directory in
+\texttt{architecture}}. Add the directory, the \texttt{INDEX.md}
+seeded from \S\ref{sec:inventory}, the \texttt{abstracts/}
+sub-directory with one stub abstract per document, and the empty
+\texttt{references.bib}.
+
+\item \textbf{Populate abstracts.} For each document in
+\S\ref{sec:inventory}, copy the existing abstract (or write one
+where missing) into the corresponding
+\texttt{papers/abstracts/<name>.md} file. Link to the canonical
+source.
+
+\item \textbf{Populate the shared bibliography.} Add one BibTeX
+stanza per document to \texttt{references.bib}, with consistent
+author, title, and URL fields. Update existing papers to
+\verb|\bibliography{../architecture/papers/references}| (or copy
+the bib into each paper as needed).
+
+\item \textbf{Render to GitHub Pages.} Enable Pages on
+\texttt{architecture} pointing at \texttt{papers/INDEX.md}. The
+organization landing page links to it. Done.
+\end{enumerate}
+
+Total work to first usable state: approximately two hours.
+
+\section{Open questions}
+
+\begin{enumerate}
+\item Should TurboQuant+ live in \texttt{turboquant} (current home)
+or be promoted to a dedicated repository (e.g.\ \texttt{turboquant-plus})
+now that it is the canonical KVCE compression algorithm?
+\item Should the library index also enumerate \emph{external}
+references the LonghornSilicon papers consistently cite (FlashAttention
+1/2/3, GEAR, KIVI, KVQuant, RotateKV, SHIELD, etc.) so that
+the shared \texttt{references.bib} stops requiring hand-additions
+in each paper?
+\item Does the website (\texttt{LonghornSilicon/website}) consume the
+library directly (e.g.\ render the index in-place) or maintain its
+own publication list that pulls from the library?
+\item Status semantics: do we adopt three states
+(\textit{draft}, \textit{submitted}, \textit{accepted}) or finer
+granularity (\textit{draft / under-review / accepted / published /
+superseded / archived})?
+\item Versioning: do papers carry their own version codes
+(\texttt{pc-isa-0.1}, \texttt{kvce-isa-0.1}, \texttt{kvce-acu-audit-0.2})
+into the library entries, or does the library normalise to a single
+versioning scheme?
+\end{enumerate}
+
+These are not blockers; they can be resolved during step 2 of the
+implementation plan.
+
+\section*{Change log}
+
+\begin{itemize}
+\item \texttt{library-0.1} (2026-05-22): inventory completed
+across nineteen organization repositories; structural options
+evaluated; recommendation made; implementation plan drafted.
+\end{itemize}
+
+\end{document}
