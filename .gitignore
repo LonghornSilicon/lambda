@@ -5,3 +5,37 @@ chip/verif/build/*
 *.out
 __pycache__/
 *.pyc
+
+# ---- ACU / GF180 import: EDA run trees (curated results/ ARE committed; runs/ are not) ----
+**/openlane/*/runs/
+**/librelane/*/runs/
+**/runs/
+**/build/
+*.vvp
+# research (APA RL) python / latex / sim scratch
+*.egg-info/
+.pytest_cache/
+checkpoints/
+*.pt
+.venv/
+venv/
+**/dashboard.html
+# RTL sim scratch (generated testvectors are reproducible from gen_*_vectors.py)
+**/rtl/synth.log
+**/rtl/tb/testvectors/scores.hex
+**/rtl/tb/testvectors/expected.hex
+# reference-model C/C++ build artifacts
+**/sw/**/*.o
+**/sw/**/*.a
+**/sw/**/*.so
+**/sw/**/test_ref
+**/sw/**/test_pc
+**/sw/**/test_mac
+# LaTeX intermediates (regenerable from .tex + .bib)
+**/*.aux
+**/*.bbl
+**/*.blg
+**/*.toc
+# cocotb / GLS sim (chip/pdk/gf180/tb)
+**/tb/sim_build*/
+**/tb/results.xml

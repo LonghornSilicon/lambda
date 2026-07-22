@@ -36,21 +36,18 @@ jobs:
           # Block-major paths: each mirror = a complete block (sw + rtl + pdk + docs + research).
           # Umbrella: the whole assembled ACU (contains mate/ vecu/ precision_controller/).
           #
-          # HELD (2026-07-22): the ACU rows below are commented out this round. `acu/` is a
-          # documented placeholder (see acu/README.md) — attention-compute-unit and
-          # chipathon-lambda-acu are mid-flight (Sky130 sign-offs / vecu_softmax re-harden).
-          # Their mirror repos (lambda-acu, lambda-mate, lambda-vecu, lambda-precision-controller)
-          # are NOT created yet. Re-enable each row when the corresponding block is imported and
-          # its empty mirror repo exists — otherwise the job fails trying to push a placeholder.
-          # - prefix: acu
-          #   repo: LonghornSilicon/lambda-acu
+          # ACU imported 2026-07-22 (block-major, history-preserved). Umbrella + 3 pieces.
+          # NOTE: the MIRROR_PAT secret must be scoped to these 4 repos too (lambda-acu,
+          # lambda-mate, lambda-vecu, lambda-precision-controller) or their push steps 403.
+          - prefix: acu
+            repo: LonghornSilicon/lambda-acu
           # Pieces: one mirror per functional block. EVERY new block adds a row here.
-          # - prefix: acu/mate
-          #   repo: LonghornSilicon/lambda-mate
-          # - prefix: acu/vecu
-          #   repo: LonghornSilicon/lambda-vecu
-          # - prefix: acu/precision_controller
-          #   repo: LonghornSilicon/lambda-precision-controller
+          - prefix: acu/mate
+            repo: LonghornSilicon/lambda-mate
+          - prefix: acu/vecu
+            repo: LonghornSilicon/lambda-vecu
+          - prefix: acu/precision_controller
+            repo: LonghornSilicon/lambda-precision-controller
           - prefix: kve
             repo: LonghornSilicon/lambda-kve
           - prefix: tiu
