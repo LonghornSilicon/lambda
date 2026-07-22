@@ -1,0 +1,413 @@
+% Lambda paper — bibliography.
+% Real citations only; arXiv IDs link to primary sources.
+
+@article{turboquant,
+  title   = {{TurboQuant}: Optimal Scalar Codebook {KV} Compression},
+  author  = {Ashkboos, Saleh and others},
+  journal = {arXiv preprint arXiv:2504.19874},
+  year    = {2025},
+  note    = {Accepted to ICLR 2026. Cited as prior work only; not Lambda's codec of record (which is ChannelQuant, following KIVI/KVQuant).}
+}
+
+@inproceedings{flashattention,
+  title     = {{FlashAttention}: Fast and Memory-Efficient Exact Attention with {IO}-Awareness},
+  author    = {Dao, Tri and Fu, Daniel Y. and Ermon, Stefano and Rudra, Atri and R{\'e}, Christopher},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2022},
+  note      = {arXiv:2205.14135}
+}
+
+@article{flashattention2,
+  title   = {{FlashAttention-2}: Faster Attention with Better Parallelism and Work Partitioning},
+  author  = {Dao, Tri},
+  journal = {arXiv preprint arXiv:2307.08691},
+  year    = {2023}
+}
+
+@article{flashattention3,
+  title   = {{FlashAttention-3}: Fast and Accurate Attention with Asynchrony and Low-Precision},
+  author  = {Shah, Jay and others},
+  journal = {arXiv preprint arXiv:2407.08608},
+  year    = {2024}
+}
+
+@article{onlinesoftmax,
+  title   = {Online normalizer calculation for softmax},
+  author  = {Milakov, Maxim and Gimelshein, Natalia},
+  journal = {arXiv preprint arXiv:1805.02867},
+  year    = {2018}
+}
+
+@inproceedings{pagedattention,
+  title     = {Efficient Memory Management for Large Language Model Serving with {PagedAttention}},
+  author    = {Kwon, Woosuk and Li, Zhuohan and Zhuang, Siyuan and Sheng, Ying and Zheng, Lianmin and Yu, Cody Hao and Gonzalez, Joseph E. and Zhang, Hao and Stoica, Ion},
+  booktitle = {ACM Symposium on Operating Systems Principles (SOSP)},
+  year      = {2023},
+  note      = {arXiv:2309.06180}
+}
+
+@article{flashinfer,
+  title   = {{FlashInfer}: Efficient and Customizable Attention Engine for {LLM} Inference Serving},
+  author  = {Ye, Zihao and others},
+  journal = {arXiv preprint arXiv:2501.01005},
+  year    = {2025}
+}
+
+@article{mla,
+  title   = {{DeepSeek-V2}: A Strong, Economical, and Efficient Mixture-of-Experts Language Model},
+  author  = {{DeepSeek-AI}},
+  journal = {arXiv preprint arXiv:2405.04434},
+  year    = {2024}
+}
+
+@article{gqa,
+  title   = {{GQA}: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints},
+  author  = {Ainslie, Joshua and others},
+  journal = {arXiv preprint arXiv:2305.13245},
+  year    = {2023}
+}
+
+@inproceedings{kvquant,
+  title     = {{KVQuant}: Towards 10 Million Context Length {LLM} Inference with {KV} Cache Quantization},
+  author    = {Hooper, Coleman and Kim, Sehoon and Mohammadi, Hiva and Mahoney, Michael W. and Shao, Yakun Sophia and Keutzer, Kurt and Gholami, Amir},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2024},
+  note      = {arXiv:2401.18079. Recipe basis for Lambda's ChannelQuant KV codec (per-channel + dense-and-sparse outlier handling).}
+}
+
+@inproceedings{kivi,
+  title     = {{KIVI}: A Tuning-Free Asymmetric 2bit Quantization for {KV} Cache},
+  author    = {Liu, Zirui and Yuan, Jiayi and Jin, Hongye and Zhong, Shaochen and Xu, Zhaozhuo and Braverman, Vladimir and Chen, Beidi and Hu, Xia},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2024},
+  note      = {arXiv:2402.02750. Recipe basis for Lambda's ChannelQuant KV codec (per-channel keys, per-token values). Author list and arXiv ID taken from the published paper; verify before camera-ready.}
+}
+
+@article{kv_survey,
+  title   = {A Survey on {KV}-Cache Acceleration for Large Language Model Inference},
+  author  = {{Survey Authors}},
+  journal = {arXiv preprint arXiv:2506.13131},
+  year    = {2025}
+}
+
+@article{adaptive_kv,
+  title   = {Adaptive {KV}-Cache Quantization for Lightweight On-Device {LLM}s},
+  journal = {arXiv preprint arXiv:2604.04722},
+  year    = {2026}
+}
+
+@inproceedings{h2o,
+  title     = {{H2O}: Heavy-Hitter Oracle for Efficient Generative Inference of Large Language Models},
+  author    = {Zhang, Zhenyu and others},
+  booktitle = {NeurIPS},
+  year      = {2023},
+  note      = {arXiv:2306.14048}
+}
+
+@inproceedings{scissorhands,
+  title     = {Scissorhands: Exploiting the Persistence of Importance Hypothesis for {LLM} {KV} Cache Compression at Test Time},
+  author    = {Liu, Zichang and others},
+  booktitle = {NeurIPS},
+  year      = {2023},
+  note      = {arXiv:2305.17118}
+}
+
+@article{tova,
+  title   = {{TOVA}: Transformers are Multi-State {RNN}s with Token Omission via Attention},
+  author  = {Oren, Matanel and others},
+  journal = {arXiv preprint arXiv:2401.06104},
+  year    = {2024}
+}
+
+@inproceedings{jouppi_tpu,
+  title     = {In-Datacenter Performance Analysis of a Tensor Processing Unit},
+  author    = {Jouppi, Norman P. and others},
+  booktitle = {Proc.~Int'l Symp.~Computer Architecture (ISCA)},
+  year      = {2017},
+  note      = {arXiv:1704.04760}
+}
+
+@misc{vaswani_attention,
+  title         = {Attention Is All You Need},
+  author        = {Vaswani, Ashish and others},
+  year          = {2017},
+  note          = {arXiv:1706.03762}
+}
+
+@article{mamba,
+  title   = {Mamba: Linear-Time Sequence Modeling with Selective State Spaces},
+  author  = {Gu, Albert and Dao, Tri},
+  journal = {arXiv preprint arXiv:2312.00752},
+  year    = {2023}
+}
+
+@article{medusa,
+  title   = {Medusa: Simple {LLM} Inference Acceleration Framework with Multiple Decoding Heads},
+  author  = {Cai, Tianle and others},
+  journal = {arXiv preprint arXiv:2401.10774},
+  year    = {2024}
+}
+
+@article{longformer,
+  title   = {{Longformer}: The Long-Document Transformer},
+  author  = {Beltagy, Iz and Peters, Matthew E. and Cohan, Arman},
+  journal = {arXiv preprint arXiv:2004.05150},
+  year    = {2020}
+}
+
+@inproceedings{bigbird,
+  title     = {Big Bird: Transformers for Longer Sequences},
+  author    = {Zaheer, Manzil and others},
+  booktitle = {NeurIPS},
+  year      = {2020},
+  note      = {arXiv:2007.14062}
+}
+
+@article{w4a8_acl25,
+  title   = {Give Me {BF16} or Give Me Death: Accuracy-Performance Trade-Offs in {LLM} Quantization},
+  author  = {Kurtic, Eldar and others},
+  journal = {arXiv preprint arXiv:2411.02355},
+  year    = {2024}
+}
+
+@misc{nvfp4,
+  title        = {{NVFP4} and {MXFP4} Microscaling Block Floating-Point Specifications},
+  author       = {{NVIDIA} and {Open Compute Project}},
+  year         = {2024},
+  howpublished = {NVIDIA developer blog; OCP MX specification}
+}
+
+@misc{etched_patent,
+  title        = {Parallel Execution of Self-Attention-Based {AI} Models},
+  author       = {Uberti, Gavin and Zhu, Christopher},
+  year         = {2024},
+  howpublished = {U.S. Patent Application 2024/0419516 A1, Etched.ai, Inc.}
+}
+
+@misc{imec_minisic,
+  title        = {{EUROPRACTICE mini@sic 2.0} Service for {TSMC} Technologies},
+  author       = {{IMEC} and {Europractice}},
+  year         = {2025},
+  howpublished = {IMEC / Europractice academic-shuttle program announcement}
+}
+
+@misc{chaithu_acu,
+  title        = {Adaptive-Precision Attention: {Precision} Controller and {MAC} Array Specifications},
+  author       = {Talasila, Chaithu},
+  year         = {2026},
+  howpublished = {LonghornSilicon GitHub project (companion to this work)},
+  note         = {github.com/LonghornSilicon/attention-compute-unit}
+}
+
+@article{quarot,
+  title   = {{QuaRot}: Outlier-Free 4-Bit Inference in Rotated {LLM}s},
+  author  = {Ashkboos, Saleh and others},
+  journal = {arXiv preprint arXiv:2404.00456},
+  year    = {2024}
+}
+
+% ---- Quantization (weights and activations) ----
+
+@inproceedings{smoothquant,
+  title     = {{SmoothQuant}: Accurate and Efficient Post-Training Quantization for Large Language Models},
+  author    = {Xiao, Guangxuan and Lin, Ji and Seznec, Mickael and Wu, Hao and Demouth, Julien and Han, Song},
+  booktitle = {Int'l Conf.~on Machine Learning (ICML)},
+  year      = {2023},
+  note      = {arXiv:2211.10438}
+}
+
+@inproceedings{awq,
+  title     = {{AWQ}: Activation-Aware Weight Quantization for {LLM} Compression and Acceleration},
+  author    = {Lin, Ji and Tang, Jiaming and Tang, Haotian and Yang, Shang and Dang, Xingyu and Han, Song},
+  booktitle = {Conf.~on Machine Learning and Systems (MLSys)},
+  year      = {2024},
+  note      = {arXiv:2306.00978}
+}
+
+@inproceedings{gptq,
+  title     = {{GPTQ}: Accurate Post-Training Quantization for Generative Pre-trained Transformers},
+  author    = {Frantar, Elias and Ashkboos, Saleh and Hoefler, Torsten and Alistarh, Dan},
+  booktitle = {Int'l Conf.~on Learning Representations (ICLR)},
+  year      = {2023},
+  note      = {arXiv:2210.17323}
+}
+
+% ---- Transformer primitive operations ----
+
+@article{rope,
+  title   = {{RoFormer}: Enhanced Transformer with Rotary Position Embedding},
+  author  = {Su, Jianlin and Lu, Yu and Pan, Shengfeng and Murtadha, Ahmed and Wen, Bo and Liu, Yunfeng},
+  journal = {arXiv preprint arXiv:2104.09864},
+  year    = {2021},
+  note    = {The RoPE positional encoding scheme used by Llama, Mistral, Qwen, and most modern LLMs}
+}
+
+@article{swiglu,
+  title   = {{GLU} Variants Improve Transformer},
+  author  = {Shazeer, Noam},
+  journal = {arXiv preprint arXiv:2002.05202},
+  year    = {2020},
+  note    = {Introduces SwiGLU, the FFN activation used by Llama-3 family}
+}
+
+@inproceedings{rmsnorm,
+  title     = {Root Mean Square Layer Normalization},
+  author    = {Zhang, Biao and Sennrich, Rico},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2019},
+  note      = {arXiv:1910.07467}
+}
+
+@article{streamingllm,
+  title   = {Efficient Streaming Language Models with Attention Sinks},
+  author  = {Xiao, Guangxuan and Tian, Yuandong and Chen, Beidi and Han, Song and Lewis, Mike},
+  journal = {arXiv preprint arXiv:2309.17453},
+  year    = {2023},
+  note    = {Grounds the \texttt{tiu\_streaming\_llm} eviction mode}
+}
+
+% ---- Speculative decoding (architecturally compatible with Lambda) ----
+
+@article{eagle,
+  title   = {{EAGLE}: Speculative Sampling Requires Rethinking Feature Uncertainty},
+  author  = {Li, Yuhui and Wei, Fangyun and Zhang, Chao and Zhang, Hongyang},
+  journal = {arXiv preprint arXiv:2401.15077},
+  year    = {2024}
+}
+
+% ---- Multi-token prediction & recent flagship models ----
+
+@article{deepseek_v3,
+  title   = {{DeepSeek-V3} Technical Report},
+  author  = {{DeepSeek-AI}},
+  journal = {arXiv preprint arXiv:2412.19437},
+  year    = {2024},
+  note    = {Introduces multi-token prediction (MTP) at scale}
+}
+
+@article{llama3,
+  title   = {The {Llama 3} Herd of Models},
+  author  = {{Meta AI}},
+  journal = {arXiv preprint arXiv:2407.21783},
+  year    = {2024},
+  note    = {Llama-3.2-3B / -1B technical report; primary demo target family}
+}
+
+@article{qwen25,
+  title   = {{Qwen2.5} Technical Report},
+  author  = {{Qwen Team}},
+  journal = {arXiv preprint arXiv:2412.15115},
+  year    = {2024},
+  note    = {Qwen2.5-3B / -1.5B; 2 KV-head layout enables Lambda's long-context champion mode}
+}
+
+@article{phi35,
+  title   = {{Phi-3} Technical Report: A Highly Capable Language Model Locally on Your Phone},
+  author  = {{Microsoft Research}},
+  journal = {arXiv preprint arXiv:2404.14219},
+  year    = {2024},
+  note    = {Phi-3.5-mini; 32 KV-head layout is the KV-heavy outlier in Lambda's target set}
+}
+
+@misc{mistral_nemo,
+  title   = {Mistral-{NeMo}: A Multilingual Open-Weight Model},
+  author  = {{Mistral AI and NVIDIA}},
+  year    = {2024},
+  howpublished = {Mistral AI / NVIDIA joint release},
+  note    = {Mistral-NeMo-3B is one of Lambda's primary demo targets}
+}
+
+% ---- On-device deployment context ----
+
+@article{apple_foundation,
+  title   = {{Apple} Intelligence Foundation Language Models},
+  author  = {{Apple Machine Learning Research}},
+  journal = {arXiv preprint arXiv:2407.21075},
+  year    = {2024},
+  note    = {On-device 3B-class deployment story directly comparable to Lambda's target}
+}
+
+% ---- Microscaling / FP4 formats ----
+
+@misc{ocp_mx,
+  title        = {Open Compute Project Microscaling Formats ({MX}) Specification v1.0},
+  author       = {{OCP Microscaling Working Group}},
+  year         = {2023},
+  howpublished = {Open Compute Project working-group specification},
+  note         = {MXFP4 and MXFP8 block-scaled formats; informs Lambda's FP4 codebook mode}
+}
+
+% ---- Compiler co-design ----
+
+@inproceedings{mlir,
+  title     = {{MLIR}: Scaling Compiler Infrastructure for Domain Specific Computation},
+  author    = {Lattner, Chris and Amini, Mehdi and Bondhugula, Uday and Cohen, Albert and Davis, Andy and Pienaar, Jacques and Riddle, River and Shpeisman, Tatiana and Vasilache, Nicolas and Zinenko, Oleksandr},
+  booktitle = {IEEE/ACM Int'l Symp.~on Code Generation and Optimization (CGO)},
+  year      = {2021},
+  note      = {arXiv:2002.11054}
+}
+
+% ---- Physical design / placement ----
+
+@inproceedings{dreamplace,
+  title     = {{DREAMPlace}: Deep Learning Toolkit-Enabled {GPU} Acceleration for Modern {VLSI} Placement},
+  author    = {Lin, Yibo and Dhar, Shounak and Li, Wuxi and Ren, Haoxing and Khailany, Brucek and Pan, David Z.},
+  booktitle = {ACM/IEEE Design Automation Conference (DAC)},
+  year      = {2019},
+  note      = {arXiv:1809.09457}
+}
+
+% ---- Foundational attention ----
+
+@inproceedings{tpu_v4,
+  title     = {{TPU} v4: An Optically Reconfigurable Supercomputer for Machine Learning with Hardware Support for Embeddings},
+  author    = {Jouppi, Norman P. and Kurian, George and Li, Sheng and Ma, Peter and Nagarajan, Rahul and others},
+  booktitle = {Proc.~Int'l Symp.~Computer Architecture (ISCA)},
+  year      = {2023},
+  note      = {Reference for systolic-array dataflow at scale; informs MatE's weight-stationary primary mode}
+}
+
+% ---- GPU / NVIDIA reference points ----
+
+@misc{nvidia_ampere,
+  title        = {{NVIDIA Ampere GA102} {GPU} Architecture Whitepaper},
+  author       = {{NVIDIA Corporation}},
+  year         = {2020},
+  howpublished = {NVIDIA technical whitepaper},
+  note         = {Reference GPU tensor-core dataflow; Lambda's compressed-domain attention contrasts with the FP16/FP8 tensor-core pattern}
+}
+
+@misc{nvidia_hopper,
+  title        = {{NVIDIA H100} Tensor Core {GPU} Architecture},
+  author       = {{NVIDIA Corporation}},
+  year         = {2022},
+  howpublished = {NVIDIA technical whitepaper}
+}
+
+@misc{nvidia_blackwell,
+  title        = {{NVIDIA Blackwell} Architecture and the {NVFP4} Format},
+  author       = {{NVIDIA Corporation}},
+  year         = {2024},
+  howpublished = {NVIDIA developer documentation},
+  note         = {Cited for low-bit numeric-format context (NVFP4 / Blackwell)}
+}
+
+% ---- Recent KV-cache compression survey (deep-read source) ----
+
+@article{rotatekv,
+  title   = {{RotateKV}: Accurate and Robust 2-Bit {KV} Cache Quantization via Outlier-Aware Adaptive Rotations},
+  author  = {{Various Authors}},
+  journal = {arXiv preprint arXiv:2401.18079},
+  year    = {2024},
+  note    = {Cited alongside QuaRot/TurboQuant in the rotation-based quant family}
+}
+
+% ---- Sohu / Etched comparison reference ----
+
+@misc{etched_sohu,
+  title        = {Sohu: The First Transformer {ASIC} (HotChips 2024 Presentation)},
+  author       = {{Etched.ai}},
+  year         = {2024},
+  howpublished = {HotChips 2024 industrial session},
+  note         = {Closest commercial reference point for a transformer-specific ASIC; data-center-scale, not directly comparable to Lambda's 4 mm$^2$ academic target}
+}

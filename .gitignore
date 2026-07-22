@@ -1,0 +1,7 @@
+# build / sim artifacts
+chip/verif/build/*
+!chip/verif/build/.gitkeep
+*.vcd
+*.out
+__pycache__/
+*.pyc

@@ -1,0 +1,1784 @@
+# =============================================================================
+# Lambda — Standalone end-to-end transformer accelerator (4 mm² die)
+# =============================================================================
+# CODEC-OF-RECORD NOTE: the KV-cache compression codec is ChannelQuant
+# (per-channel INT4 keys grouped G=128 + per-token INT4 values + static top-k
+# FP16 outlier-channel lane; tiers CQ-8/CQ-4/CQ-4+; ~3.8x KV compression at
+# ~4 bits/value, near-lossless). A newer CQ-3-rot tier (merged 2026-07-20; idea:
+# Abhiram Bandi + Chaithu Talasila) spins each per-token VALUE row by a fixed
+# Walsh-Hadamard transform before quant, dropping values to a flat 3 bits/value
+# (~4.8x, near-lossless, keys untouched); reference bit-exact to the RTL
+# (348,160/348,160 on real Qwen), value RTL on the kv-cache-engine `rtl` branch.
+# The block is the KV Cache Engine (KVE); its full block RTL (complete through
+# Sky130 sign-off) lives on the kv-cache-engine `rtl` branch (130nm Sky130 proxy). Datapath serializes one shared fp16 compute unit (scale/quant/dequant)
+# across the D channels; keys are dequantized per-channel (INT4_code · FP16_scale,
+# plus FP16 replay for outlier channels) before the score matmul. Physical PD
+# numbers for the KVE at 16nm (area/power/Fmax) are TBD (pending re-measurement
+# for ChannelQuant). TurboQuant (arXiv 2504.19874) remains a cited prior work
+# only (see citations.C-01), not the current codec; the pure TurboQuant history
+# is preserved on the legacy/turboquant branch.
+#
+# Canonical architecture spec. This is the single source of truth for the chip.
+#
+# Lambda is a STANDALONE end-to-end mini-accelerator: includes a LPDDR5X x16
+# channel (~12 GB/s sustained), a tight 8×8 MatE / 8-lane VecU / KVE
+# compute fabric, and runs the entire transformer decode loop on-die.
+#
+# **Largest reasonable model: up to 1.5B parameters, validated on Qwen2-1.5B.**
+# The headline win: at 4 mm² Lambda serves this model class standalone,
+# because we trade bandwidth depth (1× LPDDR5X x16 at 12 GB/s vs the abandoned
+# flagship's 2× LPDDR5X x64 at 100 GB/s) for area we can afford.
+#
+# A v2-stretch option (LPDDR5X x32 PHY) is documented at the bottom of this
+# file: pushes the largest reasonable model to 7-8B at 5 tok/s, but compute-
+# bottlenecked rather than bandwidth-bottlenecked, and forces near-zero
+# on-die KV scratchpad. Higher risk; documented for evaluation.
+#
+# Tape-out via IMEC / Europractice mini@sic 2.0 at TSMC 16nm FinFET (N16FFC), $60-100K
+# shuttle range. Earlier candidates "Lambda v1" (coprocessor) and "Lambda v3"
+# (all-SRAM 2-10M-param) are retired; this file is the only chip target.
+# Iteration history lives in STATUS.md.
+# =============================================================================
+
+metadata:
+  project: Longhorn Silicon
+  chip_codename: Lambda
+  arch_id: Lambda
+  arch_name: Lambda — standalone ≤1.5B-parameter transformer accelerator at 4 mm² (validated on Qwen2-1.5B)
+  document: arch.yml
+  version: 0.3-clean                                           # after 2026-05-14 audit + bug fixes
+  created: 2026-04-26
+  audited: 2026-05-14                                          # KV math, MatE accumulator, headroom claims (KVE PD numbers TBD, pending re-measurement for ChannelQuant)
+  author: Longhorn Silicon Architecture Team (UT Austin)
+  classification: CONFIDENTIAL — Internal Use Only
+  status: canonical_arch_spec
+  one_line_summary: >
+    Standalone end-to-end transformer accelerator at 4 mm² with LPDDR5X x16,
+    8×8 MatE, KVE (ChannelQuant KV codec), 0.8 MB SRAM. Targets up to 1.5B
+    parameters, validated on Qwen2-1.5B. Serves this model class standalone
+    in 1/6 the area and 1/5 the cost of the abandoned 25 mm² flagship.
+  companions:
+    - STATUS.md                                    # iteration history, open questions, decisions
+    - dataflow_walkthrough.md                      # unit-by-unit teaching doc
+    - floorplan.html                               # visual floorplan + area accounting
+    - src/                                         # HLS C++ implementation (Cadence Stratus)
+
+# =============================================================================
+# DEFINITIVE FEATURE + BLOCK LIST — what v2 actually is
+# =============================================================================
+# Single canonical answer to "list everything in Lambda v2." Every value here
+# verified by arch.yml audit log (2026-05-14) against published
+# references. If a number disagrees with elsewhere in this file, THIS section
+# is authoritative.
+
+definitive_features_and_blocks:
+
+  what_v2_is_in_one_sentence: |
+    A standalone open-source 4 mm² transformer-decoder ASIC at TSMC 16nm FinFET
+    (N16FFC) that runs up to 1.5B-parameter W4A8 LLMs (validated on Qwen2-1.5B)
+    at 6-8 tok/s decode in a ~2.6-3.3 W envelope, with ChannelQuant KV
+    compression in silicon (KVE block; per-channel INT4 K + per-token INT4 V +
+    static top-k FP16 outlier lane; ~3.8x at ~4 bits/value). Plugs into any
+    modern laptop or dev board via PCIe Gen3 x1 on M.2 2280 form factor.
+    Long-context support up to 32K via LPDDR streaming: low-KV-head models
+    stay above 5 tok/s even at 32K; higher-KV-head models drop toward
+    threshold past 16K.
+
+  # Top-level naming convention follows the canonical four-block taxonomy:
+  # Block 1 Attention Compute Unit (ACU), Block 2 KV Cache Engine (KVE,
+  # ChannelQuant codec), Block 3 Token Importance
+  # Unit (TIU), Block 4 Memory Hierarchy Controller (MHC). Lambda's finer
+  # internal decomposition (MatE/VecU/KVE/MSC/LSU/HIF/TIU) is preserved; the
+  # MSC (Memory Subsystem Controller) here maps to the canonical MHC.
+  compute_unit_grouping:
+    ACU:                                                       # Block 1 — Attention Compute Unit (umbrella)
+      members: [MatE, VecU, KVE]                               # KVE (ChannelQuant) = Block 2
+      purpose: All compute operations — dense GEMMs, attention scoring, online softmax, RoPE, RMSNorm, KV compression
+      area_mm2: TBD                                            # 0.10 (MatE) + 0.144 (VecU) + KVE(TBD, pending re-measurement for ChannelQuant); sum TBD until KVE PD closes
+    MSC:                                                       # Memory Subsystem Controller — maps to canonical Memory Hierarchy Controller (MHC, Block 4)
+      purpose: LPDDR5X x16 controller + 4-port SRAM crossbar + 128-entry block table + sparse-blocked indexing + TIU read interface
+      area_mm2: 0.18
+    LSU:                                                       # Layer Sequencer
+      purpose: 32-instruction in-order RISC walking the pre-compiled model schedule
+      area_mm2: 0.10
+    HIF:                                                       # Host Interface — PCIe Gen3 x1 on M.2 form factor (revised from USB-C 2.0 on 2026-05-14)
+      purpose: PCIe Gen3 x1 endpoint at ~1 GB/s; CSR + microcode load + token I/O; JTAG on dedicated pins
+      area_mm2: 0.55
+    TIU:                                                       # Token Importance Unit (new 2026-05-14; modeled on arXiv 2604.04722)
+      purpose: Per-block attention-entropy accumulator driving adaptive-precision KV + H2O-style eviction
+      area_mm2: 0.03
+
+  hardware_blocks:
+    # Seven-block transformer-accelerator pattern, scaled to 4 mm²
+    # (MatE/VecU/KVE under ACU umbrella + MSC + LSU + HIF + TIU)
+    - id: MatE
+      name: Matrix Engine — 8×8 heterogeneous INT8×INT4 + FP16 weight-stationary systolic
+      function: |
+        All dense GEMMs in the transformer: Q/K/V projections, attention output,
+        FFN up/down, logits projection. Also runs Q·K^T attention scoring in
+        output-stationary mode. Under ChannelQuant, K is dequantized per-channel
+        by the KVE (INT4_code · FP16_scale, + FP16 replay for outlier channels)
+        before the score matmul — there is no compressed-domain / raw-index read
+        path. The attention P·V (and optionally Q·K^T) runs at INT8 OR FP16,
+        selected PER TILE by the ACU precision controller.
+      pe_count: 64
+      pe_op_weight_matmul: INT8 (act) × INT4 (wt) → 11-bit product → INT24 K-axis accumulator
+      pe_op_attention_score: INT8 (Q) × dequantized K (per-channel INT4·FP16 → FP16) → INT24 K-axis accumulator
+      pe_op_attention_pv: |
+        P·V accumulation runs at INT8 (softmax probs × INT8 V) OR FP16
+        (FP16 × FP16 → FP32 accumulate), selected PER TILE by the ACU precision
+        controller. The FP16 path is a heterogeneous MAC mode in the same array,
+        matching the attention-compute-unit block's MAC array (mac_array_ref).
+        ACCUMULATOR WIDTH: the INT8 P·V path reduces over the TOKEN dimension, so
+        its accumulator scales with context length, NOT hidden dim — it needs INT32,
+        not the INT24 used for W4A8 GEMMs (see accumulator_rationale, re-derived
+        2026-07-20 on Qwen2-1.5B). FP32 for the FP16 tiles.
+      precision_control: |
+        Per-tile INT8/FP16 gate from the ACU precision controller
+        (attention-compute-unit repo): max(|s|)·N > 10·sum(|s|) → FP16, else
+        INT8 (precision_controller_ref.py, 143/143 bit-exact vs RTL). Weight / FFN
+        GEMMs stay W4A8 (INT8×INT4); only the attention tiles the gate flags
+        escalate to FP16. This COMMITS the FP16 MAC path and resolves the earlier
+        "no FP16 path in MatE" reconciliation item (STATUS §7); decided 2026-07-18.
+        Area/power delta of the FP16 mode is TBD (pending re-synthesis).
+      accumulator_rationale: |
+        The array carries TWO integer accumulator widths, because the two integer
+        reduction axes have very different lengths:
+
+        (A) W4A8 GEMM + Q·Kᵀ scoring — reduce over the HIDDEN/HEAD dim.
+        INT8 × INT4 = 7-bit signed × 3-bit signed = 10-bit signed product
+        (max |−128 × −8| = 1024). Reduction over FFN hidden dim up to ~4096 needs
+        log2(4096) + 10 = 22 bits signed, so INT24 is correct here. INT16 is NOT
+        enough — it saturates after ~64 products. (An earlier draft said "INT16";
+        that was wrong.) Inside each PE an INT16 register holds the cycle-by-cycle
+        partial product before it walks down the column.
+
+        (B) INT8 P·V — reduce over the TOKEN dim → width scales with CONTEXT LENGTH.
+        Re-derived 2026-07-20 on Qwen2-1.5B (analysis/pv_accumulator_width.py in the
+        attention-compute-unit repo). P is quantized per-query-row to INT8
+        ([0,127]), V per-token to INT8 ([-127,127]); acc[q,d] = Σ_t P_int·V_int over
+        the causal prefix. Worst case (maximally FLAT causal row of length L: every
+        P_int ≈ 127) is 127·127·L = 16129·L → 14 + ceil(log2 L) bits signed:
+          L=520 → 23b (INT24 limit) ; L=4096 → 27b ; L=133k → 31b.
+        So INT24 guarantees no P·V overflow only to ~520 tokens; INT32 guarantees it
+        to ~133k tokens. EMPIRICALLY on real Qwen2-1.5B the accumulator stays at ~2^21
+        (21b signed) and does NOT grow with context (599k@1k, 610k@2k, 711k@4k) —
+        real softmax is peaky (the same attention concentration H2O exploits), so
+        INT24 works in PRACTICE. But a corner-case flat tile silently corrupts an
+        attention output, so the P·V accumulator is specced INT32 for guaranteed
+        correctness across arbitrary distributions at real context lengths.
+
+        DECISION: INT24 for reduction-over-hidden-dim (W4A8 GEMM, Q·Kᵀ); INT32 for
+        the INT8 P·V reduction-over-tokens path; FP32 for the FP16 tiles. Resolves the
+        MatE README open question "INT32 vs INT24 for headroom" — it is not headroom,
+        it is a hard requirement on the token-reduction axis.
+      peak_tops: 0.128                                         # 64 × 2 ops × 1 GHz
+      sustained_gops_at_60pct_util: 76.8
+      area_mm2: 0.10
+      power_w_at_50pct_util: 0.32
+      key_decisions:
+        - INT24 accumulator for hidden-dim reductions (W4A8 GEMM, Q·Kᵀ); INT32 for the
+          INT8 P·V token-reduction path (context-scaled); FP32 for FP16 tiles. INT16 was a spec error.
+        - Weight-stationary primary dataflow (output-stationary CSR alt for Q·K^T)
+        - 1.6× compute headroom over bandwidth-bound floor across all reasonable models
+        - K dequantized per-channel by KVE (INT4·FP16) before Q·K^T scoring (no compressed-domain read path)
+        - Heterogeneous INT8 + FP16 MAC — attention P·V routes per-tile via the ACU precision controller (FP16 for peaked tiles, INT8 otherwise); weight/FFN GEMMs stay INT8×INT4. Committed 2026-07-18, resolving the "no-FP16-path" reconciliation (STATUS §7); the precision controller + MAC array RTL are in the attention-compute-unit repo (Sky130-signed-off).
+
+    - id: VecU
+      name: Vector Unit — 8-lane SIMD with online softmax
+      function: |
+        Programmable SIMD for online softmax (Milakov & Gimelshein 2018 recurrence; FlashAttention-style tiling), RMSNorm,
+        SiLU/GELU, RoPE pair-rotation, residual add, sampling.
+      lanes: 8
+      lane_bit_width: 16                                       # FP16/BF16 accumulate
+      microcode_capacity: 1k_instructions
+      transcendental_luts: [exp_64entry, rsqrt_64entry, sigmoid_64entry]
+      area_mm2: 0.144
+      power_w: 0.16
+
+    - id: KVE                                                  # Block 2 — KV Cache Engine
+      name: KV Cache Engine (KVE) — ChannelQuant codec
+      codec_of_record: |
+        ChannelQuant: per-channel INT4 keys (grouped, G=128) + per-token INT4
+        values + static top-k (k=2) FP16 outlier-channel lane selected by a
+        calibrated ROM mask. Tiers: CQ-8, CQ-4, CQ-4+. ~3.8x KV compression at
+        ~4 bits/value (measured bits/value ≈ 4.13–4.38 depending on head dim D),
+        near-lossless (HellaSwag acc_norm within ~0.4-0.8 pt of FP16 at CQ-4+ on
+        Qwen2-0.5B/1.5B). Recipe follows KIVI (ICML 2024) / KVQuant (2024);
+        Longhorn's contribution is the streaming silicon implementation. Full
+        block RTL is complete through Sky130 sign-off in the kv-cache-engine repo.
+      function: |
+        Streaming ChannelQuant compress/decompress on K and V as MatE produces
+        them. Keys: buffer a G=128 key group, take per-channel amax, derive D
+        per-channel FP16 scales, quantize to INT4; the top-k (k=2) outlier
+        channels selected by the ROM mask are held as FP16. Values: per-token
+        INT4 (INT8 in the CQ-8 tier). Unified per-channel SRAM record
+        {tag, D×FP16 field, D×INT4 code}. Decompress = per-channel
+        INT4_code · FP16_scale (+ FP16 replay for the outlier channels); keys
+        are dequantized per-channel before the score matmul. The datapath
+        serializes one shared fp16 compute unit (scale / quant / dequant) across
+        the D channels — a single divide cone.
+      key_quant: per-channel INT4, grouped G=128, D per-channel FP16 scales
+      value_quant: per-token INT4 (INT8 in CQ-8 tier)
+      outlier_lane: static top-k (k=2) FP16 outlier channels via calibrated ROM mask
+      sram_record: unified per-channel {tag, D×FP16 field, D×INT4 code}
+      compression_ratio_vs_fp16: ~3.8                          # at ~4 bits/value
+      bits_per_value_measured: |
+        ≈ 4.13–4.38 depending on head dim D (e.g. D=64 ≈ 4.19/4.38,
+        D=128 ≈ 4.13/4.22). Not a fixed codebook bpe.
+      tiers:
+        - CQ-8 (per-token INT8 K+V)
+        - CQ-4 (per-channel INT4 K / per-token INT4 V) — primary
+        - CQ-4+ (CQ-4 + k=2 FP16 outlier channels) — near-lossless
+        - bypass_fp16 (debug / ablation; 1× compression)
+      area_mm2: TBD                                            # TBD (pending re-measurement for ChannelQuant at 16nm)
+      power_w: TBD                                             # TBD (pending re-measurement for ChannelQuant at 16nm)
+      fmax_ghz: TBD                                            # TBD (pending re-measurement for ChannelQuant at 16nm)
+      research_significance: |
+        First-silicon streaming implementation of the ChannelQuant KV codec
+        (KVE block) — per-channel INT4 K + per-token INT4 V + static top-k FP16
+        outlier lane, recipe following KIVI (ICML 2024) / KVQuant (2024).
+        TurboQuant (arXiv 2504.19874) remains cited prior work only; the pure
+        TurboQuant history is preserved on the legacy/turboquant branch.
+
+    - id: MSC
+      name: Memory Subsystem Controller — single-channel
+      function: |
+        LPDDR5X x16 controller; 4-port SRAM crossbar (MatE, VecU, KVE, host);
+        128-entry block table for vLLM-compatible KV paging; DMA descriptor
+        engine; on-demand KVE per-channel dequant trigger for cold-page hits.
+      lpddr_channels: 1
+      sram_crossbar_ports: 4
+      block_table_entries: 128                                 # 16 tokens/block × 128 = 2K-token KV pages
+      hw_features:
+        - dma_descriptor_fsm
+        - simple_prefetch
+        - on_demand_kv_decompress
+        - request_arbitration_priority_queue
+      explicitly_NOT_supported:
+        - continuous_batching                                  # single-session chip
+        - tier3_host_dram_eviction                             # no host-side KV swap path
+        - prefix_sharing_across_sessions
+      area_mm2: 0.18
+      power_w: 0.15
+
+    - id: LSU
+      name: Layer Sequencer — minimal in-order RISC
+      function: |
+        Walks pre-compiled model schedule. Dispatches MatE GEMMs, KVE
+        compress/decompress, VecU softmax/RMSNorm/RoPE, DMA prefetches.
+        Loaded at boot via host iface.
+      isa: 32-bit fixed-width, 32 instructions
+      registers_general_purpose: 16x32b
+      microcode_capacity: 4k_instructions                      # one model schedule fits
+      issue_width: 1_scalar + 1_vector + 1_dma per cycle
+      area_mm2: 0.10
+      power_w: 0.05
+
+    - id: HIF
+      name: Host Interface — PCIe Gen3 x1 on M.2 form factor
+      function: |
+        Boot-loads weights from host into LPDDR5X (1.5 sec for 3B model at 1 GB/s);
+        receives prompts; streams generated tokens. JTAG via dedicated pins for
+        post-silicon debug. CSR access for chip configuration and microcode load.
+      protocol: PCIe Gen3 x1 (~1 GB/s sustained; ~8 Gbps × 8b/10b coding)
+      form_factor: M.2 2280 (compact card form factor; standard slot on modern laptops + dev boards)
+      m2_connector_lanes_wired: 4                              # M.2 spec wires 4 lanes
+      lanes_active_on_die: 1                                   # save area; PCIe negotiates x1 cleanly
+      doorbell_queue_depth: 16
+      sustained_bandwidth_gb_s: 1.0
+      bandwidth_basis: |
+        Weight load at boot: 1.5 GB / 1 GB/s = 1.5 sec (one-time). Runtime token
+        I/O: <1 KB per token × 8 tok/s = 4 KB/s → 250,000× headroom. PCIe Gen3
+        x1 is chosen for: (a) bandwidth >> need without wasting area on x2/x4,
+        (b) standard M.2 form factor enables plug-and-play on any modern laptop,
+        (c) vendor IP at 16nm has public datasheets (Synopsys DesignWare PCIe
+        Gen3 x1, Cadence PCIe Gen3 PHY) — unlike LPDDR5X PHY which is NDA-thin.
+      scan_chain: true                                         # JTAG on dedicated pins (separate from PCIe)
+      area_mm2: 0.55                                           # +0.25 over USB-C 2.0; revised 2026-05-14
+      area_breakdown:
+        pcie_gen3_x1_phy_vendor_ip: 0.35
+        controller_csr_doorbell: 0.20
+      power_w: 0.30                                            # +0.20 over USB-C 2.0
+      why_not_x4: |
+        PCIe Gen3 x4 PHY ~1.0-1.3 mm² at 16nm doesn't fit at 4 mm² alongside
+        LPDDR5X x16 PHY (1.2 mm²) + SRAM (0.71 mm²) + compute. x1 gives ~3×
+        more bandwidth than weight-load actually needs, at 0.55 mm² total.
+      why_not_usbc:
+        - USB-C 2.0 weight-load latency (25 sec) is annoying for development iteration
+        - PCIe natively integrates with host OS as an inference accelerator (e.g., NVMe-like driver pattern)
+        - M.2 form factor is the modern target for compact inference cards (Coral M.2, Hailo-8, etc.)
+
+    - id: TIU
+      name: Token Importance Unit — adaptive-precision KV driver (NEW 2026-05-14)
+      function: |
+        Per-block attention-entropy accumulator that drives two downstream
+        decisions: (1) MSC eviction policy (H2O-style heavy-hitter retention
+        when scratchpad fills), (2) KVE per-block precision tier (high-importance
+        blocks stay at a higher ChannelQuant tier, e.g. CQ-4+/CQ-8;
+        low-importance blocks demote to CQ-4). Modeled on arXiv 2604.04722
+        "Adaptive KV-Cache Quantization for Lightweight On-Device LLMs".
+      microarchitecture:
+        importance_register_per_block: 16-bit
+        total_blocks_tracked: 128                              # matches MSC block table
+        importance_sram_bytes: 256                             # 128 × 2 B
+        update_path: VecU softmax → TIU accumulator (per attention pass)
+        consumer_paths:
+          - MSC.eviction_policy (compare block importance to threshold register)
+          - KVE.per_block_precision_mode (look up block's importance bucket → CQ tier)
+      csr_modes:
+        - tiu_off (no importance tracking; pure FIFO eviction)
+        - tiu_h2o (heavy-hitter retention)
+        - tiu_streaming_llm (recent + sink tokens)
+        - tiu_adaptive_precision (drive KVE ChannelQuant tier per block)
+      area_mm2: 0.03                                           # 256 B SRAM + comparator + accumulator + threshold reg
+      power_w: 0.01
+      verification_tests: 15
+      research_significance: |
+        Real H2O / TOVA / Scissorhands-style adaptive KV retention claimed
+        on-silicon. Compounds with ChannelQuant for an additional 1.3-1.7×
+        effective compression on long contexts without quality loss. No
+        closed-source NPU does this today. (The 1.3-1.7× compounding figure was
+        derived for the pre-pivot codec; TBD — pending re-derivation for
+        ChannelQuant / Qwen2-1.5B.)
+      naming_credit: |
+        TIU naming convention adopted from Chaithu Talasila's attention-compute-
+        unit framework (LonghornSilicon/attention-compute-unit); the
+        block design here departs from his draft and is grounded in
+        arXiv 2604.04722. See docs/reconciliation_chaithu.md.
+
+    - id: on_chip_sram
+      name: On-chip SRAM — 4 banks, 0.8 MB total (KV-dominant)
+      banks:
+        - id: kv_scratchpad
+          size_mb: 0.4
+          purpose: |
+            Compressed KV staging for current layer's hot tokens. At 0.4 MB
+            with ChannelQuant at ~4 bits/value and KV byte formula
+            kv_heads × head_dim × 2 (K+V) × bits_per_value/8. The per-model
+            token-capacity figures below were derived for the retired 3-5B
+            example set at the pre-pivot codec — TBD (pending re-derivation for
+            ChannelQuant / Qwen2-1.5B):
+              Llama-3.2-3B   (8 KV × 128):  TBD single-layer tokens
+              Qwen2.5-3B     (2 KV × 128):  TBD tokens
+              Qwen2-1.5B     (canonical target): TBD tokens
+            Older tokens stream from LPDDR5X — see streaming_penalty in
+            target_workload.capacity_math for ms/token overhead at 4-32K
+            context (also TBD for ChannelQuant / Qwen2-1.5B). This block was the
+            source of a 2× capacity overstatement in v0.2 drafts (K+V doubling
+            and bpe both wrong); corrected before the pivot.
+          ports: 1
+        - id: activation_buffer
+          size_mb: 0.3
+          purpose: |
+            FlashAttention working set + per-token QKV scratch + MLP intermediates.
+            FA tile=8-16 at batch 1 fits comfortably.
+          ports: 2                                             # read-modify-write
+        - id: weight_stream_buffer
+          size_mb: 0.05
+          purpose: |
+            Tiny streaming staging FIFO. At 12 GB/s × 100 ns first-byte =
+            1.2 KB minimum tile. 0.05 MB = 40× streaming minimum — ample.
+          ports: 1
+        - id: codebook_const_rom                               # id kept for HLS continuity
+          size_kb: 64
+          purpose: |
+            ChannelQuant calibration constants — the static top-k (k=2) outlier-
+            channel mask ROM, RoPE freq table (~512 bytes), and exp/sigmoid/rsqrt
+            transcendental LUTs (~32 KB total). (No Lloyd-Max centroids: the
+            ChannelQuant codec of record is not codebook-based.)
+          ports: 1                                             # read-only
+      total_size_mb: 0.8
+      total_area_mm2: 0.71
+
+    - id: lpddr5x_x16_phy
+      name: LPDDR5X x16 PHY — vendor IP
+      function: Physical-layer interface to off-chip LPDDR5X-8533 package
+      vendor: Synopsys DesignWare or Cadence Denali (selected by quote in Q2 2026)
+      data_rate_mbps: 8533
+      bus_width_bits: 16
+      peak_bandwidth_gb_s: 17.07
+      sustained_bandwidth_gb_s: 11.94                          # 70% of peak
+      area_mm2: 1.20                                           # estimate; vendor NDA-gated
+      area_mm2_uncertainty: ±0.3 mm²                           # 1.0 best / 1.5 worst case
+      power_w_at_12gbs_sustained: 0.72
+      power_basis: 7.5 mW/Gbps (LPDDR5X spec, 25% better than LPDDR5)
+      validation: OPENEDGES has shipped LPDDR5/4 PHY in silicon at 14/16/22 nm
+
+  area_summary_mm2:
+    # Revised 2026-05-14: HIF USB-C 2.0 → PCIe Gen3 x1 (+0.25); TIU added (+0.03);
+    # routing buffer now correctly included in total (was previously dropped — see audit).
+    matE_8x8: 0.10
+    vecU_8_lane: 0.144
+    kve: TBD                                                   # KVE (ChannelQuant) area TBD; total_gross below holds 0.08 as placeholder
+    tiu: 0.03                                                  # NEW
+    msc: 0.18
+    lsu: 0.10
+    hif_pcie_gen3_x1: 0.55                                     # WAS 0.30 (USB-C 2.0)
+    sram_0_8mb: 0.71
+    lpddr5x_x16_phy: 1.20
+    clock_power_routing: 0.40
+    io_ring_pads_esd: 0.76
+    routing_buffer: 0.10
+    total_gross: 4.354                                         # at PHY=1.2 mm² (mid case); over 4.0 budget by 0.354
+    shrink_path_recommended:
+      phy_at_1_0mm2_best_case: -0.20
+      io_ring_at_80um: -0.06
+      activation_buffer_to_0_2mb: -0.08
+      total_savings: -0.34
+    total_with_shrinks: 4.014                                  # within 0.4% of 4.0 mm² target
+    notes: |
+      The Phase 0.4 area accounting fix (2026-05-14) caught that earlier drafts'
+      total of 3.974 mm² dropped routing_buffer (0.10 mm²) silently. With routing
+      buffer correctly included AND the PCIe Gen3 x1 HIF change AND the TIU
+      addition, gross area is 4.354 mm². The recommended shrink path lands at
+      4.014 mm² — provided the LPDDR5X x16 PHY quote returns at ≤ 1.0 mm² (vendor
+      best case). If PHY ends up above 1.0 mm², fall back to either (a) grow die
+      to 4.25 mm² (~+6% shuttle cost), or (b) LPDDR4X x16 PHY (caps model class
+      at ~2.4B). See STATUS.md §5 for the LPDDR5X-vs-LPDDR4X tradeoff.
+
+  power_summary_w:
+    decode_typical: 2.4
+    prefill_peak: 3.1
+    deep_idle: 0.7                                             # leakage only
+    fanless_envelope: comfortable
+
+  performance_summary:
+    primary_demo_target: Mistral-NeMo-3B at 8.0 tok/s decode (or Llama-3.2-3B at 7.4)
+    candidate_models_at_LPDDR5X_x16:
+      "0.36B SmolLM2-360M":   { tok_per_sec: 66.4, verdict: overkill }
+      "0.5B Qwen2.5-0.5B":    { tok_per_sec: 47.8, verdict: very_comfortable }
+      "1.2B Llama-3.2-1B":    { tok_per_sec: 19.3, verdict: very_comfortable }
+      "1.1B TinyLlama":       { tok_per_sec: 21.7, verdict: very_comfortable }
+      "2B Gemma-2-2B":        { tok_per_sec: 11.9, verdict: comfortable }
+      "3.0B Mistral-NeMo-3B": { tok_per_sec: 8.0,  verdict: comfortable_interactive }   # SWEET SPOT
+      "3.1B Qwen2.5-3B":      { tok_per_sec: 7.7,  verdict: borderline_short_ctx_best_long_ctx_via_lpddr }
+      "3.2B Llama-3.2-3B":    { tok_per_sec: 7.4,  verdict: borderline_interactive }
+      "3.8B Phi-3.5-mini":    { tok_per_sec: 6.3,  verdict: borderline }
+      "4B (hypothetical)":    { tok_per_sec: 6.0,  verdict: borderline }
+      "5B (ceiling)":         { tok_per_sec: 4.8,  verdict: just_below_threshold }
+      "7B (Mistral-7B)":      { tok_per_sec: 3.3,  verdict: requires_v2_stretch_or_W3 }
+      "8B (Llama-3.1-8B)":    { tok_per_sec: 3.0,  verdict: requires_v2_stretch }
+    largest_reasonable_model: 4-5B class at 5 tok/s threshold (4.78B theoretical max)
+    decode_regime: bandwidth_bound (LPDDR5X x16 sustained 11.94 GB/s)
+    prefill_regime: compute_bound — interactive prompt ceiling 64-128 tokens
+    energy_per_token_3B: ~325 mJ (~10× better than CPU; ~1.5× worse than mobile NPU)
+
+  features_supported:
+    weight_quantization:
+      - INT4 per-channel groupwise (W4A8 primary)
+      - INT8 fallback (W8A8 for accuracy-critical layers)
+    activation_quantization:
+      - INT8 per-token dynamic
+    kv_quantization_modes:
+      # Codec of record: ChannelQuant, tiers CQ-8 / CQ-4 / CQ-4+.
+      - channelquant_CQ8 (per-token INT8 K+V)
+      - channelquant_CQ4 (primary; per-channel INT4 K / per-token INT4 V; ~3.8× at ~4 bits/value, near-lossless)
+      - channelquant_CQ4_plus (near-lossless tier; CQ-4 + k=2 FP16 outlier channels; HellaSwag acc_norm within ~0.4-0.8 pt of FP16 on Qwen2-0.5B/1.5B)
+      - bypass_fp16 (debug / ablation; 1× compression)
+    attention_variants_supported:
+      - vanilla_multi_head (MHA)
+      - grouped_query (GQA — Llama-3 family, Mistral-NeMo)
+      - multi_query (MQA — degenerate GQA, 1 KV head)
+    attention_algorithms_supported:
+      - vanilla full attention
+      - online softmax recurrence (Milakov & Gimelshein 2018; FlashAttention-style tiling), microcoded in VecU
+      - paged_attention (vLLM block table in MSC)
+    serving_features_in_hardware:
+      - boot_time_model_load (LSU schedule loaded over PCIe Gen3 x1)
+      - prefill_decode_unification (MatE handles both)
+      - speculative_decoding_compatible (architecturally; host coordinates draft tokens)
+    explicitly_NOT_supported_v0_3:
+      - continuous_batching (single-session chip)
+      - tier3_host_dram_eviction
+      - prefix_sharing_across_sessions
+      - multi_latent_attention (DeepSeek MLA — needs different KV layout)
+      - mixture_of_experts (routing)
+      - multimodal_vision_or_audio
+      - training_or_backprop
+      - dvfs_or_runtime_voltage_scaling
+
+  load_bearing_uncertainties:
+    - id: lpddr5x_x16_phy_area
+      estimate_mm2: 1.2
+      uncertainty_mm2: ±0.3
+      action: Synopsys + Cadence quote in Q2 2026 (eptsmc@imec.be can broker)
+      blocking_for: floorplan freeze
+    - id: imec_minisic_pricing
+      estimate_usd: 60_000_to_100_000
+      uncertainty: non_public
+      action: direct quote via eptsmc@imec.be price-request form Q2 2026
+      blocking_for: funding plan
+    - id: w4_quality_on_3to4B_models
+      literature_says: 3-6% MMLU degradation with AWQ INT4 vs FP16 (acceptable for demo)
+      action: Python golden model evaluation against AWQ implementation; pick 1-2 demo models
+      blocking_for: demo target choice
+    - id: sram_density_at_16nm
+      mid_estimate: 1.25 MB/mm²
+      uncertainty: 1.0 (conservative) to 1.5 (optimistic)
+      action: confirm via Memory Compiler datasheet from foundry
+      blocking_for: SRAM bank sizing finalization
+
+  next_concrete_steps:
+    - 1_decide_v1_vs_v2:
+        owner: architecture_lead + faculty_advisor
+        deliverable: explicit go/no-go on v1-conservative vs v2-ambitious
+        deadline: 2026-06
+    - 2_quote_imec:
+        owner: architecture_lead
+        deliverable: written IMEC / Europractice mini@sic 2.0 quote for 4 mm² N16FFC
+        deadline: 2026-05
+    - 3_lpddr5x_x16_phy_quote:
+        owner: architecture_lead
+        deliverable: written quote (Synopsys + Cadence) for LPDDR5X x16 PHY at 16nm
+        deadline: 2026-06
+    - 4_choose_primary_demo_model:
+        owner: architecture_lead + ML student
+        deliverable: golden-model evaluation; pick Mistral-NeMo-3B vs Llama-3.2-3B vs Qwen2.5-3B as demo target
+        deadline: 2026-07
+    - 5_python_golden_model:
+        owner: rtl_lead + ML student
+        deliverable: cycle-accurate Python sim of full v2 dataflow on chosen model
+        deadline: 2026-10
+    - 6_tool_ramp_test_chip:
+        owner: physical_design_lead
+        deliverable: trivial inverter ring oscillator at N16FFC through IMEC mini@sic
+        deadline: 2026-09
+
+# -----------------------------------------------------------------------------
+# Why this architecture at 4 mm² — the audit
+# -----------------------------------------------------------------------------
+feasibility_audit:
+  question: "Can 4 mm² hold a STANDALONE end-to-end transformer accelerator at 16nm targeting up to 1.5B-parameter models (validated on Qwen2-1.5B)?"
+  answer: "Yes, with LPDDR5X x16 as the bandwidth tier and tight scope on every block. (The bandwidth headroom below was derived for the retired 3-5B target and comfortably covers a ≤1.5B target; the specific 4.8B/2.4B figures are pre-pivot and pending re-derivation.)"
+
+  bandwidth_decision_is_load_bearing: |
+    Decode is bandwidth-bound. Largest_model_GB ≈ bandwidth_GBs × time_per_tok / 2
+    (factor 2 because INT4 is 0.5 bytes/param). For 5 tok/s threshold (200 ms/tok):
+      - LPDDR4X x16 (6 GB/s):  1.2 GB → 2.4B params max
+      - LPDDR5X x16 (12 GB/s): 2.4 GB → **4.8B params max**  ← v2 baseline
+      - LPDDR5X x32 (25 GB/s): 5.0 GB → 10B params max (compute-bottlenecked; see stretch §)
+    Choosing LPDDR5X x16 over LPDDR4X x16 costs +0.2 mm² PHY area (1.2 vs 1.0
+    mm²) and +1 W power (1.5 vs 0.5 W). It DOUBLES the largest serviceable
+    model class — comfortably covering the ≤1.5B / Qwen2-1.5B target.
+    (Legacy framing said "slam dunk for 3-5B"; retired 2026-06-22.)
+
+  key_architectural_decisions:
+    - choose_pcie_gen3_x1_not_x4_or_usbc:
+        rationale: |
+          Tokens are kilobytes/sec. PCIe Gen3 x4 PHY (~1.0-1.3 mm² at 16nm)
+          is overkill at 4 mm². USB-C 2.0 (60 MB/s) is functionally adequate
+          for runtime token I/O but its 25-second weight-load latency is
+          painful for development iteration and doesn't match modern
+          inference-card form factor norms (M.2). PCIe Gen3 x1 (~0.55 mm²,
+          1 GB/s, M.2 2280 form factor) is the right middle: 3× more BW
+          than runtime needs, 1.5 sec weight load, public-datasheet vendor IP.
+          Revised 2026-05-14 from USB-C 2.0 baseline.
+        savings_mm2_vs_pcie_x4: 0.75
+        cost_vs_usbc: +0.25
+    - use_lpddr5x_x16_not_x64_or_x32:
+        rationale: |
+          LPDDR5X x64 PHY (~2.5 mm²) breaks the 4 mm² budget hard. x32 (~1.8 mm²)
+          forces near-zero on-die SRAM and undersized compute (see v2-stretch §).
+          x16 (~1.2 mm²) is the right balance: 12 GB/s sustained, leaves enough
+          area for an 8×8 MatE plus 1 MB SRAM.
+    - shrink_compute_fabric_aggressively:
+        rationale: |
+          In the bandwidth-bound regime GOPS_needed = 2 × BW_GBs / W4_bytes
+          = 2 × 11.94 / 0.5 ≈ 48 GOPS — *constant across model size*. 8×8 MatE
+          delivers 76.8 GOPS sustained at 60% util → **1.6× headroom**.
+          (Earlier drafts claimed "3×" or "3-5×" — that was wrong; the
+          bandwidth-bound floor scales WITH bandwidth, not with model size.)
+          0.10 mm² for 8×8 vs 1.2 mm² for the abandoned 32×32 flagship —
+          right-sized for v2's model class and bandwidth tier.
+    - keep_kve_area_tight:
+        rationale: |
+          The KVE runs streaming ChannelQuant: a per-channel FP16 scale bank,
+          one shared fp16 compute unit (scale/quant/dequant) serialized across
+          the D channels (single divide cone), the static top-k (k=2) outlier
+          ROM mask, and the unified per-channel SRAM record. Compression is
+          ~3.8× vs FP16 at ~4 bits/value. The block PPA at 16nm (area/power/Fmax)
+          is TBD — pending re-measurement for ChannelQuant. Acceptable on this
+          die size given KV is bandwidth-bound regardless.
+
+  fixed_cost_floor_at_4mm2:
+    # Corrected 2026-04-26 by area audit; revised 2026-05-14
+    items:
+      - id: io_ring_pads_esd
+        area_mm2: 0.76
+        basis: |
+          For 2000×2000 µm die: perimeter = 8000 µm × 100 µm ring width
+          = 0.8 mm² before corner-cell sharing → 0.76 mm² after subtracting
+          4 × (100×100 µm²) corner overlaps. Conservative 100 µm ring is
+          standard for 16nm GPIO library (Sofics/TSMC) with 2 kV HBM ESD.
+      - id: clock_tree_power_grid_routing_overhead
+        area_mm2: 0.4
+        basis: ~10% of die at 16nm (standard heuristic)
+      - id: lpddr5x_x16_phy
+        area_mm2: 1.2
+        basis: |
+          Single 16-bit LPDDR5X PHY at 16nm. Extrapolated from x64 ~2.5 mm²
+          with sub-linear scaling (analog calibration is fixed cost; only
+          data lanes scale with width). x16 ≈ 50% of x64 = 1.2 mm². NDA-gated.
+          OPENEDGES has shipped LPDDR5/4 PHY in silicon at 14/16nm — feasibility
+          confirmed; exact area requires direct vendor quote.
+        risk: high                                             # ±0.3 mm² real swing; budget breaks at 1.5
+      - id: host_iface_pcie_gen3_x1
+        area_mm2: 0.55
+        basis: |
+          PCIe Gen3 x1 PHY (Synopsys DesignWare or Cadence) ~0.35 mm² at 16nm
+          + controller/CSR/doorbell ~0.20 mm². Revised 2026-05-14 from
+          USB-C 2.0 baseline (was 0.30 mm²).
+      - id: subtotal_fixed_cost
+        area_mm2: 2.66
+        notes: 66.5% of the 4 mm² die before any compute or memory.
+
+  what_fits_after_floor:
+    available_budget_mm2: 1.34                                 # corrected: 4.0 - 2.66 = 1.34
+    proposed_allocation:
+      - block: matrix_engine_8x8
+        area_mm2: 0.10
+        basis: |
+          64 PEs × ~600 µm²/PE = 0.038 mm² + auxiliary (input/output buffers
+          0.04, accumulator 0.02, activation Q/dQ 0.04, pipeline/control 0.02)
+          ≈ 0.10-0.16 mm² total. Use 0.10 as the design target; budget 0.16
+          if v0.3 audit finds the auxiliary blocks larger than expected.
+          Flagship 32×32 at 1.2 mm² total / 1024 PEs scales sub-linearly.
+      - block: vector_unit_8_lane
+        area_mm2: 0.15
+        basis: 8 lanes × 16-bit FP16/BF16. Quarter scale of flagship's 32-lane.
+      - block: kv_compression_engine                           # KVE (ChannelQuant)
+        area_mm2: TBD                                          # TBD (pending re-measurement for ChannelQuant); prior placeholder 0.08 was TurboQuant-era
+        basis: |
+          Streaming ChannelQuant: per-channel FP16 scale bank + one serialized
+          shared fp16 compute unit (scale/quant/dequant) + static top-k (k=2)
+          outlier ROM mask + unified per-channel SRAM record. Physical area TBD.
+      - block: memory_subsystem_controller
+        area_mm2: 0.18
+        basis: 1 LPDDR ch + 4-port crossbar + 128-entry block table; no continuous batching, no Tier-3 eviction.
+      - block: layer_sequencer_minimal
+        area_mm2: 0.10
+        basis: 32-instruction ISA, 4K microcode, 16×32b GPR.
+      - block: SRAM_total
+        area_mm2: 0.71
+        size_mb_at_baseline: 0.8
+        basis: |
+          0.8 MB at 1.25 MB/mm² HD 1-port + ~10% compiler overhead = 0.71 mm².
+          ROOM FOR 1.0 MB ONLY IF PHY comes in at 1.0 mm² (vendor best case);
+          mid-case PHY at 1.2 mm² forces SRAM to 0.7-0.8 MB.
+    total_compute_and_memory_mm2: 1.32
+    headroom_mm2: 0.02                                         # 4.0 - 2.66 - 1.32 = 0.02
+    verdict: feasible_with_essentially_zero_headroom_at_phy_1.2mm2_assumes_0.8MB_SRAM
+
+  pivotal_uncertainty: |
+    The single load-bearing variable is the LPDDR5X x16 PHY area.
+      - At 1.0 mm² (vendor best case): v2 fits at 4.0 mm² with 1.0 MB SRAM
+      - At 1.2 mm² (planning estimate): v2 fits at 4.0 mm² with 0.8 MB SRAM
+      - At 1.5 mm² (vendor worst case): v2 does NOT fit at 4.0 mm²
+                                        → must downgrade to LPDDR4X x16
+                                          (loses bandwidth → 1.2B model max)
+                                        OR grow die to 4.5 mm² (~+12% shuttle cost)
+    The first concrete next step is the IMEC mini@sic 2.0 quote AND the LPDDR5X
+    x16 PHY quote from Synopsys + Cadence. Until those arrive, every other
+    decision is provisional.
+
+  recommended_first_shrinks_in_priority_order:
+    - id: shrink_sram_to_0_8mb
+      saves_mm2: 0.18
+      cost: |
+        KV scratchpad drops to 0.4 MB (from 0.5 MB). ~370 single-layer tokens
+        for Llama-3.2-3B (8 KV × 128); still 3,750 for Qwen2.5-3B (2 KV × 128).
+        Activation buffer stays at 0.3 MB (FA tile=8-16 still works). Weight
+        buffer stays at 0.1 MB (still 80× streaming minimum at 12 GB/s).
+      recommended_first: true
+    - id: tighten_io_ring_to_0_7mm2
+      saves_mm2: 0.06
+      cost: |
+        Use a more aggressive 80 µm ring width at 16nm (vs 100 µm conservative).
+        Possible with library tuning; consult Sofics 16nm GPIO docs.
+      recommended_second_if_first_insufficient: true
+    - id: shrink_host_iface_to_smaller_pcie_or_spi
+      saves_mm2: 0.35
+      cost: |
+        Drop from PCIe Gen3 x1 (0.55 mm²) to a smaller iface (e.g., 4-pin SPI
+        + 2 GPIO interrupt + JTAG only, ~0.20 mm²). Loses PCIe / M.2 convenience;
+        user must connect via dev-board adapter or custom carrier.
+      not_recommended_unless_phy_quote_disastrous: true
+
+# -----------------------------------------------------------------------------
+# Process — same as flagship; reference for shared constants
+# -----------------------------------------------------------------------------
+process:
+  node: TSMC 16nm FinFET (N16FFC), via imec / TSMC University Program
+  shuttle_program:
+    primary: IMEC / Europractice mini@sic 2.0 (TSMC technologies) [C-imec-01]
+    secondary: TSMC University FinFET Program via Europractice [C-imec-02]
+    fallback: Muse Semiconductor (US-focused TSMC University FinFET path) [C-muse-fallback]
+  pdk_status: classroom_pdk_publicly_available_fab_pdk_under_NDA
+  feature_size_nm: 16
+  density:
+    gate_density_mtr_per_mm2: 28.2                             # WikiChip [C-14]
+    sram_hd_density_mb_per_mm2: 1.25                           # 1-port HD planning estimate
+  electrical:
+    nominal_core_voltage_v: 0.8
+    io_voltage_v: 1.8
+    target_clock_mhz: 1000                                     # 1 GHz; 800 MHz fallback
+  toolchain:
+    synthesis: Cadence Genus or Synopsys Fusion Compiler
+    pnr: Cadence Innovus or Synopsys IC Compiler II
+    drc_lvs: Calibre or PVS
+    timing_signoff: PrimeTime
+    flow_note: |
+      Commercial-flow only. OpenLane 2 does not signoff at 16nm. IMEC /
+      Europractice provides tool access bundled with mini@sic registration.
+
+# -----------------------------------------------------------------------------
+# Target workload — up to 1.5B-parameter transformer inference (validated on Qwen2-1.5B; legacy 3-5B tables below pending re-derivation)
+# -----------------------------------------------------------------------------
+target_workload:
+  # PENDING RE-DERIVATION (post-2026-06-22 pivot): the canonical target is now
+  # "up to 1.5B parameters, validated on Qwen2-1.5B". The per-model examples,
+  # decode-throughput tables and capacity_math below are the pre-pivot 3-5B
+  # analysis (and assume the TurboQuant 4.0 bpe codec). They are retained
+  # verbatim as historical derivations and need human re-derivation against
+  # Qwen2-1.5B + ChannelQuant (~4 bits/value). Do not read them as the target.
+  primary_model_class:
+    name: up to 1.5B-parameter dense decoder transformer (validated on Qwen2-1.5B)
+    legacy_class_pre_pivot: 3-5B-parameter dense decoder transformer   # retired 2026-06-22
+    examples:
+      - Qwen2-1.5B (validation model; ≤1.5B target)
+      # --- legacy 3-5B example set (pre-pivot; pending re-derivation) ---
+      - Llama-3.2-3B (3B params, 28 layers, 8 KV × 128 dim)             # 7.4 tok/s borderline interactive
+      - Phi-3.5-mini-instruct (3.8B, 32 layers, 32 KV × 96 dim)         # 6.3 tok/s borderline
+      - Qwen2.5-3B (3.1B, 36 layers, 2 KV × 128 dim)                    # 7.7 tok/s + best long-context (2 KV heads → 4× the on-die capacity of 8-head peers; 32K serviceable via LPDDR streaming at ~24 ms/tok overhead)
+      - Mistral-NeMo-3B (3B, 28 layers, 8 KV × 128 dim)                 # 8.0 tok/s comfortable
+      - Gemma-2-2B (2B, 26 layers, 4 KV × 256 dim)                      # 11.9 tok/s comfortable
+      - Llama-3.2-1B (1.2B, 16 layers, 8 KV × 64 dim)                   # 19.3 tok/s; uses bandwidth headroom
+      - SmolLM2-360M (360M, 30 layers, 5 KV × 64 dim)                   # 66 tok/s
+    parameters: up_to_1_5B                                     # canonical target (validated on Qwen2-1.5B); legacy analysis below assumed 1B_to_5B
+    weight_bits_target: 4
+    weight_bytes_total_w4: 0.5_to_2.5_GB
+    activation_bits: 8
+    head_dim_typical: 64_to_128
+    n_heads_kv_typical: 2_to_8
+    n_layers_typical: 16_to_36
+    largest_reasonable_model_basis: |
+      "Reasonable" = 5 tok/s decode (above human reading speed; usable for
+      chat/agent). With 12 GB/s sustained LPDDR5X x16 and 200 ms time budget:
+      weights_GB = 12 × 0.2 = 2.4 GB. At INT4, that's 2.4 / 0.5 = 4.8B params.
+      Round down to 4-5B as the design point; 5B is at the edge.
+
+      Compute headroom check: 5B × 2 ops × 5 tok/s = 50 GOPS. Available
+      0.13 TOPS × 60% util = 78 GOPS. Compute fits with 30%+ margin even
+      at the largest model.
+
+  context_length_targets:
+    baseline_tokens: 4096
+    stretch_tokens: 16384
+    stretch_with_lpddr_streaming_tokens: 32768
+
+  serving_regime:
+    primary: single_user_single_session_decode
+    secondary: NONE                                            # single-session chip
+    deliberately_excluded:
+      - large_batch_serving (won't fit in 0.3 MB activation buffer)
+      - 7B+ models (LPDDR5X x16 12 GB/s caps reasonable model at ~5B)
+      - long-context_>32K (KV bandwidth at 12 GB/s limits long context)
+      - prefill_>256_tokens (compute fabric is small)
+
+  why_this_workload: |
+    The ≤1.5B class (validated on Qwen2-1.5B) is a deployable on-device LLM
+    regime for 2026-28. Apple Intelligence, Google Gemini Nano, Microsoft
+    Copilot+ target small on-device models. Lambda is the **first open-source
+    academic standalone accelerator** at this scale — closest commercial
+    cousins are Apple Neural Engine and Qualcomm Hexagon NPU, both proprietary
+    integrated SoCs.
+
+    The pitch is **≤1.5B inference at 3-4 W, standalone, open-source, 4 mm².**
+    Not "the fastest on this workload" (an x86 CPU at 30-50 W is faster) but
+    "the smallest, lowest-power, and only open-source option."
+    (Legacy drafts framed this as a "3-5B" pitch; retired 2026-06-22.)
+
+  capacity_math:
+    # NOTE: the per-model byte counts and token capacities below were derived for
+    # the retired 3-5B example set at the pre-pivot codec. They are TBD — pending
+    # re-derivation for ChannelQuant (~4 bits/value) / Qwen2-1.5B. The formula
+    # itself holds; only the codec's bits/value and the model dims change.
+    kv_byte_formula: |
+      per_token_kv_bytes_layer = kv_heads × head_dim × 2 (K+V) × bits_per_value / 8
+      ChannelQuant bits_per_value ≈ 4.13–4.38 (measured; depends on head dim D),
+      i.e. ~4 bits/value → ~3.8× compression vs FP16. The token-capacity numbers
+      below still use the pre-pivot codec bpe and are TBD (pending re-derivation).
+    kv_scratchpad_size_mb: 0.4                                 # baseline; 0.5 if PHY <= 1.0 mm²
+    model_class_examples:
+      - name: Llama-3.2-3B (8 KV × 128 dim, 28 layers)
+        weight_bytes_w4: 1_605_000_000                         # 3.21B × 0.5
+        per_token_kv_bytes_layer: 1024                         # 8 × 128 × 2 × 4.0/8
+        per_token_kv_bytes_all_layers: 28672                   # × 28 layers
+        decode_ms_at_12gbs: 134
+        decode_tok_per_sec: 7.4
+        kv_scratchpad_capacity_tokens_at_0_4mb: 409            # ⌊0.4 × 1024² / 1024⌋
+        kv_scratchpad_capacity_tokens_at_0_5mb: 512
+        context_4k_lpddr_stream_ms_per_tok: ~9                 # 4K × 28 × 1024 / (12 GB/s)
+        context_32k_lpddr_stream_ms_per_tok: ~75               # 32K × 28 × 1024 / (12 GB/s) — drops to ~5 tok/s
+        notes: |
+          Borderline interactive at 7.4 tok/s at short context. Above ~8K
+          context, decode rate drops as KV streams from LPDDR — at 32K
+          context, total decode ≈ 130 + 75 = 205 ms/tok ≈ 4.9 tok/s
+          (at threshold). Headline demo target: keep prompts ≤ 8K for
+          comfortable interactive operation.
+      - name: Qwen2.5-3B (2 KV × 128 dim, 36 layers)
+        weight_bytes_w4: 1_545_000_000                         # 3.09B × 0.5
+        per_token_kv_bytes_layer: 256                          # 2 × 128 × 2 × 4.0/8
+        per_token_kv_bytes_all_layers: 9216                    # × 36 layers
+        decode_ms_at_12gbs: 129
+        decode_tok_per_sec: 7.7
+        kv_scratchpad_capacity_tokens_at_0_4mb: 1638           # ⌊0.4 × 1024² / 256⌋
+        kv_scratchpad_capacity_tokens_at_0_5mb: 2048
+        context_4k_lpddr_stream_ms_per_tok: ~3                 # 4K × 36 × 256 / (12 GB/s)
+        context_32k_lpddr_stream_ms_per_tok: ~24               # 32K × 36 × 256 / (12 GB/s)
+        notes: |
+          Best-in-class long-context model on v2. 2 KV heads × 128 dim → KV
+          per token is 4× smaller than 8-head peers. At 32K context, total
+          decode ≈ 130 + 24 = 154 ms/tok ≈ 6.5 tok/s — stays above 5 tok/s
+          threshold. NOTE: earlier drafts claimed "32K context fits ON-DIE
+          per layer" — that was wrong (1638 tokens fit per layer at 0.4 MB,
+          not 32K). The chip still serves 32K, just via LPDDR streaming
+          rather than fully on-die.
+      - name: Mistral-NeMo-3B (8 KV × 128 dim, 28 layers)
+        weight_bytes_w4: 1_500_000_000
+        per_token_kv_bytes_layer: 1024
+        decode_tok_per_sec: 8.0
+        kv_scratchpad_capacity_tokens_at_0_4mb: 409
+        notes: |
+          Comfortable interactive 8 tok/s at short context. Same KV layout
+          and streaming behavior as Llama-3.2-3B.
+      - name: Phi-3.5-mini (32 KV × 96 dim, 32 layers)
+        weight_bytes_w4: 1_910_000_000                         # 3.82B × 0.5
+        per_token_kv_bytes_layer: 3072                         # 32 × 96 × 2 × 4.0/8
+        per_token_kv_bytes_all_layers: 98304
+        decode_ms_at_12gbs: 160
+        decode_tok_per_sec: 6.3
+        kv_scratchpad_capacity_tokens_at_0_4mb: 136
+        context_4k_lpddr_stream_ms_per_tok: ~33                # 4K × 32 × 3072 / (12 GB/s)
+        notes: |
+          KV-heavy outlier — 32 KV heads is unusual for this scale. Even at
+          short context, KV streaming dominates. 4K context: ~33 ms/tok
+          extra → ~5 tok/s, dropping below threshold. Phi-3.5-mini is NOT
+          recommended as v2 demo target without Phi-specific quality need.
+      - name: Llama-3.2-1B (8 KV × 64 dim, 16 layers)
+        weight_bytes_w4: 620_000_000
+        per_token_kv_bytes_layer: 512                          # 8 × 64 × 2 × 4.0/8
+        decode_tok_per_sec: 19.3
+        kv_scratchpad_capacity_tokens_at_0_4mb: 819
+        notes: Comfortable at 19 tok/s; uses bandwidth headroom. 0.4 MB scratchpad fits ~800 tokens per layer.
+      - name: hypothetical-5B (8 KV × 128 dim, 32 layers)
+        weight_bytes_w4: 2_500_000_000
+        per_token_kv_bytes_layer: 1024
+        decode_ms_at_12gbs: 209
+        decode_tok_per_sec: 4.8
+        notes: At threshold at short context (just below 5 tok/s). 4-4.5B is the practical ceiling. 32K context unusable here — would drop to 3 tok/s.
+
+# -----------------------------------------------------------------------------
+# Memory hierarchy
+# -----------------------------------------------------------------------------
+memory_hierarchy:
+
+  off_chip_dram:
+    technology: LPDDR5X
+    standard_data_rate_mbps: 8533                              # JEDEC LPDDR5X peak [C-16]
+    channel_width_bits: 16                                     # x16 — half-width vs x32 mobile typical
+    channels_on_die: 1
+    package_capacity_gb_per_channel: 4_to_8                    # standard mobile LPDDR5X package
+    total_capacity_gb: 4_to_8
+    peak_bandwidth_gb_s_per_channel: 17.1                      # 8533 × 16 / 8 / 1000
+    sustained_bandwidth_gb_s_planning: 12                      # ~70% of peak
+    phy_ip_source: Synopsys DesignWare or Cadence Denali LPDDR5X x16
+    phy_area_estimate_mm2: 1.2
+    estimate: true                                             # vendor-NDA-gated; verify
+    why_x16_not_wider: |
+      Wider PHYs (x32, x64) consume 1.8-2.5 mm² each, breaking the 4 mm²
+      budget. x16 at 1.2 mm² is the largest LPDDR5X PHY that fits while
+      leaving room for compute + SRAM. See `v2_stretch_lpddr5x_x32` block
+      below for the alternative.
+
+  on_chip_sram:
+    total_target_mb: 0.8                                       # corrected: was inconsistently 1.0 elsewhere; baseline at PHY=1.2 mm²
+    upgrade_to_1mb_if_phy_at_1mm2_best_case: true              # PHY best-case frees +0.20 mm² → can grow scratchpad + activation
+    organization: KV-dominant_minimal
+    banks:
+      - id: kv_scratchpad
+        size_mb: 0.4                                           # baseline at PHY=1.2
+        size_mb_if_phy_at_1mm2: 0.5                            # if PHY comes in best-case
+        purpose: |
+          Compressed KV scratchpad for current layer's hot tokens. Capacities
+          at 0.4 MB with ChannelQuant at ~4 bits/value (see target_workload.
+          capacity_math for the byte formula). The per-model token capacities
+          below were derived for the retired 3-5B set at the pre-pivot codec and
+          are TBD — pending re-derivation for ChannelQuant / Qwen2-1.5B:
+            - Qwen2-1.5B (canonical target):  TBD single-layer tokens
+            - Llama-3.2-3B (8 KV × 128):      TBD single-layer tokens
+            - Qwen2.5-3B (2 KV × 128):        TBD single-layer tokens
+          KV beyond the scratchpad streams from LPDDR5X at 12 GB/s; the extra
+          ms/tok overhead at 4-32K context is likewise TBD for the new codec.
+          Headline demo: keep target prompts ≤ 8K context.
+        bandwidth_gb_s: 64
+        latency_cycles: 1
+        port_count: 1
+      - id: activation_buffer
+        size_mb: 0.3
+        purpose: |
+          FlashAttention working set + per-token QKV scratch + MLP intermediates.
+          Single-session/batch-1 with FA tile=8-16 fits comfortably.
+        port_count: 2
+      - id: weight_stream_buffer
+        size_mb: 0.05                                          # corrected: was 0.15 here, 0.05 in definitive section
+        purpose: |
+          Streaming staging for weights from LPDDR. At 12 GB/s × 100 ns
+          first-byte = 1.2 KB minimum tile; 0.05 MB = 40× minimum, ample.
+        port_count: 1
+      - id: codebook_const_rom                                 # id kept for HLS continuity
+        size_kb: 64
+        purpose: ChannelQuant outlier-channel ROM mask, RoPE freqs, transcendental LUTs (no Lloyd-Max centroids)
+        port_count: 1
+    total_sram_area_mm2: 0.71                                  # 0.8 MB / 1.25 MB/mm² × 1.10 compiler overhead
+
+  roofline_analysis:
+    decode_phase:
+      bytes_per_param_w4: 0.5
+      arithmetic_intensity_batch_1: 4
+      lpddr5x_x16_machine_balance_ops_per_byte: 11             # 0.13 TOPS / 12 GB/s
+      bandwidth_bound_until_batch: ~3
+      conclusion: |
+        Decode is bandwidth-bound. At 12 GB/s sustained:
+          1B model: 0.5 GB / 12 = 42 ms/tok = 24 tok/s
+          3B model: 1.5 GB / 12 = 125 ms/tok = 8 tok/s
+          4B model: 2.0 GB / 12 = 167 ms/tok = 6 tok/s
+          5B model: 2.5 GB / 12 = 208 ms/tok = 4.8 tok/s (THRESHOLD)
+        Compute (0.128 TOPS peak, 76.8 GOPS sustained at 60% util) has
+        **1.6× headroom** over the bandwidth-bound floor — constant across
+        all bandwidth-bound model sizes because compute_needed scales with
+        bandwidth, not model size. (Earlier drafts of this spec said
+        "3-5× headroom" — that was wrong; the bandwidth-bound floor scales
+        WITH bandwidth, so headroom is constant.)
+    prefill_phase:
+      compute_bound: true_at_seq_len_>_32
+      conclusion: |
+        Prefill is compute-bound at any non-trivial prompt. 256-prompt on
+        3B model: 2 × 256 × 3e9 = 1.5e12 FLOPs / 0.13 TOPS / 50% util
+        = 23 sec. **Recommended interactive prompt ceiling: 64-128 tokens
+        (~3-6 sec).** Same conclusion as flagship: decode-optimized.
+
+# -----------------------------------------------------------------------------
+# Functional blocks
+# -----------------------------------------------------------------------------
+blocks:
+
+  - id: matrix_engine
+    name: Matrix Engine (MatE) — 8×8
+    function: |
+      Weight-stationary primary dataflow (output-stationary alt for Q·K^T).
+      INT8 × INT4 multiplier per PE producing 11-bit signed partial product;
+      INT24 K-axis accumulator (sufficient for any practical reduction up to
+      ~16K). Handles all GEMMs: Q/K/V projections, attention output (Q·K^T,
+      softmax·V), FFN up/down, logits.
+    microarchitecture:
+      array_dim_pe: 8x8                                        # 64 PEs
+      pe_op: INT8 × INT4 → 11-bit product (INT16 PE register) → INT24 K-axis reduction
+      attention_score_mode: INT8 (Q) × per-channel-dequantized K (INT4·FP16 → FP16) → INT24 reduction  # K dequantized by KVE before scoring; no compressed-domain read path
+      peak_ops_per_cycle: 128
+      target_clock_mhz: 1000
+      peak_tops_int8w4: 0.128
+      accumulator_correction_note: |
+        Earlier drafts specified "INT16 accumulator". That was a real bug:
+        INT8 × INT4 → 11-bit product, summed K times needs log2(K) + 11 bits;
+        for K=128 (head_dim) that's 18 bits, saturating INT16. INT24 is the
+        right K-axis accumulator width and matches flagship convention.
+      sizing_rationale: |
+        Decode is bandwidth-bound: GOPS_needed = 2 × BW_GBs / W4_bytes
+        = 2 × 11.94 / 0.5 ≈ 48 GOPS (constant across model size in BW-bound
+        regime). Available 0.128 TOPS × 60% util = 76.8 GOPS → **1.6× headroom**.
+        8×8 is the smallest array that meets this with margin. Earlier drafts
+        claimed "30%+ headroom even at largest model" — that was a fortunate
+        coincidence of phrasing; the right framing is 1.6× constant headroom.
+    dataflow: weight_stationary
+    quantization_support:
+      - format: int8_x_int4
+        primary: true
+        notes: W4A8 sweet spot per ACL'25 (arXiv 2411.02355 "Give Me BF16 or Give Me Death")
+      - format: int8_x_int8
+        primary: false
+        notes: fallback for accuracy-critical layers (logits projection)
+      - format: fp16_score_after_dequant
+        primary: false
+        notes: Q·K^T scoring on per-channel-dequantized K (KVE emits INT4·FP16 → FP16); no compressed-domain path
+    area_mm2: 0.10
+    verification_tests: 50
+    risk: medium
+
+  - id: vector_unit
+    name: Vector Unit (VecU) — 8-lane
+    function: |
+      8 lanes × 16-bit FP16/BF16. Online softmax, RMSNorm, GELU/SiLU, RoPE,
+      residual add. Microcoded.
+    microarchitecture:
+      vector_width_lanes: 8
+      lane_bit_width: 16
+      ops_supported:
+        - vector_add_sub_mul
+        - vector_compare_max_min
+        - exp_lut                                              # 64-entry LUT
+        - reciprocal_sqrt_lut
+        - sigmoid_lut
+        - rotary_pair_rotate                                   # RoPE
+      microcode_capacity: 1k_instructions
+    online_softmax_specifics:
+      algorithm: online softmax recurrence (Milakov & Gimelshein 2018; FlashAttention-style tiling)
+      m_running_max_buffer: 8_lanes_x_16b
+      l_running_sum_buffer: 8_lanes_x_16b
+    area_mm2: 0.15
+    verification_tests: 25
+    risk: medium
+
+  - id: kv_compression_engine
+    name: KV Cache Engine (KVE) — ChannelQuant codec  [id kept for HLS continuity]
+    codec_of_record: |
+      ChannelQuant: per-channel INT4 K (grouped G=128, D per-channel FP16 scales)
+      + per-token INT4 V (INT8 in the CQ-8 tier) + static top-k (k=2) FP16
+      outlier-channel lane selected by a calibrated ROM mask; tiers
+      CQ-8/CQ-4/CQ-4+; ~3.8x at ~4 bits/value. Full block RTL complete through
+      Sky130 sign-off in the kv-cache-engine repo.
+    function: |
+      Streaming ChannelQuant compress/decompress on K and V as MatE produces
+      them. Keys: buffer a G=128 key group → per-channel amax → D FP16 scales →
+      INT4 codes, with the k=2 outlier channels held FP16. Values: per-token
+      INT4. Unified per-channel SRAM record {tag, D×FP16 field, D×INT4 code}.
+      Decompress = per-channel INT4_code · FP16_scale (+ FP16 replay for outlier
+      channels); K is dequantized per-channel before the score matmul. One shared
+      fp16 compute unit (scale/quant/dequant) is serialized across the D channels
+      (single divide cone).
+    microarchitecture:
+      key_quant: per-channel INT4, grouped G=128
+      key_scales: D per-channel FP16
+      value_quant: per-token INT4 (INT8 in CQ-8)
+      outlier_lane: static top-k (k=2) FP16 channels via calibrated ROM mask
+      sram_record: unified per-channel {tag, D×FP16 field, D×INT4 code}
+      shared_compute: one serialized fp16 scale/quant/dequant unit across D channels
+      compression_ratio_vs_fp16: ~3.8                          # at ~4 bits/value
+      bits_per_value_measured: ~4.13–4.38 (depends on head dim D)
+      bypass_mode: true
+    operating_modes:
+      - id: channelquant_CQ8
+        notes: per-token INT8 K+V
+      - id: channelquant_CQ4
+        primary: true
+        notes: per-channel INT4 K / per-token INT4 V; ~3.8× at ~4 bits/value, near-lossless
+      - id: channelquant_CQ4_plus
+        notes: CQ-4 + k=2 FP16 outlier channels; HellaSwag acc_norm within ~0.4-0.8 pt of FP16 (Qwen2-0.5B/1.5B)
+      - id: bypass_fp16
+        compression_ratio: 1.0
+        notes: debug / ablation passthrough
+    area_mm2: TBD                                              # TBD (pending re-measurement for ChannelQuant at 16nm)
+    power_w: TBD                                               # TBD (pending re-measurement)
+    fmax_ghz: TBD                                              # TBD (pending re-measurement)
+    verification_tests: 60
+    risk: low                                                  # block RTL complete through Sky130 sign-off in kv-cache-engine repo
+
+  - id: memory_subsystem_controller
+    name: Memory Subsystem Controller (MSC)
+    function: |
+      Single LPDDR5X x16 controller; 4-port SRAM crossbar; 128-entry block
+      table for KV paging. Single-session — no continuous batching, no
+      Tier-3 eviction.
+    microarchitecture:
+      lpddr5x_controllers: 1
+      sram_crossbar_ports: 4
+      block_table_entries: 128
+      block_size_tokens: 16
+      hw_features:
+        - dma_descriptor_fsm
+        - simple_prefetch
+        - on_demand_kv_decompress
+        - request_arbitration_pq
+    area_mm2: 0.18
+    verification_tests: 50
+    risk: medium
+
+  - id: layer_sequencer
+    name: Layer Sequencer (LSU) — minimal
+    function: |
+      Tiny in-order RISC + vector dispatch. 32-instruction ISA, 4K microcode,
+      16×32b GPR. Loads pre-compiled schedule for one model at boot.
+    area_mm2: 0.10
+    verification_tests: 30
+    risk: low
+
+  - id: host_interface
+    name: Host Interface (HIF) — PCIe Gen3 x1 on M.2 form factor
+    function: |
+      PCIe Gen3 x1 endpoint at ~1 GB/s sustained. Tokens are <1 KB; runtime
+      I/O is negligible. Weight load at boot: 1.5 GB / 1 GB/s = 1.5 sec.
+      JTAG via dedicated pins (separate from PCIe lanes). M.2 2280 form
+      factor at PCB level — connector wires 4 lanes; on-die PHY drives x1
+      only (PCIe negotiates down). Vendor IP: Synopsys DesignWare PCIe Gen3
+      x1 PHY or Cadence PCIe Gen3 PHY at 16nm — both have public datasheets.
+      Revised 2026-05-14 (was USB-C 2.0 in earlier drafts; see STATUS.md change-log).
+    bandwidth_gb_s: 1.0
+    area_mm2: 0.55
+    verification_tests: 30                                     # +5 over USB-C 2.0; PCIe link training adds test surface
+    risk: medium                                               # vendor IP integration; lower risk than LPDDR PHY but non-trivial
+
+  - id: token_importance_unit
+    name: Token Importance Unit (TIU) — NEW
+    function: |
+      Per-block attention-entropy accumulator. Updated by VecU during softmax
+      (cumulative softmax weights per 16-token block). Consumed by MSC for
+      eviction policy (H2O / streaming-LLM) and by KVE for per-block
+      adaptive precision (high-importance blocks stay at a higher ChannelQuant
+      tier, e.g. CQ-4+/CQ-8; low-importance blocks demote to CQ-4). Modeled on
+      arXiv 2604.04722.
+    microarchitecture:
+      importance_register_per_block: 16-bit
+      total_blocks_tracked: 128
+      total_sram_bytes: 256
+    csr_modes:
+      - tiu_off
+      - tiu_h2o
+      - tiu_streaming_llm
+      - tiu_adaptive_precision
+    area_mm2: 0.03
+    verification_tests: 15
+    risk: low
+
+# -----------------------------------------------------------------------------
+# Top-level area accounting
+# -----------------------------------------------------------------------------
+top_level:
+  die_area_target_mm2: 4.0
+  die_area_target_mm2_basis: |
+    IMEC / Europractice mini@sic 2.0 minimum block area at TSMC 16nm. Aligns
+    with Muse Semiconductor 4 mm² Full Block. 2×2 mm or any X×Y summing to
+    4 mm² acceptable per mini@sic 2.0 flexibility.
+  area_accounting_mm2:
+    # Revised 2026-05-14 (Phase 0): HIF USB-C 2.0 → PCIe Gen3 x1 (+0.25 mm²);
+    # TIU added (+0.03 mm²); routing_overhead_buffer now correctly included in
+    # total. Earlier drafts dropped routing_overhead from total (claimed 3.974
+    # vs real 4.074) — bug fixed here.
+    matrix_engine_8x8: 0.10
+    vector_unit_8_lane: 0.144
+    kv_compression_engine: TBD                                 # KVE (ChannelQuant) area TBD (pending re-measurement); totals below hold 0.08 as a placeholder only
+    kv_compression_engine_placeholder_for_totals: 0.08        # NOT a ChannelQuant figure — placeholder so the budget arithmetic below still balances until KVE PD closes
+    token_importance_unit: 0.03                                # NEW (Phase 0.3)
+    memory_subsystem_controller: 0.18
+    layer_sequencer: 0.10
+    host_interface_pcie_gen3_x1: 0.55                          # WAS 0.30 (USB-C 2.0); revised Phase 0.1
+    sram_kv_scratchpad_0_4mb: 0.35
+    sram_activation_buffer_0_3mb: 0.26
+    sram_weight_buffer_0_05mb: 0.05
+    codebook_const_rom_64kb: 0.05
+    on_chip_sram_total_subtotal: 0.71                          # 0.8 MB total (informational; not double-counted in total below)
+    lpddr5x_x16_phy: 1.20
+    clock_tree_and_power_grid: 0.40
+    io_ring_pads_esd: 0.76
+    routing_overhead_buffer: 0.10                              # included in total (Phase 0.4 fix)
+    total_gross_mm2: 4.354                                     # over 4.0 budget by 0.354 mm² — uses KVE placeholder 0.08; true total TBD pending KVE re-measurement
+    headroom_gross_mm2: -0.354
+    die_utilization_pct_gross: 109
+  area_status_after_phase_0: OVER_BUDGET_AT_BASELINE — apply recommended shrink path below
+  area_sensitivity:
+    phy_at_1_0mm2_best_case:
+      total_with_pcie_and_tiu_mm2: 4.154                       # 4.354 − 0.20 PHY savings
+      verdict: |
+        Still over budget by 0.154 mm². Need additional shrinks: I/O ring to
+        80 µm (-0.06) + activation buffer to 0.2 MB (-0.08) lands at 4.014 mm²,
+        within 0.4% of 4.0 mm² target. This is the recommended baseline.
+    phy_at_1_2mm2_planning:
+      total_with_pcie_and_tiu_mm2: 4.354
+      verdict: |
+        Over budget by 0.354 mm². Need PHY best case OR LPDDR4X fallback OR die
+        growth to 4.25 mm² (~+6% shuttle). See STATUS.md §5 LPDDR tradeoff.
+    phy_at_1_5mm2_worst_case:
+      total_with_pcie_and_tiu_mm2: 4.654
+      verdict: |
+        Does NOT fit. Options: (a) drop to LPDDR4X x16 PHY (loses 4-5B → 2.4B
+        model class), (b) grow die to 4.7 mm² (~+18% shuttle cost; may exceed
+        IMEC mini@sic 2.0 minimum-block-area tier), (c) accept 4.5 mm² die and
+        LPDDR4X. Worst case is a real risk; the PHY quote in Q2 2026 is the
+        single most important data point gating chip-level commitment.
+
+  shrink_paths_phase_0_revised:
+    # Total shrink needed: 0.354 mm² at PHY = 1.2 mm² mid-case.
+    #                     0.154 mm² at PHY = 1.0 mm² best-case (recommended planning baseline).
+    - id: phy_best_case_at_1_0mm2
+      saves_mm2: 0.20
+      condition: contingent on Q2 2026 Synopsys/Cadence vendor quote
+      recommended_first: true
+    - id: tighten_io_ring_to_80um
+      saves_mm2: 0.06
+      cost: tighter PD margins but feasible at 16nm with Sofics GPIO library tuning
+      recommended_second: true
+    - id: shrink_activation_buffer_to_0_2mb
+      saves_mm2: 0.08
+      cost: forces FA tile=8 (was 16); slower per-tile but functional. Quality-equivalent at batch 1.
+      recommended_third: true
+    - id: shrink_kv_scratchpad_to_0_3mb
+      saves_mm2: 0.09
+      cost: |
+        Loses ~100 tokens on-die for 8-head models. Compensated by TIU (Phase 0.3)
+        + LPDDR streaming. Acceptable if other shrinks insufficient.
+    - id: drop_weight_stream_buffer_to_0_02mb
+      saves_mm2: 0.03
+      cost: minimal — 0.02 MB is still 16× streaming minimum at 12 GB/s × 100 ns
+    - id: drop_to_lpddr4x_x16
+      saves_mm2: 0.20
+      cost: |
+        Bandwidth halves to 6 GB/s; largest reasonable model drops from 4.8B
+        to 2.4B at 5 tok/s. Use as fallback ONLY if Synopsys/Cadence LPDDR5X x16
+        quote returns > 1.4 mm². See STATUS.md §5 for the full tradeoff analysis.
+      not_recommended_unless_phy_quote_forces: true
+    - id: grow_die_to_4_25mm2
+      saves_mm2: n/a (grows area instead)
+      cost: ~+6% shuttle cost (~$60-100K → ~$64-106K). Still inside IMEC mini@sic 2.0 Full Block.
+
+  preferred_landing: |
+    4.014 mm² with: PHY best case (1.0 mm²) + I/O ring tightened to 80 µm +
+    activation buffer shrunk to 0.2 MB. Within 0.4% of 4.0 mm² target.
+    Contingent on Q2 2026 PHY vendor quote landing ≤ 1.0 mm²; else fall back
+    to grow_die_to_4_25mm2 or LPDDR4X path.
+
+# -----------------------------------------------------------------------------
+# Quantization strategy
+# -----------------------------------------------------------------------------
+quantization_strategy:
+  weights:
+    primary: int4_per_channel_groupwise
+  activations:
+    primary: int8_per_token_dynamic
+  kv_cache:
+    primary: channelquant_CQ4                                  # ChannelQuant: per-channel INT4 K + per-token INT4 V + static top-k FP16 outlier lane
+    tiers: [CQ-8, CQ-4, CQ-4+]
+    near_lossless_tier: channelquant_CQ4_plus
+    bypass: fp16
+  attention_compute:
+    primary: int8_q_x_fp16_dequantized_k_with_fp16_softmax_accum
+    per_channel_dequant_scoring: |
+      The KVE dequantizes K per-channel (INT4_code · FP16_scale, + FP16 replay
+      for the k=2 outlier channels) before scoring — there is no compressed-
+      domain / raw-index read path. Q (INT8) · dequantized K → INT24 reduction
+      along head_dim → softmax in VecU (FP16). softmax · V is the same pattern:
+      V is dequantized per-token (INT4 · scale) before the MatE multiply;
+      accumulator FP16.
+
+# -----------------------------------------------------------------------------
+# Performance targets
+# -----------------------------------------------------------------------------
+performance_targets:
+  # PENDING RE-DERIVATION: the per-model decode-throughput tables below were
+  # derived for the retired 3-5B example set (and the pre-pivot codec). The
+  # canonical target is now up to 1.5B parameters, validated on Qwen2-1.5B. The
+  # ≤2B rows still bound the target well, but the 3-5B rows and any codec-
+  # dependent capacity notes are TBD — pending re-derivation for ChannelQuant /
+  # Qwen2-1.5B. Do not read the 3-5B rows as the target.
+
+  decode_throughput_table_lpddr5x_x16:
+    # Verified 2026-04-26 by 2026-05-14 roofline analysis
+    # All numbers derived: weight_GB / 11.94 GB/s sustained = ms/token
+    # Sustained = 70% of peak (LPDDR5X-8533 x16 peak = 17.07 GB/s)
+    derivation_basis: weight_GB / 11.94_GB_s_sustained = ms/token; 1000/ms = tok/s
+    targets:
+      - model: SmolLM2-360M
+        params_billion: 0.36
+        weight_GB_w4: 0.18
+        ms_per_tok: 15.1
+        tok_per_sec: 66.4
+        verdict: very_comfortable_overkill
+      - model: Qwen2.5-0.5B
+        params_billion: 0.5
+        weight_GB_w4: 0.25
+        ms_per_tok: 20.9
+        tok_per_sec: 47.8
+        verdict: very_comfortable
+      - model: Llama-3.2-1B
+        params_billion: 1.24
+        weight_GB_w4: 0.62
+        ms_per_tok: 51.9
+        tok_per_sec: 19.3
+        verdict: very_comfortable
+      - model: TinyLlama-1.1B
+        params_billion: 1.1
+        weight_GB_w4: 0.55
+        ms_per_tok: 46.0
+        tok_per_sec: 21.7
+        verdict: very_comfortable
+      - model: Gemma-2-2B
+        params_billion: 2.0
+        weight_GB_w4: 1.0
+        ms_per_tok: 83.7
+        tok_per_sec: 11.9
+        verdict: comfortable
+      - model: Llama-3.2-3B
+        params_billion: 3.21
+        weight_GB_w4: 1.605
+        ms_per_tok: 134.4
+        tok_per_sec: 7.4
+        verdict: borderline_interactive                         # (was claimed 8 — corrected)
+      - model: Qwen2.5-3B
+        params_billion: 3.09
+        weight_GB_w4: 1.545
+        ms_per_tok: 129.3
+        tok_per_sec: 7.7
+        verdict: borderline_interactive_short_context__best_long_context_target
+        notes: |
+          2 KV × 128 dim layout — on-die token capacity per layer at ~4
+          bits/value (ChannelQuant) is TBD (pending re-derivation for the new
+          codec). Structurally still 4× the on-die capacity of 8-head peers.
+          32K context serviceable via LPDDR5X streaming (per-tok overhead TBD).
+          Earlier drafts claimed "32K fits ON-DIE per layer" — that was wrong;
+          chip serves 32K but streamed, not on-die.
+      - model: Mistral-NeMo-3B
+        params_billion: 3.0
+        weight_GB_w4: 1.5
+        ms_per_tok: 125.6
+        tok_per_sec: 8.0
+        verdict: comfortable_interactive                        # the genuine sweet spot
+      - model: Phi-3.5-mini
+        params_billion: 3.82
+        weight_GB_w4: 1.91
+        ms_per_tok: 159.9
+        tok_per_sec: 6.3
+        verdict: borderline_interactive
+      - model: hypothetical_4B
+        params_billion: 4.0
+        weight_GB_w4: 2.0
+        ms_per_tok: 167.4
+        tok_per_sec: 6.0
+        verdict: borderline_interactive
+      - model: hypothetical_5B
+        params_billion: 5.0
+        weight_GB_w4: 2.5
+        ms_per_tok: 209.3
+        tok_per_sec: 4.8
+        verdict: at_threshold (just below 5 tok/s)
+      - model: Mistral-7B
+        params_billion: 7.24
+        weight_GB_w4: 3.62
+        ms_per_tok: 303.0
+        tok_per_sec: 3.3
+        verdict: below_threshold_at_W4_needs_W3_or_v2_stretch
+      - model: Llama-3.1-8B
+        params_billion: 8.03
+        weight_GB_w4: 4.01
+        ms_per_tok: 336.1
+        tok_per_sec: 3.0
+        verdict: below_threshold_use_v2_stretch_lpddr5x_x32
+
+  compute_headroom_check:
+    # Verified by lambda_v2_audit.py: at bandwidth-bound decode,
+    # GOPS_needed = 2 × bandwidth_GBs / W4_bytes_per_param = constant ≈ 48 GOPS
+    # GOPS_available = peak_TOPS × util × 1000 = 0.128 × 0.6 × 1000 = 76.8 GOPS
+    headroom_factor: 1.6
+    notes: |
+      Compute headroom is 1.6× across the entire bandwidth-bound model range
+      (constant because compute_needed scales with bandwidth, not model size).
+      NOT 3-5× as earlier claimed. 1.6× is adequate margin for production but
+      tighter than originally suggested. Compute is NOT the bottleneck at any
+      v2 baseline operating point; bandwidth is the entire story.
+
+  largest_reasonable_model_summary:
+    primary_target: up to 1.5B parameters, validated on Qwen2-1.5B
+    primary_target_perf: 6-8 tok/s comfortable interactive
+    legacy_target_pre_pivot: 3-4B class (retired 2026-06-22; perf figures TBD, pending re-derivation)
+    above_ceiling_with_aggressive_quant: |
+      Larger classes with W3 quantization could reach ~5 tok/s — a stretch
+      experiment, not the target. W3 quality would need evaluation against
+      RotateKV / QuaRot W3 results. (All figures here are TBD — pending
+      re-derivation for the ChannelQuant / Qwen2-1.5B target.)
+
+  prefill_latency_128_prompt_3B:
+    target_ms: 6_000_to_9_000
+    derivation: 2 × 128 × 3e9 = 7.7e11 FLOPs / 0.13 TOPS / 50% util = 12 sec → realistic 6-9 sec
+    use_case: comfortable interactive prompt size
+
+  prefill_latency_64_prompt_3B:
+    target_ms: 3_000_to_5_000
+    use_case: interactive_quick
+
+  power_budget:
+    # Verified by 2026-05-14 power budget
+    target_watts_typical: 2.6                                  # decode bandwidth-bound, 50% MatE util (revised 2026-05-14 for PCIe + TIU)
+    target_watts_peak: 3.3                                     # prefill burst, 100% MatE util
+    target_watts_basis: |
+      Verified breakdown at LPDDR5X x16, 12 GB/s sustained (revised 2026-05-14
+      for PCIe Gen3 x1 HIF replacing USB-C 2.0, and TIU block addition):
+        LPDDR PHY+DRAM (7.5 mW/Gbps × 96 Gbps = 720 mW)        0.72 W
+        MatE 64 PEs at 50% util (5 W/TOPS × 0.128 × 0.5)       0.32 W
+        VecU 8 lanes (0.04 W/lane × 8 × 0.5 util)              0.16 W
+        SRAM 0.8 MB at 50% util (0.4 W/MB × 0.8 × 0.5)         0.16 W
+        KVE (ChannelQuant)                                     TBD (pending re-measurement; 0.05 W held as placeholder in totals)
+        TIU (256 B SRAM + accumulator, NEW)                     0.01 W
+        MSC + LSU                                               0.20 W
+        HIF (PCIe Gen3 x1, REVISED from 0.10 W USB-C)           0.30 W
+        Whole-chip leakage at 16nm 0.8V (~0.7 W for 4 mm²)      0.70 W
+        TOTAL TYPICAL DECODE                                   ~2.62 W
+        TOTAL PEAK PREFILL (100% util MatE+VecU, 80% SRAM)     ~3.31 W
+    sources:
+      - Samsung/Micron LPDDR5X product briefs (7.5 mW/Gbps system)
+      - 16nm dense INT8 systolic energy ~5 W/TOPS (sparse can be 2-4x better)
+      - 16nm 0.8V 4 mm² leakage estimate from TSMC FinFET reliability docs
+    estimate: true                                             # post-silicon characterization needed
+    margin_vs_fanless_envelope: |
+      M.2 2280 slot delivers 3.3 V at ~3 A = ~10 W per M.2 spec; leaves
+      ~6 W headroom even at peak 3.3 W chip operation. Fanless / battery
+      deployment feasible at ~2.6 W typical. Power grew ~0.2 W vs the prior
+      USB-C 2.0 spec (PCIe Gen3 x1 PHY + controller draws ~0.30 W vs USB
+      2.0's ~0.10 W) — acceptable given the form-factor + latency wins.
+
+  energy_per_token_3B_at_7_to_8_tok_s:
+    target_mj_per_token: ~325                                  # verified: 2.6 W × 125 ms = 325 mJ
+    derivation: 2.6 W typical × 125-135 ms/tok (3B class) = 320-350 mJ/token
+    comparable_baselines:
+      x86_cpu_3b_inference: ~3000_to_5000_mj_per_token         # 30-50 W × 100 ms
+      apple_neural_engine_3b: ~200_mj_per_token                # estimated; closed-source
+      qualcomm_hexagon_npu_3b: ~250_mj_per_token               # estimated; closed-source
+    notes: |
+      v2 is **9-15× better than CPU-only inference** at 3B class — the main
+      pitch (was claimed 6-10× with overstated 4 W power; verified 2.6 W
+      makes the win larger). Closed-source mobile NPUs (Apple ANE / Qualcomm
+      Hexagon) remain 1.5-2× better thanks to integration tightness; v2 is
+      the open-source academic standalone version of the same workload.
+
+  peak_compute_int8w4_tops: 0.128
+
+# -----------------------------------------------------------------------------
+# Verification
+# -----------------------------------------------------------------------------
+verification:
+  total_tests_estimated: 240
+  breakdown_by_block:
+    matE: 50
+    vecU: 25
+    kve: 60
+    msc: 50
+    lsu: 30
+    hif: 25
+  reuse_from_130nm_sky130_track: ~40%                          # was "reuse_from_lasso"; 130nm work now in the Chipathon repo
+  effective_new_tests: ~180
+  estimated_person_months_at_student_velocity: ~28
+
+# -----------------------------------------------------------------------------
+# Cost
+# -----------------------------------------------------------------------------
+cost_analysis:
+  shuttle_cost_estimate_usd: 60_000_to_100_000
+  shuttle_cost_basis: |
+    IMEC / Europractice mini@sic 2.0 academic-discount Full Block at TSMC
+    16nm. Pricing non-public; reconfirm via eptsmc@imec.be price-request form.
+    Comparable Muse 4 mm² Full Block ~$75K.
+  ip_licensing_cost_estimate_usd: 80_000_to_150_000
+  ip_licensing_basis: |
+    LPDDR5X x16 PHY (Synopsys or Cadence) ~$80-130K (LPDDR5X is more expensive
+    than LPDDR4X by ~50%). PCIe Gen3 x1 PHY (Synopsys DesignWare or Cadence
+    PCIe Gen3) ~$30-60K. Total ~$110-190K.
+  total_chip_cost_usd: 170_000_to_290_000                      # revised 2026-05-14 for PCIe Gen3 x1 IP licensing
+
+# =============================================================================
+# v2 STRETCH — LPDDR5X x32 PHY (the larger-model alternative within v2)
+# =============================================================================
+# Documented for the user to evaluate. Not the v0.2 baseline.
+
+v2_stretch_lpddr5x_x32:
+  description: |
+    Trade SRAM and KV scratchpad for ~2× more LPDDR bandwidth, enabling
+    7-8B-class models on the same 4 mm² die. Compute becomes the bottleneck
+    rather than bandwidth.
+
+  area_accounting_mm2:
+    # Updated 2026-05-14 to reflect PCIe Gen3 x1 HIF + TIU addition (Phase 0).
+    lpddr5x_x32_phy: 1.80                                      # +0.6 vs baseline LPDDR5X x16
+    io_ring_pads_esd: 0.70                                     # tightened 80 µm
+    clock_tree_and_power_grid: 0.40
+    matrix_engine_8x8: 0.10
+    vector_unit_8_lane: 0.144
+    kv_compression_engine: TBD                                 # KVE (ChannelQuant) area TBD; total_mm2 below holds 0.08 as placeholder
+    tiu_token_importance_unit: 0.03                            # NEW
+    memory_subsystem_controller: 0.18
+    layer_sequencer: 0.10
+    host_interface_pcie_gen3_x1: 0.55                          # WAS 0.30 (serial HIF); revised Phase 0.1
+    sram_kv_scratchpad_0_15mb: 0.12                            # -0.28 vs baseline (huge cut to fit wider PHY)
+    sram_activation_buffer_0_2mb: 0.16
+    sram_weight_buffer_0_05mb: 0.04
+    codebook_const_rom_64kb: 0.05
+    routing_overhead_buffer: 0.10
+    total_mm2: 4.654                                           # was 4.38 pre-Phase-0; now well over even with shrinks
+    headroom_mm2: -0.654
+    die_utilization_pct: ~116
+  area_status: OVER_BUDGET — needs 4.7-4.8 mm² die (~+18-20% shuttle cost). NOT RECOMMENDED for v0.4.
+
+  bandwidth_and_perf:
+    sustained_bandwidth_gb_s: 25
+    largest_reasonable_model_at_5_tok_s: ~10B params (theoretical bandwidth)
+    bottleneck_at_7B: compute (98 GOPS needed vs 78 GOPS sustained = 80% utilization required)
+    realistic_perf:
+      - model: Mistral-7B / Qwen2.5-7B / Llama-3.1-8B
+        params_billion: 7_to_8
+        weight_GB_w4: 3.5_to_4.0
+        ms_per_tok_bandwidth: 140_to_160
+        tok_per_sec_bandwidth_bound: 6.3_to_7.1
+        tok_per_sec_compute_bound: ~5.5
+        actual_tok_per_sec: ~5.5_to_6                          # min of the two; compute-bound
+        verdict: borderline_5to6_tok_s
+      - model: Llama-3-8B
+        params_billion: 8
+        weight_GB_w4: 4.0
+        actual_tok_per_sec: ~5
+        verdict: at_threshold
+
+  trades_against_v2_baseline:
+    pros:
+      - Largest serviceable model class jumps from 5B to 7-8B (same as flagship targeted)
+      - First open-source academic 8B-class accelerator at 4-4.5 mm²
+      - Research story is materially stronger
+    cons:
+      - Die area pushes to ~4.4 mm²; ~20-25% shuttle cost overage (estimated $90-130K)
+      - LPDDR5X x32 PHY area uncertainty is bigger absolute swing (1.8 ± 0.4 mm²)
+      - On-die KV scratchpad shrinks to 0.15 MB — practically vestigial
+      - Compute fabric bottlenecks at 7-8B (utilization > 80% required)
+      - Verification load grows: ~30 PM (vs v2 baseline's ~28)
+      - Power budget grows to ~5.5-6 W (LPDDR5X x32 ~3 W vs x16 ~1.5 W)
+
+  when_to_choose_stretch:
+    - Faculty/sponsor specifically wants "8B-class on 4 mm²" headline
+    - Budget can absorb ~$90-130K shuttle (vs v2 baseline ~$60-100K)
+    - Team is comfortable with LPDDR5X x32 PHY integration risk
+    - Compute-bottlenecked operation is acceptable (drops sub-linear scaling
+      vs bandwidth-bound)
+
+  when_to_NOT_choose_stretch:
+    - Cost overage is unfundable
+    - PHY integration risk is already maxed out for the team
+    - the ≤1.5B model class is sufficient for the customer wedge
+    - On-die KV scratchpad (essentially zero in stretch) is required for any reason
+
+  recommendation: |
+    Don't pre-commit to the stretch in v0.2. Get the LPDDR5X x16 quote first.
+    If x16 PHY comes in well under 1.2 mm² (e.g., 1.0 mm²), the area savings
+    can fund a stretch to x32 — or grow SRAM. If x16 comes in over 1.2 mm²,
+    even baseline v2 is at risk and stretch is off the table.
+
+# -----------------------------------------------------------------------------
+# Recommendation
+# -----------------------------------------------------------------------------
+recommendation:
+  status: PROPOSED_AMBITIOUS_ALTERNATIVE_TO_V1
+  one_line: |
+    Choose Lambda v2 if the team can absorb LPDDR PHY integration risk and
+    wants a STANDALONE chip running up to 1.5B-parameter models (validated on
+    Qwen2-1.5B) on-die at 6-8 tok/s.
+
+  why_v2_at_lpddr5x_x16: |
+    The LPDDR5X x16 PHY upgrade vs LPDDR4X x16 doubles bandwidth (12 vs 6 GB/s)
+    for +0.2 mm² die area and +1 W power, giving comfortable headroom over the
+    ≤1.5B / Qwen2-1.5B target at the SAME 4 mm² die — in 1/6 the area and 1/5
+    the cost of the abandoned 25 mm² flagship. FLAG: the specific model-class
+    figures this paragraph was built on (~1.2B / ~5B / 3-4B / 7-8B) are
+    pre-pivot and pending re-derivation.
+
+  why_proceed: |
+    First open-source academic standalone transformer accelerator at 4 mm²
+    (validated on Qwen2-1.5B). No prior silicon at this scale + openness +
+    workload class exists. Apple Neural Engine and Qualcomm Hexagon are the
+    closest commercial cousins; both proprietary integrated SoCs.
+
+  why_caution: |
+    LPDDR PHY at 16nm is the team's first FinFET-era PHY integration. The
+    1.2 mm² estimate has ±0.3 mm² real uncertainty. If PHY comes in at 1.5 mm²,
+    every other block has to shrink. Hire/partner with senior PD engineer
+    with FinFET + DDR PHY experience as condition of this path.
+
+  next_concrete_steps:
+    - 1_decide_v1_vs_v2:
+        owner: architecture_lead + faculty_advisor
+        deliverable: explicit go/no-go on v1-conservative vs v2-ambitious
+        deadline: 2026-06
+    - 2_quote_imec_4mm2:
+        owner: architecture_lead
+        deliverable: written IMEC / Europractice mini@sic 2.0 quote for 4 mm² N16FFC
+        deadline: 2026-05
+    - 3_lpddr5x_x16_phy_quote:
+        owner: architecture_lead
+        deliverable: written LPDDR5X x16 PHY quote at 16nm (Synopsys + Cadence)
+        deadline: 2026-06
+    - 4_choose_target_model:
+        owner: architecture_lead + ML student
+        deliverable: explicit primary model (Llama-3.2-3B vs Qwen2.5-3B vs Mistral-NeMo-3B)
+        deadline: 2026-07
+
+# -----------------------------------------------------------------------------
+# Risks
+# -----------------------------------------------------------------------------
+risks:
+
+  - id: R-Lv2-01
+    severity: critical
+    description: LPDDR5X x16 PHY integration is unprecedented for the team
+    evidence: |
+      The prior 130nm Sky130 track (now the Chipathon repo; never fabricated)
+      was all-digital via Caravel. v2 introduces LPDDR PHY: clock-domain
+      crossings, reference voltages, calibration loops, analog corner
+      verification.
+    mitigation: |
+      Mandatory hire/partner with senior PD engineer with FinFET + DDR PHY
+      experience. Single biggest non-architectural risk.
+
+  - id: R-Lv2-02
+    severity: high
+    description: Zero/negative headroom in 4 mm² area budget
+    evidence: 4.06 mm² of 4.0 mm² target = 1.5% over.
+    mitigation: Apply `shrink_kv_scratchpad_to_0_4mb` early in v0.2.
+
+  - id: R-Lv2-03
+    severity: high
+    description: LPDDR5X x16 PHY area estimate (1.2 mm²) could be 1.0 to 1.5
+    evidence: |
+      Vendor IP at 16nm is NDA-gated. The 1.2 mm² estimate scales from x64
+      LPDDR5X (~2.5 mm²) with ~50% sub-linear scaling.
+    mitigation: |
+      Vendor quote in Q2 2026. If 1.5 mm², chip becomes infeasible at 4 mm²
+      → fall back to LPDDR4X x16 (loses model class) or grow to 4.5 mm².
+
+  - id: R-Lv2-04
+    severity: medium
+    description: ≤1.5B model class commoditized by mobile SoC NPUs by Lambda tape-out (Summer 2027)
+    evidence: |
+      Apple / Snapdragon on-device NPUs already target small on-device models
+      and the commoditized class keeps moving up. FLAG: the specific "3-5B by
+      2028" market framing this risk was written around is retired (target is
+      now ≤1.5B; canonical tape-out is Summer 2027) — the market-timing
+      analysis needs human re-derivation.
+    mitigation: |
+      Position chip as "smallest viable open standalone accelerator", not
+      "best in a given parameter class." The ≤1.5B / Qwen2-1.5B target is the
+      validation point, not a competitive-perf claim.
+
+  - id: R-Lv2-05
+    severity: medium
+    description: KVE (ChannelQuant) physical PPA at 16nm not yet measured
+    mitigation: |
+      Block RTL is complete through Sky130 sign-off in the kv-cache-engine repo;
+      re-measure area/power/Fmax at TSMC 16nm (currently TBD). Compression
+      (~3.8× at ~4 bits/value) and accuracy (near-lossless at CQ-4+) are
+      characterized; only the 16nm PD numbers are pending.
+
+  - id: R-Lv2-06
+    severity: medium
+    description: ~28 person-months verification scales tight against 5-7 person team
+    mitigation: |
+      Either grow team for v2 or accept v1's lower load (~22 PM). Don't try
+      v2 with v1's team capacity.
+
+  - id: R-Lv2-07
+    severity: low
+    description: Single-session-only operation limits demo richness
+    mitigation: |
+      Single-session is fine for "tiny LLM ASIC running standalone" pitch.
+      If continuous batching matters, that argues for upsizing — currently
+      excluded per 4 mm² budget commitment.
+
+# =============================================================================
+# Citations
+# =============================================================================
+citations:
+  inline_only: true                                            # archs/_shared/ has been retired; citations inline here
+  primary_research:
+    C-01:
+      title: "TurboQuant: Optimal scalar codebook KV compression"
+      year: 2025
+      arxiv: 2504.19874
+      venue: ICLR 2026
+      notes: |
+        Cited prior work only — NOT the chip's current codec. The codec of
+        record is ChannelQuant (KVE block), whose recipe follows KIVI (C-kivi)
+        and KVQuant (C-kvquant). Pure TurboQuant history is preserved on the
+        legacy/turboquant branch.
+    C-kivi:
+      title: "KIVI: A Tuning-Free Asymmetric 2bit Quantization for KV Cache"
+      authors: Liu et al.
+      year: 2024
+      venue: ICML 2024
+      notes: |
+        Recipe basis for ChannelQuant — per-channel key / per-token value KV
+        quantization. (Exact bib fields conservative; confirm before camera-ready.)
+    C-kvquant:
+      title: "KVQuant: Towards 10 Million Context Length LLM Inference with KV Cache Quantization"
+      authors: Hooper et al.
+      year: 2024
+      venue: NeurIPS 2024
+      notes: |
+        Recipe basis for ChannelQuant — per-channel key quantization + dense-and-
+        sparse outlier handling. (Exact bib fields conservative; confirm before
+        camera-ready.)
+    C-02:
+      title: "FlashAttention-3"
+      year: 2024
+      arxiv: 2407.08608
+      notes: Online softmax microcoded in VecU
+    C-03:
+      title: "Efficient Memory Management for LLM Serving with PagedAttention (vLLM)"
+      year: 2023
+      arxiv: 2309.06180
+      notes: 128-entry block table in MSC implements this in hardware
+    C-08:
+      title: "NVFP4 / MXFP4 specifications"
+      publisher: NVIDIA + OCP
+      year: 2024
+      notes: |
+        Referenced for low-bit numeric formats context. (The ChannelQuant codec
+        of record uses per-channel INT4 with FP16 scales, not an FP4 codebook.)
+    C-acl25-w4a8:
+      title: "Give Me BF16 or Give Me Death"
+      year: 2024
+      arxiv: 2411.02355
+      notes: W4A8 sweet spot for small-LLM inference
+    C-14:
+      title: "TSMC 16nm FinFET density"
+      publisher: WikiChip
+      notes: 28.2 MTr/mm² logic; 0.07 µm² SRAM HD bitcell
+    C-16:
+      title: "JEDEC LPDDR5X-8533 specification"
+      publisher: JEDEC
+      year: 2024
+  additional:
+    C-imec-01:
+      title: "EUROPRACTICE mini@sic 2.0 service for TSMC technologies"
+      publisher: IMEC / Europractice
+      year: 2025_2026
+      url: https://europractice-ic.com/europractice-introduces-a-new-flexible-minisic-2-0-solution-for-tsmc-technologies-and-provides-access-to-the-standard-cell-backend-views/
+    C-imec-02:
+      title: "EUROPRACTICE 2026 schedules and prices"
+      publisher: IMEC / Europractice
+      year: 2026
+      url: https://europractice-ic.com/schedules-prices-2026/
+    C-imec-03:
+      title: "TSMC 2026 MPW run schedule via Europractice"
+      url: https://europractice-ic.com/wp-content/uploads/2025/11/TSMC_EP_MPW_schedule_2026_V1_3b.pdf
+    C-muse-fallback:
+      title: "Muse Semiconductor TSMC University FinFET Program"
+      url: https://www.musesemi.com/university-finfet-program
+    C-llama-3-2-3b:
+      title: "Llama-3.2-3B model card"
+      publisher: Meta
+      year: 2024
+      notes: 8 KV × 128 dim, 28 layers — primary v2 target model
+    C-qwen-2-5-3b:
+      title: "Qwen2.5-3B model card"
+      publisher: Alibaba Cloud
+      year: 2024
+      notes: |
+        2 KV × 128 dim — 4× lower per-token KV than 8-head peers → best
+        long-context target on v2 (1,638 tokens on-die per layer @ 0.4 MB).
+        32K context serves via LPDDR streaming at ~24 ms/tok overhead.
+    C-phi-3-5-mini:
+      title: "Phi-3.5-mini-instruct model card"
+      publisher: Microsoft
+      year: 2024
+      notes: 32 KV × 96 dim, 32 layers — KV-heavy 3.8B alternative

@@ -1,0 +1,74 @@
+# PROTOTYPE — auto-mirror each block subdir of the monorepo to its own standalone repo.
+# Goal: develop in the monorepo, but keep a browsable/cloneable standalone repo per block
+# (read-only mirror). Place at .github/workflows/mirror-blocks.yml in the monorepo to activate.
+#
+# How it works: `git subtree split --prefix=<dir>` reconstructs a branch whose history is
+# ONLY that subdir's commits, then force-pushes it to the mirror repo's main. The mirror is
+# read-only for contributors (PRs land on the monorepo and propagate out on the next push).
+#
+# Prereqs:
+#   - One empty public repo per block under the org (LonghornSilicon/lambda-<block>).
+#   - A PAT (or a GitHub App token) with `contents:write` on those mirrors, stored as the
+#     repo secret MIRROR_PAT. (A fine-grained PAT scoped to just the mirror repos is safest.)
+#
+# Scale note: `git subtree split` re-walks history each run — fine for these repos. If history
+# gets huge, swap to `josh` (josh-project/josh) which does the split incrementally/live.
+
+name: mirror-blocks
+on:
+  push:
+    branches: [main]
+
+# Avoid overlapping mirror pushes racing each other.
+concurrency:
+  group: mirror-blocks
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Mirrors can NEST — subtree-split is per-prefix, so an umbrella and its pieces
+          # coexist as read-only views of the SAME source tree (no drift).
+          # Block-major paths: each mirror = a complete block (sw + rtl + pdk + docs + research).
+          # Umbrella: the whole assembled ACU (contains mate/ vecu/ precision_controller/).
+          #
+          # HELD (2026-07-22): the ACU rows below are commented out this round. `acu/` is a
+          # documented placeholder (see acu/README.md) — attention-compute-unit and
+          # chipathon-lambda-acu are mid-flight (Sky130 sign-offs / vecu_softmax re-harden).
+          # Their mirror repos (lambda-acu, lambda-mate, lambda-vecu, lambda-precision-controller)
+          # are NOT created yet. Re-enable each row when the corresponding block is imported and
+          # its empty mirror repo exists — otherwise the job fails trying to push a placeholder.
+          # - prefix: acu
+          #   repo: LonghornSilicon/lambda-acu
+          # Pieces: one mirror per functional block. EVERY new block adds a row here.
+          # - prefix: acu/mate
+          #   repo: LonghornSilicon/lambda-mate
+          # - prefix: acu/vecu
+          #   repo: LonghornSilicon/lambda-vecu
+          # - prefix: acu/precision_controller
+          #   repo: LonghornSilicon/lambda-precision-controller
+          - prefix: kve
+            repo: LonghornSilicon/lambda-kve
+          - prefix: tiu
+            repo: LonghornSilicon/lambda-tiu
+          # add rows as blocks land: msc, lsu, hif, ...
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history so the split has real commits
+
+      - name: Split subtree history
+        run: |
+          git subtree split --prefix='${{ matrix.prefix }}' -b _mirror_split
+
+      - name: Push to standalone mirror
+        env:
+          MIRROR_PAT: ${{ secrets.MIRROR_PAT }}
+        run: |
+          git push --force \
+            "https://x-access-token:${MIRROR_PAT}@github.com/${{ matrix.repo }}.git" \
+            _mirror_split:main
