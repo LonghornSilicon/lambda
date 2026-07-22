@@ -1,0 +1,220 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=0.8in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{multicol}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black,
+  pdftitle={LonghornSilicon Compiler Integration Brief},
+  pdfauthor={LonghornSilicon},
+}
+
+\titleformat{\section}{\normalfont\large\bfseries}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries}{\thesubsection}{0.5em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small LonghornSilicon $\times$ Compiler Integration}
+\rhead{\small Meeting Brief}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlist{itemsep=1pt,topsep=2pt,leftmargin=1.2em}
+
+\begin{document}
+
+%==============================================================================
+% Header
+%==============================================================================
+\thispagestyle{empty}
+\begin{center}
+{\LARGE\bfseries LonghornSilicon $\times$ Silicon-Agnostic Compiler}\\[0.3em]
+{\Large\bfseries Integration Brief}\\[0.6em]
+
+\rule{0.8\textwidth}{0.4pt}\\[0.6em]
+
+\begin{tabular}{@{}rl@{\hspace{2em}}rl@{}}
+\textbf{Date}:    & 2026-05-13           & \textbf{Branch}:   & \texttt{compiler-integration-prep} \\
+\textbf{Contact}: & Chaithu Talasila     & \textbf{Email}:    & \href{mailto:talasilachaithu105@gmail.com}{talasilachaithu105@gmail.com} \\
+\textbf{Affil.}:  & UT Austin            & \textbf{Repo}:     & \href{https://github.com/LonghornSilicon/attention-compute-unit}{LonghornSilicon/attention-compute-unit} \\
+\end{tabular}\\[0.4em]
+\rule{0.8\textwidth}{0.4pt}
+\end{center}
+
+\vspace{0.3em}
+
+%==============================================================================
+\section{What LonghornSilicon Is Building}
+\label{sec:what}
+
+A four-block LLM inference accelerator targeting TSMC 16nm FinFET (N16FFC) via the TSMC
+University Program (tape-out target Summer 2027):
+\begin{enumerate}
+\item \textbf{ACU (Attention Compute Unit)} --- INT8 / FP16 mixed-precision
+  attention with a streaming \emph{precision controller} that picks the
+  precision per tile from a single-cycle ratio check.\\
+  \textbf{Status:} RTL frozen, 253 / 253 tests pass, Sky130 PnR signed off
+  (DRC / LVS / antenna / IR-drop clean), ASAP7 area projection, public paper.
+\item \textbf{KV Cache Engine} --- on-die SRAM (spilling to off-chip LPDDR5X) with
+  ChannelQuant compression (per-channel INT4 keys / per-token INT4 values +
+  FP16 outlier lane). \emph{RTL complete through Sky130 sign-off.}
+\item \textbf{Token Importance Unit} --- per-token attention-weight
+  accumulator driving keep / demote / evict for mixed-precision KV
+  retention. \emph{Not yet implemented.}
+\item \textbf{Memory Hierarchy Controller} --- routes 0.8 MB on-die SRAM
+  $\leftrightarrow$ off-chip LPDDR5X, direct (no separate eDRAM tier).
+  \emph{Not yet implemented.}
+\end{enumerate}
+For this meeting, the precision controller (block 1) is what we can commit
+to a stable interface for.
+
+%==============================================================================
+\section{What We Offer the Compiler Today}
+\label{sec:offer}
+
+Three concrete artifacts the compiler team can target right now, before
+silicon or FPGA hardware exist:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}p{0.32\textwidth} p{0.55\textwidth}@{}}
+\toprule
+Artifact                                          & Purpose / Status \\
+\midrule
+Bit-accurate Python reference model\par\hspace*{0.5em}\texttt{sw/reference\_model/precision\_controller\_ref.py}
+& A pure-Python class that produces exactly the INT8 / FP16 decision the chip will produce. Verified \textbf{143 / 143 bit-exact} against the RTL testbench. \\[0.4em]
+ISA / interface specification\par\hspace*{0.5em}\texttt{docs/isa/precision\_controller\_isa.pdf}
+& Versioned (\texttt{pc-isa-0.1}) memory map, AXI protocols, C API stub. Stable for the precision controller; will unify with other blocks as they land. \\[0.4em]
+Compiler-perspective demo\par\hspace*{0.5em}\texttt{sw/reference\_model/example\_compiler\_use.py}
+& Three usage levels (naive / batched / calibrated) showing what compiler-emitted code looks like against the model. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+A compiler engineer can write a backend against the Python model today
+and trust that the chip will agree byte-for-byte when silicon arrives.
+
+%==============================================================================
+\section{Four-Phase Integration Plan}
+\label{sec:phases}
+
+The interface is stable across all four phases. Same memory map, same
+streaming protocol, same model semantics throughout.
+
+\begin{table}[h]
+\centering
+\small
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}l l p{3.4cm} p{6cm}@{}}
+\toprule
+Phase                        & Timeline                                      & Compiler targets             & Who delivers what \\
+\midrule
+0 (Python ref)               & now                                           & Python reference model        & \textbf{Us:} model + ISA + tests already on the branch. \textbf{Compiler team:} backend $\rightarrow$ calls model \\[0.4em]
+1 (FPGA prototype)           & when ZCU102 / 104 arrives                     & AXI-Lite + AXI-Stream         & \textbf{Us:} Vivado bitstream + PYNQ driver. \textbf{Compiler team:} backend $\rightarrow$ driver \\[0.4em]
+2 (multi-block FPGA)         & after KV cache + token + memory blocks complete & Same AXI, more blocks visible & \textbf{Us:} larger Vivado project. \textbf{Compiler team:} extend backend \\[0.4em]
+3 (silicon)                  & 2027+ (post-tape-out)                         & PCIe-attached chip            & \textbf{Us:} chip + Linux driver. \textbf{Compiler team:} re-target backend \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+\textbf{Critically:} phase 0 is enough to start. The compiler team does not
+need to wait for anything from us beyond what is already on the branch.
+
+%==============================================================================
+\clearpage
+\section{What We Ask of the Compiler Team}
+\label{sec:asks}
+
+\begin{enumerate}
+\item A short architecture writeup: what is the IR (MLIR / Relay / custom),
+  what is the typical hardware-target shape they integrate against, what
+  experience do they have adding new backends.
+\item A scoping conversation: is the precision controller the right first
+  target, or do they want to wait for more blocks?
+\item Honest timeline expectations: phase 0 work could start immediately;
+  phase 1 (FPGA) needs the ZCU102 / 104 in hand, which is a separate gating
+  item.
+\item Their thoughts on the open ISA questions (\S\ref{sec:open}):
+  runtime-vs-synthesis-time \texttt{THRESHOLD}, exposing
+  \texttt{max} / \texttt{sum} alongside the decision bit, AXI vs other
+  fabric.
+\end{enumerate}
+
+%==============================================================================
+\section{Open Questions for the Meeting}
+\label{sec:open}
+
+These are intentionally on the table; we have not committed to them.
+
+\begin{enumerate}
+\item Runtime-configurable \texttt{THRESHOLD}? Cost: one register, one
+  parameterized multiplier. Benefit: per-workload tuning without
+  re-synthesis.
+\item Single-bit decision vs.\ exposing \texttt{max} and \texttt{sum}? Lets
+  the compiler implement its own gating policy downstream.
+\item AXI-Lite + AXI-Stream the right fabric, or CHI / TileLink / custom?
+\item Phase 1 timing: do they need real FPGA hardware to begin meaningful
+  work, or is the phase 0 Python target enough to start a backend that the
+  FPGA later validates?
+\end{enumerate}
+
+%==============================================================================
+\section{What We Are \emph{Not} Committing To Today}
+\label{sec:notcommit}
+
+To keep boundaries clear up front:
+\begin{itemize}
+\item Schedule promises tied to tape-out --- the TSMC University Program
+  shuttle date is outside our control.
+\item An ISA for the full chip --- three of the four blocks are not yet
+  RTL. The precision-controller ISA is stable; the chip-level ISA is not.
+\item Source access to private repos --- until we know the collaboration
+  shape, the public repo is the boundary.
+\item Exclusivity --- other compiler projects may also be interested in
+  this chip. Happy to discuss exclusivity terms, but not by default.
+\end{itemize}
+
+%==============================================================================
+\section{Concrete Next Step (Roughly One Week)}
+\label{sec:next}
+
+If the meeting goes well, the smallest meaningful collaboration looks like:
+\begin{enumerate}
+\item The compiler team writes a two-page integration plan: which IR ops
+  map to which ISA operations, what their backend's runtime expects from
+  us, what would unblock them to start coding.
+\item We respond within a week with the gaps we can fill and timelines.
+\item They pick the first integration target --- likely a single matmul or
+  a single attention block exercised against the phase 0 reference model.
+\item We co-author the first commit in their backend that produces correct
+  decisions when run against our model.
+\end{enumerate}
+
+\noindent
+That commit becomes the milestone we can both demo at meetings,
+conferences, or to UT Austin / TSMC for further support.
+
+%==============================================================================
+\vspace{0.5em}
+\noindent\rule{\textwidth}{0.4pt}\\
+\noindent\small\textit{Everything in this brief, plus the source code,
+RTL, OpenLane-signed-off Sky130 GDS, and the precision-controller paper, is
+public and shareable on the \texttt{compiler-integration-prep} branch of
+\texttt{LonghornSilicon/attention-compute-unit}. The TSMC 16FFC PDK
+is NDA-protected and not part of this material.}
+
+\end{document}

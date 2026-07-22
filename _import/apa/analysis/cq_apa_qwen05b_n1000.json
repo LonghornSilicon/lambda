@@ -1,0 +1,48 @@
+{
+  "model": "Qwen/Qwen2-0.5B",
+  "n": 1000,
+  "results": {
+    "fp16": {
+      "acc_norm": 0.489,
+      "tier": "off",
+      "apa": false,
+      "int8_frac": null,
+      "delta_vs_fp16": 0.0
+    },
+    "cq4": {
+      "acc_norm": 0.476,
+      "tier": "cq4",
+      "apa": false,
+      "int8_frac": null,
+      "delta_vs_fp16": -0.013
+    },
+    "cq4+": {
+      "acc_norm": 0.474,
+      "tier": "cq4+",
+      "apa": false,
+      "int8_frac": null,
+      "delta_vs_fp16": -0.015
+    },
+    "apa": {
+      "acc_norm": 0.49,
+      "tier": "off",
+      "apa": true,
+      "int8_frac": 0.9999914772981824,
+      "delta_vs_fp16": 0.001
+    },
+    "cq4+apa": {
+      "acc_norm": 0.486,
+      "tier": "cq4",
+      "apa": true,
+      "int8_frac": 0.999998162456487,
+      "delta_vs_fp16": -0.003
+    },
+    "cq4+ +apa": {
+      "acc_norm": 0.478,
+      "tier": "cq4+",
+      "apa": true,
+      "int8_frac": 0.9999981799569014,
+      "delta_vs_fp16": -0.011
+    }
+  }
+}

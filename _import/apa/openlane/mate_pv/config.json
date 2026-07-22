@@ -1,0 +1,15 @@
+{
+    "DESIGN_NAME": "mate_pv",
+    "VERILOG_FILES": "dir::src/*.sv",
+    "SYNTH_PARAMETERS": [
+        "N=4"
+    ],
+    "CLOCK_PORT": "clk",
+    "CLOCK_PERIOD": 14.0,
+    "IO_DELAY_CONSTRAINT": 2,
+    "CLOCK_UNCERTAINTY_CONSTRAINT": 0.1,
+    "DESIGN_IS_CORE": false,
+    "FP_SIZING": "relative",
+    "FP_CORE_UTIL": 50,
+    "PL_TARGET_DENSITY_PCT": 60
+}

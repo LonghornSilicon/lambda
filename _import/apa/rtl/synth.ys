@@ -1,0 +1,32 @@
+# synth.ys — Yosys area-sanity flow for precision_controller
+#
+# Run from rtl/:   yosys -s synth.ys
+# Or via Makefile: make synth
+#
+# Two area reports are produced:
+#   1. After generic synth+flatten (technology-independent gate counts, FFs)
+#   2. After abc -fast -g NAND mapping (NAND2-equivalent gate count, lower-bound)
+#
+# Synthesis targets in the design notes:
+#   ~30 FFs, < 50 NAND2-equivalent gates.
+
+read_verilog -sv precision_controller.sv
+
+hierarchy -check -top precision_controller
+
+# Generic synthesis with parameter elaboration and flatten
+synth -top precision_controller -flatten
+
+# --- Area report after generic synth ---
+echo on
+stat -width
+echo off
+
+# Map combinational logic into NAND2 gates so we can read off a
+# technology-independent gate-count lower bound.
+abc -fast -g NAND
+
+# --- Area report after NAND mapping ---
+echo on
+stat -width
+echo off

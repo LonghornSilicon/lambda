@@ -1,0 +1,143 @@
+  0  bg1_spike10_INT8_edge           max= 10  sum=   4105  → INT8
+  1  bg1_spike11_FP16_edge           max= 11  sum=   4106  → FP16
+  2  bg1_spike-127                   max=127  sum=   4222  → FP16
+  3  bg1_spike-50                    max= 50  sum=   4145  → FP16
+  4  bg1_spike-20                    max= 20  sum=   4115  → FP16
+  5  bg1_spike-12                    max= 12  sum=   4107  → FP16
+  6  bg1_spike-11                    max= 11  sum=   4106  → FP16
+  7  bg1_spike-10                    max= 10  sum=   4105  → INT8
+  8  bg1_spike-5                     max=  5  sum=   4100  → INT8
+  9  bg1_spike-1                     max=  1  sum=   4096  → INT8
+ 10  bg1_spike+0                     max=  1  sum=   4095  → INT8
+ 11  bg1_spike+5                     max=  5  sum=   4100  → INT8
+ 12  bg1_spike+9                     max=  9  sum=   4104  → INT8
+ 13  bg1_spike+12                    max= 12  sum=   4107  → FP16
+ 14  bg1_spike+30                    max= 30  sum=   4125  → FP16
+ 15  bg1_spike+50                    max= 50  sum=   4145  → FP16
+ 16  bg1_spike+100                   max=100  sum=   4195  → FP16
+ 17  bg1_spike+127                   max=127  sum=   4222  → FP16
+ 18  all_zero_INT8                   max=  0  sum=      0  → INT8
+ 19  all_p127_INT8                   max=127  sum= 520192  → INT8
+ 20  all_n127_INT8                   max=127  sum= 520192  → INT8
+ 21  zero_bg_spike1_FP16             max=  1  sum=      1  → FP16
+ 22  zero_bg_spike_n1_last_FP16      max=  1  sum=      1  → FP16
+ 23  rnd_int8                        max=127  sum= 263437  → INT8
+ 24  rnd_int8                        max=127  sum= 261163  → INT8
+ 25  rnd_fp16                        max=127  sum=   5472  → FP16
+ 26  rnd_int8                        max=127  sum= 258804  → INT8
+ 27  rnd_int8                        max=127  sum= 260863  → INT8
+ 28  rnd_int8                        max=127  sum= 261139  → INT8
+ 29  rnd_fp16                        max=127  sum=   5884  → FP16
+ 30  rnd_int8                        max=127  sum= 261160  → INT8
+ 31  rnd_fp16                        max=127  sum=   7494  → FP16
+ 32  rnd_fp16                        max=127  sum=   5710  → FP16
+ 33  rnd_fp16                        max=127  sum=   8775  → FP16
+ 34  rnd_fp16                        max=127  sum=   5156  → FP16
+ 35  rnd_int8                        max=127  sum= 262492  → INT8
+ 36  rnd_int8                        max=127  sum= 263837  → INT8
+ 37  rnd_fp16                        max=127  sum=   5080  → FP16
+ 38  rnd_int8                        max=127  sum= 260663  → INT8
+ 39  rnd_fp16                        max=127  sum=   6331  → FP16
+ 40  rnd_int8                        max=127  sum= 260327  → INT8
+ 41  rnd_fp16                        max=127  sum=   5031  → FP16
+ 42  rnd_int8                        max=127  sum= 262431  → INT8
+ 43  rnd_fp16                        max=127  sum=   6931  → FP16
+ 44  rnd_fp16                        max=127  sum=  10496  → FP16
+ 45  rnd_fp16                        max=127  sum=   5257  → FP16
+ 46  rnd_fp16                        max=127  sum=  11286  → FP16
+ 47  rnd_fp16                        max=127  sum=   6966  → FP16
+ 48  rnd_fp16                        max=127  sum=   8055  → FP16
+ 49  rnd_fp16                        max=127  sum=   6723  → FP16
+ 50  rnd_int8                        max=127  sum= 262089  → INT8
+ 51  rnd_int8                        max=127  sum= 254152  → INT8
+ 52  rnd_int8                        max=127  sum= 261389  → INT8
+ 53  rnd_fp16                        max=127  sum=   5945  → FP16
+ 54  rnd_int8                        max=127  sum= 255683  → INT8
+ 55  rnd_fp16                        max=127  sum=   5178  → FP16
+ 56  rnd_int8                        max=127  sum= 264758  → INT8
+ 57  rnd_int8                        max=127  sum= 258105  → INT8
+ 58  rnd_int8                        max=127  sum= 260369  → INT8
+ 59  rnd_int8                        max=127  sum= 261460  → INT8
+ 60  rnd_fp16                        max=127  sum=   5602  → FP16
+ 61  rnd_fp16                        max=127  sum=   7074  → FP16
+ 62  rnd_int8                        max=127  sum= 259060  → INT8
+ 63  rnd_int8                        max=127  sum= 260549  → INT8
+ 64  rnd_fp16                        max=127  sum=   4529  → FP16
+ 65  rnd_int8                        max=127  sum= 255243  → INT8
+ 66  rnd_fp16                        max=127  sum=   5987  → FP16
+ 67  rnd_int8                        max=127  sum= 261943  → INT8
+ 68  rnd_int8                        max=127  sum= 260895  → INT8
+ 69  rnd_int8                        max=127  sum= 262451  → INT8
+ 70  rnd_fp16                        max=127  sum=  17608  → FP16
+ 71  rnd_int8                        max=127  sum= 259379  → INT8
+ 72  rnd_fp16                        max=127  sum=  14075  → FP16
+ 73  rnd_fp16                        max=127  sum=   7703  → FP16
+ 74  rnd_fp16                        max=127  sum=   4861  → FP16
+ 75  rnd_int8                        max=127  sum= 260926  → INT8
+ 76  rnd_int8                        max=127  sum= 257619  → INT8
+ 77  rnd_int8                        max=127  sum= 260257  → INT8
+ 78  rnd_int8                        max=127  sum= 258667  → INT8
+ 79  rnd_int8                        max=127  sum= 259108  → INT8
+ 80  rnd_fp16                        max=127  sum=  16764  → FP16
+ 81  rnd_int8                        max=127  sum= 260711  → INT8
+ 82  rnd_fp16                        max=127  sum=  12881  → FP16
+ 83  rnd_int8                        max=127  sum= 262158  → INT8
+ 84  rnd_int8                        max=127  sum= 259634  → INT8
+ 85  rnd_fp16                        max=127  sum=   4931  → FP16
+ 86  rnd_fp16                        max=127  sum=   9080  → FP16
+ 87  rnd_fp16                        max=127  sum=   4594  → FP16
+ 88  rnd_fp16                        max=127  sum=  11229  → FP16
+ 89  rnd_int8                        max=127  sum= 258830  → INT8
+ 90  rnd_int8                        max=127  sum= 260614  → INT8
+ 91  rnd_int8                        max=127  sum= 259587  → INT8
+ 92  rnd_int8                        max=127  sum= 261922  → INT8
+ 93  rnd_int8                        max=127  sum= 258424  → INT8
+ 94  rnd_fp16                        max=127  sum=  10132  → FP16
+ 95  rnd_int8                        max=127  sum= 262974  → INT8
+ 96  rnd_int8                        max=127  sum= 261774  → INT8
+ 97  rnd_fp16                        max=127  sum=   5895  → FP16
+ 98  rnd_fp16                        max=127  sum=   8830  → FP16
+ 99  rnd_int8                        max=127  sum= 260224  → INT8
+100  rnd_int8                        max=127  sum= 259149  → INT8
+101  rnd_fp16                        max=127  sum=   6824  → FP16
+102  rnd_int8                        max=127  sum= 258125  → INT8
+103  rnd_fp16                        max=127  sum=   7501  → FP16
+104  rnd_fp16                        max=127  sum=   7420  → FP16
+105  rnd_int8                        max=127  sum= 258784  → INT8
+106  rnd_int8                        max=127  sum= 261788  → INT8
+107  rnd_int8                        max=127  sum= 257978  → INT8
+108  rnd_fp16                        max=127  sum=   7848  → FP16
+109  rnd_int8                        max=127  sum= 261917  → INT8
+110  rnd_fp16                        max=127  sum=   6336  → FP16
+111  rnd_int8                        max=127  sum= 257405  → INT8
+112  rnd_int8                        max=127  sum= 265616  → INT8
+113  rnd_int8                        max=127  sum= 263616  → INT8
+114  rnd_int8                        max=127  sum= 257911  → INT8
+115  rnd_int8                        max=127  sum= 254249  → INT8
+116  rnd_int8                        max=127  sum= 256819  → INT8
+117  rnd_int8                        max=127  sum= 261657  → INT8
+118  rnd_fp16                        max=127  sum=   7255  → FP16
+119  rnd_int8                        max=127  sum= 259638  → INT8
+120  rnd_int8                        max=127  sum= 261720  → INT8
+121  rnd_int8                        max=127  sum= 262945  → INT8
+122  rnd_int8                        max=127  sum= 260778  → INT8
+123  rnd_fp16                        max=127  sum=   7000  → FP16
+124  rnd_fp16                        max=127  sum=  15642  → FP16
+125  rnd_int8                        max=127  sum= 257697  → INT8
+126  rnd_fp16                        max=127  sum=  12518  → FP16
+127  rnd_int8                        max=127  sum= 255665  → INT8
+128  rnd_int8                        max=127  sum= 260346  → INT8
+129  rnd_int8                        max=127  sum= 264234  → INT8
+130  rnd_fp16                        max=127  sum=   7780  → FP16
+131  rnd_int8                        max=127  sum= 261099  → INT8
+132  rnd_int8                        max=127  sum= 262193  → INT8
+133  rnd_fp16                        max=127  sum=   8856  → FP16
+134  rnd_fp16                        max=127  sum=   8980  → FP16
+135  rnd_int8                        max=127  sum= 257781  → INT8
+136  rnd_int8                        max=127  sum= 260992  → INT8
+137  rnd_int8                        max=127  sum= 260278  → INT8
+138  rnd_fp16                        max=127  sum=   7289  → FP16
+139  rnd_int8                        max=127  sum= 258753  → INT8
+140  rnd_fp16                        max=127  sum=  11232  → FP16
+141  rnd_int8                        max=127  sum= 260484  → INT8
+142  rnd_fp16                        max=127  sum=   4950  → FP16

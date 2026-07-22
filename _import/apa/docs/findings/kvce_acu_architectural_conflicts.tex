@@ -1,0 +1,452 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={LonghornSilicon Cross-Block Architectural Conflict Register},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={Architectural Conflict Register, Version conflicts-0.1}
+}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{\thesubsubsection}{0.6em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small Cross-Block Conflict Register}
+\rhead{\small \texttt{conflicts-0.1}}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlist[itemize]{leftmargin=*,topsep=2pt,itemsep=1pt}
+
+\title{\textbf{LonghornSilicon \\
+Cross-Block Architectural Conflict Register}}
+\author{LonghornSilicon}
+\date{Version \texttt{conflicts-0.1} \quad 2026-05-22}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+A standing register of design tensions between the four blocks of
+the LonghornSilicon LLM inference accelerator: ACU (Attention
+Compute Unit, block~1), KVCE (KV Cache Engine, block~2), TIU (Token
+Importance Unit, block~3), and MHC (Memory Hierarchy Controller,
+block~4). Each entry catalogues a specific incompatibility,
+specification gap, or design choice that requires coordinated
+resolution across more than one block. The register is structured
+to be appended-to as integration work progresses, not rewritten
+each iteration. The companion document
+\textit{KVCE $\times$ ACU Integration Audit} (\texttt{kvce-acu-audit-0.2})
+covers the empirical measurement of items that have been quantified;
+this document is broader and catalogues items not yet measured.
+\end{abstract}
+
+\section{Scope and conventions}
+\label{sec:scope}
+
+The register covers conflicts and design tensions \emph{between}
+LonghornSilicon blocks, not bugs within a single block (those are
+filed as GitHub issues against the respective block's repository).
+A conflict warrants an entry here when:
+
+\begin{itemize}
+\item It cannot be resolved in any single block's RTL or reference
+model alone.
+\item It requires a design decision that spans at least two of
+\{ACU, KVCE, TIU, MHC, compiler\}.
+\item It is not yet captured in a stable interface specification.
+\end{itemize}
+
+Each entry uses the following fields:
+
+\begin{description}[leftmargin=2em,style=nextline]
+\item[Severity] \textit{high} = blocks integrated correctness;
+\textit{medium} = degrades quality or limits configuration but
+chip runs; \textit{low} = inefficiency or design-overhead issue.
+\item[Status] \textit{open} = needs decision; \textit{partially resolved} =
+discussed and tracked but not concluded; \textit{resolved} = decision
+made and implemented in some interface; \textit{deferred} = recognised
+but parked beyond the current tape-out target.
+\item[Affected blocks] which of \{ACU, KVCE, TIU, MHC, compiler\}
+are touched.
+\item[Resolution path] short description of how the conflict can be
+closed and what the candidate options are.
+\end{description}
+
+\section{Summary table}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}rp{0.32\textwidth}lll@{}}
+\toprule
+\textbf{\#} & \textbf{Conflict} & \textbf{Severity} & \textbf{Status} & \textbf{Affected} \\
+\midrule
+1 & Q4.12 input range vs.\ raw activation magnitudes
+  & high   & open & ACU, KVCE \\
+2 & FP16 routing depends on full-precision V available
+  & high   & partially resolved & ACU, KVCE \\
+3 & int16 Q4.12 $\leftrightarrow$ int8/fp16 bridge unspecified
+  & high   & open & ACU, KVCE \\
+4 & GQA convention not in KVCE ISA
+  & medium & open & KVCE, compiler \\
+5 & TIU cold-start eviction policy undecided
+  & medium & open & TIU, ACU, MHC \\
+6 & SRAM\_DEPTH default of 16 below realistic hot-tier need
+  & medium & partially resolved & KVCE, MHC \\
+7 & Eviction granularity vs.\ ACU tile size
+  & medium & deferred & KVCE, MHC \\
+8 & K (288b) vs.\ V (208b) word width waste
+  & low    & deferred & KVCE \\
+9 & eDRAM viability at 16FFC
+  & medium & deferred & MHC, foundry \\
+10 & Lloyd--Max centroids vs.\ early-layer activation distribution
+  & medium & open & KVCE \\
+11 & End-to-end accuracy on real LLM not measured
+  & high   & open & ACU, KVCE, integration \\
+12 & TurboQuant+ \texttt{turbo4} noise floor obviates PC FP16 path
+  & informational & resolved & ACU, KVCE \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The remainder of this document expands each entry.
+
+\section{Conflict 1 --- Q4.12 input range vs.\ raw activation magnitudes}
+\label{sec:c1}
+
+\textbf{Severity: high. Status: open. Affected: ACU, KVCE.}
+
+KVCE accepts vectors as 64 lanes of int16 Q4.12 fixed-point, range
+$\pm 8.0$ at resolution $2^{-12}$. Real Qwen2-0.5B post-\texttt{k\_proj}
+key activations measured in this work have absolute maximum
+approximately $\pm 152$ at the layers sampled. A naive
+FP16~$\rightarrow$~Q4.12 conversion at the boundary clips
+approximately $95\%$ of $K$'s magnitude information before any
+compression takes place. The KVCE algorithm internally normalises
+the vector by its L2 norm before quantization, so the clip is
+unrecoverable: the post-clip vector has the wrong direction, and
+no downstream step in KVCE can restore it.
+
+\textbf{Resolution path.} Three candidates, none decided:
+
+\begin{enumerate}
+\item Widen the KVCE input format (e.g.\ Q8.8 with $\pm 128$ range,
+or Q12.4 with $\pm 2048$). Breaks current RTL bit widths and all
+existing reference-model tests.
+\item Add a pre-normalisation stage between the ACU's
+\texttt{k\_proj} output and the KVCE input port. The stage extracts
+a per-vector scale factor (similar to KVCE's internal norm metadata
+but at a wider range) and rescales the input into Q4.12-representable
+range. Requires a new sub-block specification.
+\item Document Q4.12 as the input contract and require upstream
+software / firmware to normalise activations into this range before
+streaming. Pushes the problem onto the compiler/runtime.
+\end{enumerate}
+
+\textbf{Status of tracking.} Filed as \texttt{kv-cache-engine\#2}
+(see also \texttt{kvce\_acu\_integration\_audit.tex} \S5(a)).
+
+\section{Conflict 2 --- FP16 routing depends on full-precision V}
+\label{sec:c2}
+
+\textbf{Severity: high. Status: partially resolved. Affected: ACU, KVCE.}
+
+The precision controller's value proposition is per-tile FP16 routing
+for ``peaked'' tiles where small attention-weight dimensions on
+high-mass key positions are necessary to preserve output accuracy.
+This argument was measured against $V$ supplied at FP16 (i.e.\ no
+KV cache in the loop). When the chip integrates the KVCE, $V$ is
+already lossy after $\sim$3-bit PolarQuant compression by the time it
+reaches the ACU's FP16 SV matmul. The integration audit
+(\texttt{kvce-acu-audit-0.2}) measures this empirically: the FP16
+vs.\ INT8 distinction is $\sim 1{,}800\times$ smaller than the
+KVCE-induced rMSE on the \texttt{turbo4} configuration.
+
+The conflict is partially resolved in that the empirical answer is
+in hand --- the PC's FP16 path provides no measurable benefit at
+\texttt{turbo4}. It is not fully resolved because the design question
+remains: do we (i)~retain the FP16 SV datapath knowing it is
+under-utilised at \texttt{turbo4} but valuable at higher-precision
+modes (\texttt{turbo8}, \texttt{turbo16}); (ii)~simplify the ACU to
+INT8-only SV under the current configuration; (iii)~commit to a
+higher-precision KVCE mode that restores the FP16 path's value?
+
+\textbf{Resolution path.} Decision deferred until either the chip's
+target KVCE compression mode is locked, or higher-precision KVCE
+modes are implemented and re-measured. The ACU FP16 datapath
+remains in the design pending that decision.
+
+\section{Conflict 3 --- int16 Q4.12 $\leftrightarrow$ int8/fp16 bridge unspecified}
+\label{sec:c3}
+
+\textbf{Severity: high. Status: open. Affected: ACU, KVCE.}
+
+KVCE decompresses each $K$ or $V$ vector to 64~lanes of int16 Q4.12.
+The ACU's MAC array accepts either INT8 (for the INT8 path) or
+fp32-at-fp16-precision (for the FP16 path). The conversion unit
+that bridges these formats does not exist in any LonghornSilicon
+specification, RTL, or reference model. It currently lives
+implicitly inside ``kernel software''.
+
+The bridge has at least two distinct sub-cases:
+
+\begin{itemize}
+\item Q4.12 $\rightarrow$ int8: per-tile symmetric quantisation
+(\texttt{max\_abs} scan, divide by~127, round). Used on the INT8
+SV path.
+\item Q4.12 $\rightarrow$ float32-rounded-to-fp16: straightforward
+multiply by $2^{-12}$ followed by IEEE-754 binary16 rounding. Used
+on the FP16 path.
+\end{itemize}
+
+The bridge also has open questions about who picks the precision
+(driven by the PC decision; routed by the bridge itself; or routed
+upstream of the bridge); about where the per-tile scale lives (sent
+alongside the decision; recomputed on every tile); and about
+pipeline latency.
+
+\textbf{Resolution path.} Specify the bridge as either (a)~an ACU
+input-stage sub-block (preferred --- the precision-routing logic
+naturally lives near the ACU), (b)~a KVCE output-stage sub-block
+(less preferred --- KVCE shouldn't need to know about ACU's
+INT8/FP16 routing), or (c)~its own block between ACU and KVCE
+(over-architected for the role). Then write its RTL, reference
+model, and ISA at the same level of formality as the existing block
+specs.
+
+\section{Conflict 4 --- GQA convention not in KVCE ISA}
+\label{sec:c4}
+
+\textbf{Severity: medium. Status: open. Affected: KVCE, compiler.}
+
+Qwen2-class models use grouped-query attention (GQA): for example,
+Qwen2-0.5B has 14~query heads and 2~key/value heads in a 7:1 ratio.
+KVCE's ISA treats vectors as anonymous 64-D entities with no
+\texttt{head} field on the AXI-Stream interface (only \texttt{tuser}
+to select K vs.\ V path). The spec does not state whether:
+
+\begin{itemize}
+\item A separate KVCE instance is required per KV head, or
+\item One KVCE instance multiplexes the KV heads through
+address-space partitioning, or
+\item The compiler is expected to flatten heads into the address
+space, treating the block as head-agnostic.
+\end{itemize}
+
+\textbf{Resolution path.} Add a \texttt{KV\_HEAD} field to the ISA
+register file, or document explicitly that the block is
+head-agnostic and the compiler is responsible for head-indexed
+addressing. The address-space approach is the cheapest in silicon
+but ties the compiler tightly to the storage layout.
+
+\section{Conflict 5 --- TIU cold-start eviction policy undecided}
+\label{sec:c5}
+
+\textbf{Severity: medium. Status: open. Affected: TIU, ACU, MHC.}
+
+The Token Importance Unit (block~3) accumulates per-token attention
+weight over decoding steps and uses the accumulator as the eviction
+signal. In the first $\sim 50$--$100$ decode steps, accumulator
+scores are roughly equal across tokens because the running sum has
+not yet differentiated them. If the on-chip working set exceeds
+SRAM capacity during this window, eviction by lowest-accumulator
+is essentially random. This may cause the loss of tokens that
+become important later (``heavy hitters'').
+
+The conflict is not internal to the TIU: the eviction signal flows
+to the KVCE (which advertises \texttt{evict\_needed}/\texttt{evict\_addr})
+and the MHC (which spills/refills from off-chip DRAM). The choice
+of cold-start policy affects all three.
+
+\textbf{Resolution path.} Three published approaches available:
+(i)~H2O's deferred-eviction-until-window-fills; (ii)~StreamingLLM's
+pinned attention-sink tokens; (iii)~ForesightKV's learned-prior
+pre-seeding of the accumulator. Option~(iii) is most principled and
+slots into the TIU's planned interface without changing the
+eviction comparator --- the accumulator is simply non-zero at the
+start of decoding. ForesightKV adds a small offline-trained scorer
+that runs at prefill; its hardware footprint and training pipeline
+are open questions. See external inbound from A.~Singh (2026-05-20,
+GitHub \texttt{abhi1432-boop/heavy-hitter-kv-cache}) for context.
+
+\section{Conflict 6 --- \texttt{SRAM\_DEPTH=16} below hot-tier need}
+\label{sec:c6}
+
+\textbf{Severity: medium. Status: partially resolved. Affected: KVCE, MHC.}
+
+The current KVCE \texttt{SRAM\_DEPTH} default is 16 entries, which
+is the value that drives the OpenLane Sky130 signoff and area
+numbers in the KVCE paper. For an LLM-inference workload at
+seq\_len~$\geq 512$, the working set is much larger; even with
+aggressive eviction the hot tier needs hundreds to thousands of
+entries. The ISA range allows up to 4096, but no synthesis or
+signoff has been run at deployment-realistic depths.
+
+\textbf{Resolution path.} Re-run Yosys synth and LibreLane Sky130
+signoff with \texttt{SRAM\_DEPTH=1024} (or whatever the target is)
+to produce area and power numbers that reflect deployment.
+This is recorded in the KVCE roadmap. The conflict is partially
+resolved because the configurability exists; it remains open
+because the signoff numbers we cite do not reflect a deployable
+configuration.
+
+\section{Conflict 7 --- Eviction granularity vs.\ ACU tile size}
+\label{sec:c7}
+
+\textbf{Severity: medium. Status: deferred. Affected: KVCE, MHC.}
+
+KVCE evicts at vector granularity: one address, one
+$K$~or~$V$~vector spilled. The ACU reads at $64 \times 64$ tile
+granularity: 64 $K$~vectors and 64 $V$~vectors per attention tile.
+If the MHC has to fetch evicted vectors from DRAM one at a time
+on demand, the ACU's MAC pipeline stalls for many cycles per tile
+on a cache miss. Burst fetch is required.
+
+\textbf{Resolution path.} Constraint on the MHC: per-tile fetch
+requests should be coalesced into single DRAM bursts (typically
+$8$~or~$16$~vectors per burst at LPDDR4X). The TIU eviction policy
+should evict at tile-aligned granularity when possible (a ``tile
+eviction list'' rather than vector-by-vector). Detailed design
+deferred to MHC specification.
+
+\section{Conflict 8 --- K vs.\ V word-width waste}
+\label{sec:c8}
+
+\textbf{Severity: low. Status: deferred. Affected: KVCE.}
+
+A compressed K entry is 288 bits; a compressed V entry is 208 bits.
+\texttt{SRAM\_WIDTH} is set to $\max(288, 208) = 288$~bits, so each
+V entry wastes 80~bits ($28\%$ of the word). The total SRAM area
+overhead is meaningful at deployment-realistic depths but does not
+affect functional correctness.
+
+\textbf{Resolution path.} Either (i)~separate K and V SRAM macros
+(doubles the macro count, more efficient bit utilisation), or
+(ii)~packed allocation scheme (more complex address generation,
+better bit utilisation), or (iii)~accept the overhead as the cost
+of having a single uniform SRAM interface. Deferred to v0.2 of the
+KVCE block.
+
+\section{Conflict 9 --- eDRAM viability at 16FFC}
+\label{sec:c9}
+
+\textbf{Severity: medium. Status: deferred. Affected: MHC, foundry.}
+
+The original chip block diagram describes the MHC as managing
+``L1 SRAM (hottest KV) + L2 eDRAM 8--32~MB + off-chip LPDDR5''.
+eDRAM at TSMC 16FFC is a specialty option, often requiring
+additional mask layers and may not be included in standard university
+program offerings (Muse Semi, TSMC University Program). If eDRAM is
+unavailable, the L2 tier defaults to high-density SRAM with reduced
+capacity per~mm$^2$.
+
+\textbf{Resolution path.} Confirm with the foundry (TSMC University
+Program directly, or via Muse Semi) which on-chip memory IPs are
+available at 16FFC for student tape-outs. If eDRAM is unavailable,
+revise the architecture to ``all-SRAM on-chip'' and accept the
+capacity reduction; size LPDDR bandwidth accordingly. This decision
+needs to land before MHC specification begins in earnest.
+
+\section{Conflict 10 --- Lloyd-Max centroids vs.\ early-layer activations}
+\label{sec:c10}
+
+\textbf{Severity: medium. Status: open. Affected: KVCE.}
+
+The KVCE compression's 8 Lloyd-Max centroids
+($\pm 0.2451\sigma$, $\pm 0.7560\sigma$, $\pm 1.3439\sigma$,
+$\pm 2.1520\sigma$ with $\sigma = 1/\sqrt{d}$) are derived under the
+assumption that the Walsh--Hadamard-rotated, norm-normalised vector
+has coordinates drawn from $\mathcal{N}(0, 1/\sqrt{d})$. This holds
+for mid-network activations but breaks at layer~0 (and similar
+near-input layers) because the model's residual stream has not yet
+been smoothed by accumulated LayerNorms. The integration audit
+measured a $16\times$ rMSE spread between layer~0 ($2.567$) and
+layer~12 ($0.159$).
+
+\textbf{Resolution path.} Candidate fixes are per-layer centroid
+tables (small register file) or an adaptive
+\texttt{turbo4-adaptive} mode in the compression algorithm. Filed
+as \texttt{kv-cache-engine\#3}; see
+\texttt{kvce\_acu\_integration\_audit.tex} \S5(b).
+
+\section{Conflict 11 --- End-to-end accuracy not measured}
+\label{sec:c11}
+
+\textbf{Severity: high. Status: open. Affected: ACU, KVCE, integration.}
+
+The integration audit measures per-tile relative MSE against a
+dense FP16 attention baseline. The integrated rMSE of $0.36$ is
+suggestive but does not directly bound model-output quality.
+A serious chip-level accuracy claim requires measurement of
+downstream metrics: perplexity on a held-out corpus,
+HellaSwag accuracy, or similar, with the full attention pipeline
+(ACU + KVCE round-trip + softmax + SV matmul) substituted for
+dense FP16 attention. This has not been done.
+
+\textbf{Resolution path.} Run a held-out evaluation
+(perplexity on wikitext-2 or HellaSwag) against Qwen2-0.5B with
+attention substituted by the integrated ACU $\times$ KVCE pipeline,
+and compare to dense FP16. Filed as \texttt{kv-cache-engine\#4}.
+
+\section{Conflict 12 --- \texttt{turbo4} noise floor obviates PC FP16 path}
+\label{sec:c12}
+
+\textbf{Severity: informational. Status: resolved (measured). Affected: ACU, KVCE.}
+
+At the current KVCE configuration (\texttt{turbo4}: 3-bit PQ +
+1-bit QJL for $K$, 3-bit PQ for $V$), the per-vector reconstruction
+noise dominates the precision controller's INT8/FP16 routing
+distinction. Quantified in
+\texttt{kvce\_acu\_integration\_audit.tex} \S5(c): KV rMSE
+$\sim 1{,}800\times$ the PC routing rMSE.
+
+This is a design property of \texttt{turbo4}, not a defect. The
+PC's FP16 path would re-acquire value at higher-precision modes
+(\texttt{turbo8}, \texttt{turbo16}) where the per-vector noise
+drops. Listed here for completeness.
+
+\section{Closed items (for reference)}
+\label{sec:closed}
+
+\subsection*{KVCE reference-model reconstruction bug}
+
+KVCE issue~\#1: \texttt{normalize()} used \texttt{coord\_frac=12}
+instead of \texttt{norm\_frac=8} for left shift, causing $16\times$
+overscale; C++ truncation division differed from Python
+floor division. Fixed in \texttt{kv-cache-engine@9b1163a}; quality
+gate added at \texttt{sw/reference\_model/test\_reconstruction\_quality.py}.
+\textbf{Closed.}
+
+\section*{Change log}
+
+\begin{itemize}
+\item \texttt{conflicts-0.1} (2026-05-22): initial register compiled
+from the original cross-block conflict scan
+(2026-05-15) plus residual items surfaced by the integration audit
+(2026-05-19, 2026-05-22) plus TIU cold-start item from inbound
+collaborator (2026-05-20).
+\end{itemize}
+
+\end{document}

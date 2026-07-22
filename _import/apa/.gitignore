@@ -1,0 +1,55 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+checkpoints/
+*.pt
+analysis/dashboard.html
+
+# RTL build / sim artifacts
+rtl/*.out
+rtl/*.vcd
+rtl/synth.log
+rtl/build/
+# Generated hex vectors (reproducible from analysis/gen_rtl_testvectors.py)
+rtl/tb/testvectors/scores.hex
+rtl/tb/testvectors/expected.hex
+
+# OpenLane runs (each is ~200+ MB of intermediate artifacts).
+# We commit curated outputs under openlane/*/results/ instead.
+openlane/*/runs/
+openlane/*/runs/**
+
+# C/C++ build artifacts under sw/
+sw/**/*.o
+sw/**/*.a
+sw/**/*.so
+sw/**/test_ref
+sw/**/test_pc
+sw/**/test_mac
+
+# LaTeX intermediate artifacts (regenerable from .tex + .bib)
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/*.toc
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.toc
+docs/isa/*.aux
+docs/isa/*.log
+docs/isa/*.out
+docs/isa/*.toc
+
+# mate_pv generated artifacts
+rtl/tb/mate_pv_vectors.txt
+rtl/tb/mate_pv_fp16_vectors.txt
+rtl/tb/mate_qkt_vectors.txt
+rtl/tb/vecu_softmax_vectors.txt
+rtl/sim_mate.out
+rtl/sim_mate_fp16.out
+rtl/sim_mate_qkt.out
+rtl/sim_vecu_softmax.out

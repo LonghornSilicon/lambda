@@ -1,0 +1,14 @@
+{
+    "DESIGN_NAME": "precision_controller",
+    "VERILOG_FILES": "dir::src/*.v",
+    "CLOCK_PORT": "clk",
+    "CLOCK_PERIOD": 12.5,
+    "IO_DELAY_CONSTRAINT": 5,
+    "CLOCK_UNCERTAINTY_CONSTRAINT": 0.1,
+    "DESIGN_IS_CORE": false,
+    "FP_SIZING": "relative",
+    "FP_CORE_UTIL": 50,
+    "PL_TARGET_DENSITY_PCT": 60,
+    "DESIGN_REPAIR_MAX_SLEW_PCT": 0,
+    "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 0
+}

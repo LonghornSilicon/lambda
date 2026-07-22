@@ -1,0 +1,39 @@
+name: Paper (main)
+
+# main is docs-minimal: no RTL gates, no Qwen gate (those run on the rtl branch).
+# The one thing main builds is the ACU paper. This standalone job replaces the
+# old block-ci caller so master shows a single real check instead of a row of
+# skipped RTL/Qwen jobs.
+
+on:
+  push:
+    branches: [master]
+    paths: ['paper/**']
+  pull_request:
+    branches: [master]
+    paths: ['paper/**']
+  workflow_dispatch:
+
+jobs:
+  paper:
+    name: Build ACU paper
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install TeX Live
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq texlive-latex-base texlive-latex-extra \
+            texlive-fonts-recommended texlive-bibtex-extra biber
+      - name: Build PDF
+        working-directory: paper
+        run: |
+          pdflatex -interaction=nonstopmode -halt-on-error adaptive_precision_attention.tex
+          bibtex adaptive_precision_attention || true
+          pdflatex -interaction=nonstopmode -halt-on-error adaptive_precision_attention.tex
+          pdflatex -interaction=nonstopmode -halt-on-error adaptive_precision_attention.tex
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acu-paper-pdf
+          path: paper/*.pdf
+          retention-days: 30

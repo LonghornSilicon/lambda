@@ -1,0 +1,510 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={KV Cache Engine x Precision Controller --- Integration Audit},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={Integration Audit, Version kvce-acu-audit-0.2}
+}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{\thesubsubsection}{0.6em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small KVCE $\times$ ACU Integration Audit}
+\rhead{\small \texttt{kvce-acu-audit-0.2}}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\definecolor{tabsep}{rgb}{0.93,0.93,0.93}
+
+\setlist[itemize]{leftmargin=*,topsep=2pt,itemsep=1pt}
+
+\title{\textbf{LonghornSilicon ACU $\times$ KV Cache Engine \\
+       Integration Audit}}
+\author{LonghornSilicon}
+\date{Version \texttt{kvce-acu-audit-0.2} \quad 2026-05-22}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+We audit the integrated dataflow between the Attention Compute Unit
+(ACU, block~1) and the KV Cache Engine (KVCE, block~2) of the
+LonghornSilicon LLM inference accelerator. The audit produced a
+reference-model bug-fix (\texttt{kv-cache-engine@9b1163a}, closes
+issue~\#1) that lifted decompressed-K cosine similarity from
+$0.475$ to $0.978$ and reduced integrated relative MSE from $17.0$
+to $0.36$ against a dense FP16 baseline. The chip-level integration
+is unblocked. However, three quality gaps remain in the post-fix
+state and are tracked here for traceability: a fixed-point boundary
+clipping at the KVCE input port, a calibration mismatch at network
+layer~0, and the absence of an end-to-end accuracy measurement on
+real model outputs. Each is filed as a separate issue against the
+KVCE repository.
+\end{abstract}
+
+\section{Scope and methodology}
+\label{sec:scope}
+
+The audit compares five attention-output paths, computed per~$64\!\times\!64$
+attention tile on real Qwen2-0.5B traces (seq\_len $=512$, layers
+$\{0,4,8,12,16,20,23\}$, $2744$ off-diagonal tiles total):
+
+\begin{center}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Path} & \textbf{K source} & \textbf{V source} & \textbf{S$\cdot$V matmul precision} \\
+\midrule
+A --- \textit{REF}              & true (FP16) & true (FP16) & FP16 dense \\
+B --- PC alone (no KVCE)        & true (FP16) & true (FP16) & PC-routed \\
+C --- KVCE alone, FP16 SV       & $\hat K$ (lossy) & $\hat V$ (lossy) & FP16 \\
+D --- KVCE alone, INT8 SV       & $\hat K$ (lossy) & $\hat V$ (lossy) & INT8 \\
+E --- Integrated                & $\hat K$ (lossy) & $\hat V$ (lossy) & PC-routed on lossy~$S$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Relative MSE of paths B, C, D, E against the REF baseline isolates
+the contribution of each block: B measures the ACU in isolation;
+C and~D measure the KVCE in isolation under the two possible routing
+choices; E measures the integrated chip. Per-tile records carry
+the precision controller's INT8/FP16 decision on both clean and
+lossy~$S$, so we can also measure \emph{decision stability}
+under upstream noise.
+
+The harness lives at
+\texttt{attention-compute-unit/analysis/integration\_test\_kv\_pc.py}
+and runs in under two minutes per layer on an RTX~A4000. No tile,
+attention matrix, or per-head activation is persisted to disk; per-tile
+scalars accumulate in RAM and dump as a single JSON summary.
+
+\section{Initial finding (pre-fix)}
+\label{sec:initial}
+
+The initial smoke pass (layer~0, $392$ tiles) returned median
+relative MSE for the four non-REF paths:
+
+\begin{center}
+\begin{tabular}{@{}lr@{}}
+\toprule
+Path & Median rMSE \\
+\midrule
+B --- PC alone & $0.0001$ \\
+C --- KVCE + FP16 SV & $17.01$ \\
+D --- KVCE + INT8 SV & $17.05$ \\
+E --- Integrated & $17.05$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The ACU's output error in isolation matched the original precision
+controller paper's $91$--$97\%$ INT8-safe claim to four decimal
+places. The KVCE-in-the-loop output error was $170{,}000\times$
+larger, swamping the FP16-vs-INT8 distinction the precision
+controller exists to make. Two isolation probes confirmed the
+problem was upstream of the ACU entirely:
+
+\begin{itemize}
+\item On the KVCE repository's own \texttt{\_random\_vector} test
+      inputs (which the repo's $184$ passing tests use), the median
+      relative MSE of compress--decompress round-trip was $62\times$
+      for keys and $1.9\times$ for values.
+\item On charitable $\mathcal{N}(0, 1/\sqrt{d})$ Gaussian inputs
+      (exactly the distribution the Lloyd-Max centroids were
+      designed for), key reconstruction cosine similarity was
+      $0.475$ --- a decompressed key vector pointed in essentially
+      a random direction relative to the original.
+\end{itemize}
+
+The repository's existing round-trip test used an absolute-integer-space
+MSE threshold of $\max_{\mathrm{val}}^2 \approx 10^9$ as a pass gate.
+This is a \emph{doesn't-crash} threshold: literally random output
+would pass it. There was no test asserting that reconstruction
+approximated the input.
+
+\section{Root cause and remediation}
+\label{sec:rootcause}
+
+Two bugs in the KVCE reference model, both in the fixed-point
+arithmetic of the compress/decompress pipeline:
+
+\begin{enumerate}
+\item \textbf{Normalize shift bug.} In \texttt{kv\_cache\_engine\_ref.py},
+the \texttt{normalize()} function divided the coordinate by the stored
+norm using a left-shift of \texttt{coord\_frac} ($=12$) bits before
+the integer division. The correct shift is \texttt{norm\_frac} ($=8$)
+since the norm is stored in Q8.8 format. The $4$-bit overshift caused
+a $16\times$ overscale on all post-normalize coordinates, which then
+passed through the Walsh--Hadamard rotation and Lloyd--Max quantizer
+in a regime far outside the centroid design range. After fix, key
+cosine similarity rose from $0.475$ to $0.978$.
+
+\item \textbf{C++ floor-division parity.} The C++ port used the
+language's default \texttt{/} operator on negative numerators, which
+truncates toward zero. The Python reference uses \texttt{//}, which
+floors toward negative infinity. The two differ by one on negative
+inputs and the per-coordinate error accumulated across the $64$-element
+vector. A \texttt{floor\_div()} helper was added to the C++ port to
+match the Python semantics bit-exactly.
+\end{enumerate}
+
+The fix is a three-line change in the Python reference and an
+eight-line addition in the C++ port. The fix commit is
+\texttt{kv-cache-engine@9b1163a} (closes
+issue~\#1). The repository now ships a quality gate at
+\texttt{sw/reference\_model/test\_reconstruction\_quality.py}
+that asserts cosine similarity~$> 0.9$ and relative MSE~$< 0.1$ on
+both K and V paths over Gaussian and \texttt{\_random\_vector}
+input distributions.
+
+\section{Post-fix results}
+\label{sec:postfix}
+
+\subsection{Aggregate}
+
+Re-running the five-path integration harness on $2744$ off-diagonal
+tiles across $7$ layers ($\{0,4,8,12,16,20,23\}$) yields:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Path & Median rMSE & p90 & p99 \\
+\midrule
+B --- PC alone (no KVCE)    & $0.0002$ & $0.0014$ & $0.0250$ \\
+C --- KV alone, FP16 SV     & $0.3637$ & $3.5709$ & $13.538$ \\
+D --- KV alone, INT8 SV     & $0.3631$ & $3.5662$ & $13.447$ \\
+E --- Integrated (PC + KV)  & $0.3631$ & $3.5662$ & $13.447$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The integrated median rMSE dropped from $17.0$ (pre-fix) to $0.36$
+(post-fix), a $47\times$ improvement. The KVCE noise floor is now
+$\sim 1800\times$ the precision controller's INT8 routing error,
+down from $\sim 170{,}000\times$ pre-fix.
+
+\subsection{Decision stability}
+
+The precision controller's INT8/FP16 decision is computed on
+$S = Q\hat K^\top / \sqrt{d}$ in the integrated path. Compared
+with the decision computed on clean $S = Q K^\top / \sqrt{d}$:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lr@{}}
+\toprule
+Metric & Value \\
+\midrule
+FP16\% on clean $S$ & $0.00\%$ \\
+FP16\% on lossy $S$ & $0.18\%$ \\
+Decisions agree & $99.82\%$ \\
+Flipped clean-FP16 $\rightarrow$ lossy-INT8 & $0$ \\
+Flipped clean-INT8 $\rightarrow$ lossy-FP16 & $5$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The decision function is robust to KVCE-induced perturbation of
+the score matrix: $99.82\%$ of routing decisions are preserved,
+and the five flipped tiles flipped \emph{conservatively}
+(toward FP16, the safe direction).
+
+\subsection{Per-layer breakdown}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.15}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}rrrrrrrr@{}}
+\toprule
+Layer & $n$ & Clean FP16\% & Lossy FP16\% & rMSE B & rMSE C & rMSE D & rMSE E \\
+\midrule
+$0$  & $392$ & $0\%$ & $0\%$    & $0.0001$ & $2.567$ & $2.576$ & $2.576$ \\
+$4$  & $392$ & $0\%$ & $0\%$    & $0.0002$ & $0.534$ & $0.534$ & $0.534$ \\
+$8$  & $392$ & $0\%$ & $0\%$    & $0.0002$ & $0.254$ & $0.254$ & $0.254$ \\
+$12$ & $392$ & $0\%$ & $0\%$    & $0.0003$ & $0.159$ & $0.160$ & $0.160$ \\
+$16$ & $392$ & $0\%$ & $1.28\%$ & $0.0003$ & $0.335$ & $0.339$ & $0.339$ \\
+$20$ & $392$ & $0\%$ & $0\%$    & $0.0004$ & $0.297$ & $0.304$ & $0.304$ \\
+$23$ & $392$ & $0\%$ & $0\%$    & $0.0004$ & $0.342$ & $0.344$ & $0.344$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The $16\times$ spread between layer~$0$ ($2.567$) and layer~$12$
+($0.159$) is the largest single per-layer variation and is the
+subject of section~\ref{sec:gaps} item~\textit{(b)}.
+
+\section{Residual quality gaps}
+\label{sec:gaps}
+
+The post-fix integrated rMSE of $0.36$ is $47\times$ better than
+pre-fix but is still $\sim 3{,}600\times$ worse than the ACU in
+isolation. Three distinct mechanisms contribute, ranked by
+estimated magnitude:
+
+\subsection*{(a) Q4.12 input clipping at the KVCE boundary}
+
+The KVCE input port is specified as int16 Q4.12 fixed-point with
+representable range $\pm 8.0$ at resolution $2^{-12}$. Real
+Qwen2-0.5B post-\texttt{k\_proj} key activations have absolute
+maximum approximately $\pm 152$ at the layers we measured. The
+integration harness converts FP16~$\rightarrow$~Q4.12 at the
+boundary, which clips approximately $95\%$ of $K$'s magnitude
+information before any compression is attempted. Per-layer rMSE
+correlates with $K$ magnitude, consistent with this being the
+largest single contributor to the residual error. \textbf{This is
+not a KVCE-internal defect}; it is a cross-block specification
+gap. No document or issue currently records this constraint.
+Filed as KVCE issue~\#2; see section~\ref{sec:openitems}.
+
+\subsection*{(b) Layer-0 centroid mismatch}
+
+The Lloyd--Max centroid set was derived under the assumption that
+the Walsh--Hadamard-rotated normalized vector has coordinates drawn
+from $\mathcal{N}(0, 1/\sqrt{d})$. This assumption is well approximated
+for mid-network activations (layers $\geq 4$ in our trace) but
+poorly approximated for layer~$0$, whose K/V outputs have not yet
+been smoothed by the residual stream's accumulating LayerNorms.
+The result is a $16\times$ rMSE spread across layers, with
+layer~$0$ alone contributing the bulk of the corpus median.
+Candidate remediations include per-layer centroid tables and an
+adaptive \texttt{turbo4-adaptive} mode in the KVCE compression
+algorithm. Filed as KVCE issue~\#3.
+
+\subsection*{(c) TurboQuant+ \texttt{turbo4} compression noise floor}
+
+The current KVCE configuration uses $3$-bit PolarQuant plus $1$-bit
+QJL on keys ($4.25$~bpv) and $3$-bit PolarQuant only on values
+($3.0$~bpv). At this compression ratio, per-vector reconstruction
+error is approximately $0.04$ rMSE per coordinate. This error
+compounds across the $64$~V-vectors of the $S \cdot V$ matmul,
+producing the algorithmic floor that limits how good post-fix
+integrated rMSE can be. Higher-precision modes ($6$~bpv
+\texttt{turbo8}, $12$~bpv \texttt{turbo16}) would lower this floor
+at the cost of compression ratio. This is a \emph{design property},
+not a bug.
+
+\section{Known open items}
+\label{sec:openitems}
+
+The following items are not blockers for cross-block dataflow but
+are tracked for traceability through tape-out:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}p{0.50\textwidth}lll@{}}
+\toprule
+\textbf{Item} & \textbf{Severity} & \textbf{Issue} & \textbf{Doc} \\
+\midrule
+Q4.12 input clipping vs. raw activation magnitudes
+  & high   & kv-cache-engine\#2 & \S\ref{sec:gaps}(a) \\
+Layer-0 centroid fit (per-layer or adaptive centroids)
+  & medium & kv-cache-engine\#3 & \S\ref{sec:gaps}(b) \\
+End-to-end accuracy on real LLM not yet measured
+  & medium & kv-cache-engine\#4 & \S\ref{sec:gaps}, \S\ref{sec:impl-chip} \\
+GQA convention in KVCE ISA
+  & medium & --- (architectural)  & companion conflicts doc \\
+\texttt{SRAM\_DEPTH} default is below hot-tier need
+  & low    & --- (configuration)  & companion conflicts doc \\
+\texttt{turbo4} noise floor dominates PC FP16 distinction
+  & informational & --- (design property) & \S\ref{sec:gaps}(c) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The first three items are tracked as KVCE GitHub issues with
+this document referenced as the source. Items four and five are
+covered in the companion document
+\textit{Cross-Block Architectural Conflict Register}
+(\texttt{kvce\_acu\_architectural\_conflicts.tex}).
+
+\section{Interpretation}
+\label{sec:interpretation}
+
+\subsection*{Improvement from fix}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Metric & Pre-fix & Post-fix & Improvement \\
+\midrule
+K cosine similarity                 & $0.475$    & $0.978$ & random $\rightarrow$ accurate \\
+Integrated median rMSE              & $17.0$     & $0.36$  & $47\times$ \\
+KVCE rMSE $/$ PC rMSE               & $170{,}000\times$ & $1{,}800\times$ & $94\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Answers to the original questions}
+
+\textbf{Q1.\ Decision stability under lossy KV.}
+Excellent. $99.82\%$ of precision-controller decisions are
+unchanged when the input switches from true $K$ to lossy $\hat K$.
+The five tiles that flipped all moved in the conservative
+direction (toward FP16). The PC decision function is empirically
+robust to $3$-bit PolarQuant plus $1$-bit QJL noise.
+
+\textbf{Q2.\ Does FP16 routing still help under lossy~V?}
+Not materially on the current $\texttt{turbo4}$ configuration.
+The KV quantization rMSE ($0.36$) is roughly $1{,}800\times$ the
+precision controller's routing-induced rMSE ($0.0002$), so the
+FP16 vs.\ INT8 distinction ($0.0006$ rMSE between paths C and D)
+is below the KV noise floor. The FP16 path is not actively harmful
+--- the gate fires correctly --- but it cannot recover accuracy
+that the upstream compression has already discarded. The
+ACU's $1.7\times$ bandwidth-and-compute claim is intact for
+\emph{ACU-isolated} workloads (e.g.\ external K/V supplied at
+full precision); on the integrated chip, the claim degrades to
+``bandwidth-and-compute savings with measurable accuracy cost
+relative to dense FP16 attention.''
+
+\textbf{Q3.\ Integrated MSE vs.\ ACU-alone MSE.}
+Path E (integrated) tracks path D (KV+INT8) almost exactly,
+because the PC routes virtually all tiles INT8 under lossy
+conditions. The PC contributes neither benefit nor harm in this
+configuration; it would re-acquire value at higher KVCE precision
+modes where the K/V noise floor drops below the FP16 vs.\ INT8
+distinction.
+
+\subsection*{Layer-level observations}
+
+\begin{itemize}
+\item Layer~$0$ is the worst layer (rMSE $2.57$): early-layer
+activations have not been LayerNorm-smoothed and do not match
+the Lloyd--Max centroid design point.
+\item Layer~$12$ is the best (rMSE $0.16$): mid-network activations
+closest to the centroid distribution.
+\item The $16\times$ spread across layers suggests per-layer or
+adaptive centroid tables could substantially improve quality at
+the same compression ratio.
+\end{itemize}
+
+\section{Implications per repository}
+\label{sec:implications}
+
+\subsection{\texttt{attention-compute-unit} (this repository)}
+
+\begin{itemize}
+\item The precision controller block is validated: rMSE $0.0002$
+in isolation; decision stability $99.82\%$ under lossy inputs.
+No code changes are required.
+\item The FP16 routing path is not decorative in general --- it
+remains valuable when V is not lossy-quantized (e.g.\ if a future
+KVCE variant compresses K only, or under higher-precision modes).
+On the current \texttt{turbo4} configuration, the KV noise
+dominates and the PC FP16 path provides $< 0.2\%$ relative rMSE
+improvement over INT8.
+\item Future work: re-run this audit with higher-precision KVCE
+modes (\texttt{turbo8}, \texttt{turbo16}) once they are implemented,
+to test whether the FP16 distinction re-emerges as the KV noise
+floor drops.
+\end{itemize}
+
+\subsection{\texttt{LonghornSilicon/kv-cache-engine}}
+
+\begin{itemize}
+\item Fix shipped: \texttt{kv-cache-engine@9b1163a}
+(closes~\#1).
+\item Quality gate added:
+\texttt{sw/reference\_model/test\_reconstruction\_quality.py}
+with cosine~$> 0.9$ and rMSE~$< 0.1$ thresholds. The previous
+$\max_{\mathrm{val}}^2$ threshold did not bound reconstruction
+quality.
+\item Three follow-up issues filed (Q4.12 input range, Layer-0
+centroid fit, end-to-end accuracy on real LLM) for the residual
+quality gaps; see \S\ref{sec:gaps} and \S\ref{sec:openitems}.
+\end{itemize}
+
+\subsection{LonghornSilicon chip-level}
+\label{sec:impl-chip}
+
+\begin{itemize}
+\item ACU integration is unblocked at the dataflow level: the two
+blocks compose end-to-end with meaningful (non-noise) signal.
+\item Chip-level accuracy claims (perplexity, downstream task
+metrics on a real model) have not yet been measured against the
+integrated dataflow. The per-tile rMSE of $0.36$ is suggestive
+but does not directly bound model-output quality; this measurement
+is tracked as kv-cache-engine\#4.
+\item The binding constraint for end-to-end attention accuracy
+on the current \texttt{turbo4} configuration is the KV cache
+compression quality, not the SV matmul precision routing.
+\end{itemize}
+
+\section{Reproducing}
+\label{sec:reproduction}
+
+Verify the reference-model fix in isolation:
+
+\begin{lstlisting}[language=Python,basicstyle=\ttfamily\small]
+cd /home/<user>/kv-cache-engine
+python3 sw/reference_model/test_reconstruction_quality.py
+# Expect: K cosine ~ 0.978, V cosine ~ 0.985 on Gaussian inputs.
+\end{lstlisting}
+
+Re-run the integrated five-path harness:
+
+\begin{lstlisting}[language=bash,basicstyle=\ttfamily\small]
+cd /home/<user>/attention-compute-unit
+python3 analysis/integration_test_kv_pc.py \
+        --seq-len 512 --layers 0,4,8,12,16,20,23 \
+        --prompts 1 --delete-cache-after
+# Expect: integrated median rMSE ~ 0.36, layer-0 outlier ~ 2.57.
+# Wall clock: ~2 min per layer on RTX A4000.
+\end{lstlisting}
+
+\section{Artifacts on this branch}
+\label{sec:artifacts}
+
+\begin{itemize}
+\item \texttt{analysis/integration\_test\_kv\_pc.py} --- five-path
+streaming harness, zero-tile-persistence, GQA-aware.
+\item \texttt{analysis/integration\_test\_kv\_pc\_stats.json} ---
+smoke-pass results for layer~$0$.
+\item \texttt{docs/findings/kvce-acu-integration-audit.md} ---
+prior markdown version of this audit, superseded by this LaTeX
+document.
+\item \texttt{docs/findings/kvce\_acu\_integration\_audit.tex} ---
+this document.
+\item \texttt{docs/findings/kvce\_acu\_architectural\_conflicts.tex} ---
+companion document, cross-block conflict register covering items
+beyond the immediate integration audit (GQA, SRAM depth, bridge
+specification, etc.).
+\end{itemize}
+
+\section*{Change log}
+
+\begin{itemize}
+\item \texttt{kvce-acu-audit-0.1} (2026-05-19): initial markdown
+audit; KVCE bug surfaced.
+\item \texttt{kvce-acu-audit-0.2} (2026-05-22): post-fix re-run
+($2744$ tiles, $7$ layers); promoted to LaTeX; residual quality
+gaps catalogued; open items filed as KVCE issues.
+\end{itemize}
+
+\end{document}

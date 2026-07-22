@@ -1,0 +1,398 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={MAC Array --- Design Specification},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={MAC array reference model, version 0.1}
+}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{\thesubsubsection}{0.6em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small MAC Array Design Specification}
+\rhead{\small \texttt{mac-array-v0.1}}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\definecolor{codebg}{gray}{0.97}
+\definecolor{codekey}{rgb}{0.13,0.29,0.53}
+\definecolor{codecom}{rgb}{0.25,0.5,0.25}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+  xleftmargin=0.5em,
+  xrightmargin=0.5em,
+  aboveskip=0.6em,
+  belowskip=0.6em,
+  showstringspaces=false,
+  breaklines=true,
+  keywordstyle=\color{codekey}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  numbers=none
+}
+
+\setlist{itemsep=2pt,topsep=3pt}
+
+\begin{document}
+
+%==============================================================================
+% Title page
+%==============================================================================
+\thispagestyle{empty}
+\begin{center}
+\vspace*{1.2in}
+{\Huge\bfseries MAC Array}\\[0.4em]
+{\LARGE\bfseries Design Specification}\\[1.2em]
+
+{\large \textsc{LonghornSilicon LLM Inference Accelerator}}\\[0.4em]
+{\large Attention Compute Unit (ACU) --- MAC array sub-block}\\[0.3em]
+{\normalsize (Block 1 of 4 at the chip level; second of ACU's two sub-blocks)}\\[2em]
+
+\rule{0.7\textwidth}{0.4pt}\\[1em]
+
+\begin{tabular}{rl}
+\textbf{Version}:    & \texttt{mac-array-v0.1} (first public draft) \\
+\textbf{Date}:       & 2026-05-14 \\
+\textbf{Status}:     & Reference model complete; RTL pending \\
+\textbf{Author}:     & Chaithu Talasila, The University of Texas at Austin \\
+\textbf{Reference}:  & \texttt{LonghornSilicon/attention-compute-unit} \\
+\end{tabular}\\[1em]
+\rule{0.7\textwidth}{0.4pt}
+
+\vfill
+\begin{minipage}{0.85\textwidth}
+\small
+\textbf{Scope.} This document describes the externally-visible behavior of
+the MAC array block of the LonghornSilicon ACU. Decisions marked
+\textbf{frozen} will not be revisited in v0.2; decisions marked
+\textbf{open} may change as the RTL lands and the compiler team's
+requirements clarify. The accompanying bit-accurate C/C++/Python
+reference implementations are the executable form of this specification.
+\end{minipage}
+
+\vspace{0.3in}
+\end{center}
+
+\clearpage
+
+%==============================================================================
+\tableofcontents
+\clearpage
+
+%==============================================================================
+% 1. Overview
+%==============================================================================
+\section{Overview}
+\label{sec:overview}
+
+The MAC array is the compute engine of the ACU. After the precision
+controller (see \texttt{pc-isa-0.1}) decides INT8 or FP16 for a tile,
+the MAC array executes the chosen matmul. The compiler emits
+\texttt{matmul\_int8} or \texttt{matmul\_fp16} per tile based on the
+gate's decision.
+
+\medskip
+\noindent\textbf{Functional summary.} For row-major inputs
+$A \in \mathbb{R}^{M \times K}$, $B \in \mathbb{R}^{K \times N}$, the
+block computes $C = A \cdot B \in \mathbb{R}^{M \times N}$ at either
+INT8 or FP16 precision. Output precision matches input precision in
+the FP16 path; output precision is widened to int32 in the INT8 path
+(the compiler is responsible for any downcast or requantization).
+
+%==============================================================================
+% 2. Operations exposed
+%==============================================================================
+\section{Operations Exposed}
+\label{sec:ops}
+
+The block exposes four logical operations to the compiler:
+
+\begin{table}[ht]
+\centering
+\small
+\caption{MAC array operations.}
+\label{tab:ops}
+\begin{tabular}{@{}l p{3.4cm} l p{5cm}@{}}
+\toprule
+Operation                & Inputs                & Output                & Use \\
+\midrule
+\texttt{matmul\_int8}    & int8 $[M \!\times\! K]$, int8 $[K \!\times\! N]$ & int32 $[M \!\times\! N]$ & INT8 attention / MLP path \\
+\texttt{matmul\_fp16}    & fp16 $[M \!\times\! K]$, fp16 $[K \!\times\! N]$ & fp16 $[M \!\times\! N]$ & FP16 attention / MLP path \\
+\texttt{query}           & ---                   & \texttt{MacArrayInfo} & Query precisions, accumulator widths, PE grid \\
+\texttt{estimate}        & $M, K, N$, dtype      & cycles + energy (pJ)  & Cost model for compiler-side scheduling \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+The compiler emits one of \texttt{matmul\_int8} or \texttt{matmul\_fp16}
+for every attention sub-tile, dispatched on the precision controller's
+decision. See the worked lowering example in
+\path{docs/isa/precision_controller_isa.pdf} \S4.1 for the full
+attention-tile flow.
+
+%==============================================================================
+% 3. Data type semantics
+%==============================================================================
+\section{Data Type Semantics}
+\label{sec:dtypes}
+
+\subsection{INT8 Path (Frozen)}
+\label{sec:int8}
+
+\begin{itemize}
+\item Storage: signed two's-complement 8-bit (\texttt{int8\_t},
+      range $-128 \ldots +127$).
+\item Multiplication: signed 8-bit $\times$ signed 8-bit $\rightarrow$
+      exact 16-bit product.
+\item Accumulation: 32-bit signed accumulator (\texttt{int32\_t}).
+      For $K$ up to $65\,536$ inputs the accumulator cannot overflow
+      (worst-case $K \cdot 127 \cdot 127 \approx 1.06 \cdot 10^9$,
+      fits in 31 bits).
+\item No saturation, no requantization at the accumulator boundary;
+      the compiler is responsible for any downcast / requantization
+      step after the matmul.
+\end{itemize}
+
+\subsection{FP16 Path (Open --- v0.1 Simplification)}
+\label{sec:fp16}
+
+\begin{itemize}
+\item Storage: IEEE-754 binary16 (\texttt{half}, 1 sign + 5 exponent +
+      10 mantissa).
+\item Multiplication: half $\times$ half $\rightarrow$ round-to-nearest-
+      even $\rightarrow$ half.
+\item Accumulation: fp32 accumulator (matches typical attention
+      hardware).
+\item Final output: rounded back to fp16 (round-to-nearest-even).
+\item \textbf{v0.1 caveat}: the reference model uses
+      \texttt{float} internally and rounds back to fp16 between
+      operations. The eventual hardware may use a denser accumulator
+      format (e.g., bfloat16) or skip the intermediate rounding. The
+      compiler should not depend on bit-exact parity with v0.1's FP16
+      path until v0.2 freezes the choice.
+\end{itemize}
+
+\subsection{Why Both Paths (Frozen)}
+\label{sec:bothpaths}
+
+The precision controller decides INT8 or FP16 per tile. The MAC array
+therefore needs to dispatch to either path on a tile-by-tile basis. A
+unified mixed-precision path is out of scope for v0.1 because the
+cost and energy savings of INT8 only materialize when the entire
+matmul stays in INT8.
+
+%==============================================================================
+% 4. Shape support
+%==============================================================================
+\section{Shape Support (Frozen)}
+\label{sec:shapes}
+
+\begin{itemize}
+\item Arbitrary $M \times K \times N$ (no power-of-two requirement).
+\item Recommended tile shape: $64 \times 64 \times 64$ (matches the
+      precision controller's default tile).
+\item A typical FlashAttention-style block computes:
+      \begin{itemize}
+      \item $Q \cdot K^{\top}$: $64 \times 64 \times 64$
+      \item $\text{score} \cdot V$: $64 \times 64 \times 64$
+      \end{itemize}
+\item The reference is shape-agnostic --- the compiler picks the
+      shape, the reference produces the correct output.
+\end{itemize}
+
+%==============================================================================
+% 5. Concurrency
+%==============================================================================
+\section{Concurrency and Streaming (Open)}
+\label{sec:concurrency}
+
+The v0.1 reference is synchronous: \texttt{matmul\_int8(...)} blocks
+until the result is in $C$. The eventual hardware will likely expose:
+
+\begin{enumerate}
+\item An asynchronous ``issue'' call that returns a token;
+\item A ``wait'' call on the token;
+\item Double-buffered input/output regions so the compiler can pipeline.
+\end{enumerate}
+
+For v0.1 the compiler can model these by wrapping the synchronous
+calls in its own scheduler. We will revisit when the MAC array RTL
+lands.
+
+%==============================================================================
+% 6. Cost model
+%==============================================================================
+\section{Cost Model (v0.1 Placeholders)}
+\label{sec:cost}
+
+\texttt{MacArrayInfo} exposes:
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Cost-model parameters baked into v0.1.}
+\label{tab:cost}
+\begin{tabular}{@{}l l p{8cm}@{}}
+\toprule
+Parameter                & Value (v0.1) & Notes \\
+\midrule
+\texttt{pe\_grid\_m}     & 8            & PE grid rows (chip: 8$\times$8 = 64 PEs) \\
+\texttt{pe\_grid\_n}     & 8            & PE grid cols (chip: 8$\times$8 = 64 PEs) \\
+\texttt{int8\_throughput}& 64 MACs/cyc  & One INT8 MAC per PE; 64 PEs $\to$ 128 GOPS at 1\,GHz \\
+\texttt{fp16\_throughput}& 16 MACs/cyc  & FP16 PE is $\sim$$4\times$ INT8 area, so $\frac{1}{4}$ the count \\
+\texttt{pipeline\_depth} & 16 cycles    & Fixed startup latency \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+\texttt{estimate(M, K, N, dtype)} returns:
+\begin{align*}
+\text{cycles}     & \approx \left\lceil \frac{M \cdot N \cdot K}{\text{throughput}} \right\rceil + \text{pipeline\_depth} \\
+\text{energy}_{pJ} & \approx M \cdot N \cdot K \cdot \text{per\_op\_energy}_{pJ}
+\end{align*}
+
+\noindent
+Per-op energy values: $0.5$ pJ for INT8 MACs and $2.5$ pJ for FP16
+MACs (rough numbers from published 16FFC accelerator data).
+
+These are \textbf{placeholders} for the compiler's scheduler. The
+numbers will tighten once the MAC array RTL is written and synthesized;
+today they are a reasonable order-of-magnitude estimate. The compiler
+should use them for relative comparison (INT8 vs FP16, which shape is
+faster) rather than absolute timing.
+
+%==============================================================================
+% 7. What's NOT in v0.1
+%==============================================================================
+\section{What Is Not in v0.1}
+\label{sec:exclusions}
+
+\begin{itemize}
+\item Sparsity acceleration (skip-zero PEs).
+\item Mixed-precision MAC (e.g., INT4 $\times$ INT8 within a single op).
+\item Batched matmul as a single op (compiler can loop).
+\item Hardware fault injection / ECC.
+\item Power-state management.
+\end{itemize}
+
+These are all out of scope for the reference model until the chip
+architecture commits to them.
+
+%==============================================================================
+% 8. How the compiler binds this
+%==============================================================================
+\section{Compiler Binding}
+\label{sec:binding}
+
+Same template as the precision controller. Three layers:
+
+\begin{enumerate}
+\item \textbf{C++ class} (\texttt{lhsi::mac::MacArray}) for MLIR / TVM
+      C++ backends.
+\item \textbf{extern "C" API} (\texttt{lhsi\_mac\_*}) for plain-C
+      runtimes and FFI.
+\item \textbf{Python reference} (\texttt{mac\_array\_ref.py}) for
+      compiler-side prototyping and unit tests.
+\end{enumerate}
+
+All three pass identical test vectors. If the C++ and Python disagree,
+that is a bug --- open an issue.
+
+%==============================================================================
+% 9. Open questions
+%==============================================================================
+\section{Open Questions}
+\label{sec:open}
+
+Bring these to the next compiler-team sync; the answers shape v0.2.
+
+\begin{enumerate}
+\item Does your compiler emit individual matmuls, or does it expect a
+      fused \texttt{attention(Q, K, V)} op? Affects whether we should
+      add a fused-attention reference operation.
+\item Do you need cycle-level cost estimates, or is operation-count
+      estimation sufficient for your scheduler?
+\item For FP16: do you expect bit-exact parity with our hardware's
+      FP16 rounding, or just numerically-close output? Affects v0.2's
+      rounding-mode decision.
+\item Async issue + token model --- do you want this in v0.1 (we
+      would add it now) or v0.3 (after RTL exists)?
+\end{enumerate}
+
+%==============================================================================
+% 10. Verification status
+%==============================================================================
+\section{Verification Status}
+\label{sec:verif}
+
+The v0.1 reference passes the following checks
+(see \path{sw/reference_model/test_mac_array_ref.cpp} and the Python
+equivalent).
+
+\begin{table}[ht]
+\centering
+\small
+\caption{MAC array v0.1 verification matrix.}
+\label{tab:verif}
+\begin{tabular}{@{}l l@{}}
+\toprule
+Test                                            & Status \\
+\midrule
+INT8 matmul vs.\ naive int64 reference (random shapes) & exact match \\
+FP16 matmul vs.\ naive double reference (random shapes) & within $\pm 5 \cdot 10^{-3}$ relative \\
+Edge cases: zero, identity, signed extremes      & pass \\
+extern "C" API matches C++ class                 & pass \\
+fp16 round-trip helpers (float $\leftrightarrow$ bits) & pass \\
+Cost-estimate sanity (FP16 slower / costlier than INT8) & pass \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+% 11. Change log
+%==============================================================================
+\section{Change Log}
+\label{sec:changelog}
+
+\begin{itemize}
+\item \texttt{mac-array-v0.1} (2026-05-14): First public draft.
+      Reference model complete in Python, C++ class, and extern "C"
+      shim. Verification matrix in \S\ref{sec:verif} passes. RTL
+      pending.
+\end{itemize}
+
+\vspace{0.5in}
+\noindent\rule{\textwidth}{0.4pt}\\
+\noindent\small\textit{LonghornSilicon ACU MAC Array Design Specification.
+This document is open and may be redistributed. The accompanying
+reference implementations are at
+\path{sw/reference_model/mac_array_ref.{hpp,cpp,py}} in
+\texttt{LonghornSilicon/attention-compute-unit}.}
+
+\end{document}

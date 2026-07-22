@@ -1,0 +1,341 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,calc,shapes.geometric}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!50!black,
+  citecolor=black,
+  pdftitle={LonghornSilicon Software Overview},
+  pdfauthor={LonghornSilicon},
+  pdfsubject={Compiler co-design entry point}
+}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small LonghornSilicon SW Overview}
+\rhead{\small Compiler Co-Design Entry Point}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\definecolor{codebg}{gray}{0.97}
+\definecolor{codekey}{rgb}{0.13,0.29,0.53}
+\definecolor{codecom}{rgb}{0.25,0.5,0.25}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+  xleftmargin=0.5em,
+  xrightmargin=0.5em,
+  showstringspaces=false,
+  breaklines=true,
+  keywordstyle=\color{codekey}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  numbers=none
+}
+
+\setlist{itemsep=2pt,topsep=3pt}
+
+\begin{document}
+
+%==============================================================================
+\thispagestyle{empty}
+\begin{center}
+\vspace*{1.2in}
+{\Huge\bfseries LonghornSilicon Software}\\[0.4em]
+{\LARGE\bfseries Compiler Co-Design Overview}\\[1.5em]
+
+\rule{0.7\textwidth}{0.4pt}\\[1em]
+
+\begin{tabular}{rl}
+\textbf{Date}:           & 2026-05-14 \\
+\textbf{Status}:         & Blocks 1 \& 2 of 4 in software reference \\
+\textbf{Audience}:       & Compiler engineers integrating against the chip \\
+\textbf{Repository}:     & \texttt{LonghornSilicon/attention-compute-unit} \\
+\textbf{Branch}:         & \texttt{compiler-integration-prep} \\
+\end{tabular}\\[1em]
+\rule{0.7\textwidth}{0.4pt}
+
+\vfill
+\begin{minipage}{0.85\textwidth}
+\small
+\textbf{Purpose.} This document is the orientation map for a compiler
+team integrating against the LonghornSilicon chip. It points to the
+bit-accurate reference models, the ISA spec, the verification status
+of each block, and the open questions we want answered to converge
+the v0.2 reference. Read this first; then jump to the specific
+references it links.
+\end{minipage}
+
+\vspace{0.3in}
+\end{center}
+
+\clearpage
+
+\tableofcontents
+\clearpage
+
+%==============================================================================
+\section{What LonghornSilicon Builds}
+\label{sec:what}
+
+A four-block LLM inference accelerator targeting TSMC 16nm FinFET (N16FFC) via the
+TSMC University Program (tape-out target Summer 2027):
+
+\begin{enumerate}
+\item \textbf{ACU (Attention Compute Unit)} --- decides INT8 vs FP16
+      per attention tile and runs the matmul. Composed of:
+      \begin{itemize}
+      \item Precision Controller --- ratio gate on raw scores
+      \item MAC Array --- INT8 and FP16 dispatched matmul
+      \end{itemize}
+\item \textbf{KV Cache Engine} --- on-die SRAM (spilling to off-chip LPDDR5X) with
+      ChannelQuant compression on writes, decompression on reads.
+\item \textbf{Token Importance Unit} --- per-token attention-weight
+      accumulator driving mixed-precision retention.
+\item \textbf{Memory Hierarchy Controller} --- routes 0.8 MB on-die SRAM /
+      off-chip LPDDR5X, direct (no separate eDRAM tier).
+\end{enumerate}
+
+For compiler co-design, block 1 (the ACU and its two sub-components,
+the precision controller and the MAC array) is the first to be fully
+specified in software. Blocks 2--4 (KV Cache Engine, Token Importance
+Unit, Memory Hierarchy Controller) follow the same template as they
+land.
+
+%==============================================================================
+\section{Block Coverage in the Software Reference}
+\label{sec:coverage}
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\caption{Reference-model status as of \texttt{compiler-integration-prep}.}
+\label{tab:coverage}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{3.0cm} p{4.0cm} p{1.8cm} p{3.3cm} p{2.3cm}@{}}
+\toprule
+Block / sub-block           & C++ class                          & C API                 & Python                       & Status \\
+\midrule
+ACU --- Precision Ctrl.     & \texttt{lhsi::PrecisionController} & \texttt{lhsi\_pc\_*}  & \texttt{PrecisionController} & 143/143 vs RTL \\
+ACU --- MAC Array           & \texttt{lhsi::mac::MacArray}       & \texttt{lhsi\_mac\_*} & \texttt{MacArray}            & numpy agreed \\
+KV Cache Engine             & ---                                & ---                   & ---                          & in design \\
+Token Importance Unit       & ---                                & ---                   & ---                          & not started \\
+Memory Hierarchy Controller & ---                                & ---                   & ---                          & not started \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Each new block follows the same three-language template; see
+\path{docs/new_block_blueprint.md} for the per-block scaffolding
+pattern.
+
+%==============================================================================
+\section{Where Things Live}
+\label{sec:layout}
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+sw/
++-- README.md                         (markdown form of this doc)
++-- reference_model/
+    +-- README.md                     (API reference, markdown)
+    +-- MAC_ARRAY_DESIGN.md
+    +-- Makefile                      (build / test / static / shared / clean)
+    +-- precision_controller_ref.{hpp,cpp,py}
+    +-- test_precision_controller_ref.{cpp,py}
+    +-- mac_array_ref.{hpp,cpp,py}
+    +-- test_mac_array_ref.{cpp,py}
+    +-- integration_example.py        (end-to-end attention tile)
+    +-- example_compiler_use.py       (three sophistication levels)
+
+docs/
++-- isa/precision_controller_isa.pdf  (ISA spec)
++-- mac_array_design.pdf              (this doc family)
++-- reference_model_api.pdf           (formal API reference)
++-- sw_overview.pdf                   (this document)
++-- new_block_blueprint.md            (template for future blocks)
+\end{lstlisting}
+
+%==============================================================================
+\section{Build and Test (One Line)}
+\label{sec:build}
+
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+cd sw/reference_model && make test-all
+\end{lstlisting}
+
+\noindent
+Builds all C++ tests, runs them, runs all Python tests, prints a
+final parity statement. Requires Python 3.10+, NumPy, and a C++17
+compiler.
+
+Granular targets:
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}l l@{}}
+\toprule
+Target          & What it does \\
+\midrule
+\texttt{test-pc}     & Precision controller C++ test only \\
+\texttt{test-mac}    & MAC array C++ test only \\
+\texttt{test-py}     & All Python tests \\
+\texttt{integration} & End-to-end worked example (printed report) \\
+\texttt{shared}      & \texttt{libprecision\_controller\_ref.so} + \texttt{libmac\_array\_ref.so} \\
+\texttt{static}      & \texttt{.a} variants \\
+\texttt{clean}       & Remove build artifacts \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{Recommended Reading Order for a Compiler Engineer}
+\label{sec:reading}
+
+\begin{enumerate}
+\item \textbf{This document} (top to bottom; you are almost done).
+\item \texttt{docs/isa/precision\_controller\_isa.pdf}, especially
+      \S4.1 (worked lowering example) and \S4.2 (compiler binding
+      patterns: MLIR / TVM / ONNX / custom IR).
+\item \texttt{docs/mac\_array\_design.pdf} for the MAC-array design
+      decisions (frozen vs.\ open).
+\item \texttt{docs/reference\_model\_api.pdf} for the full API
+      reference (C++ class, C ABI, Python).
+\item \texttt{sw/reference\_model/integration\_example.py} ---
+      run it, then read it side-by-side. The shape of that script
+      is the shape your codegen should produce.
+\end{enumerate}
+
+%==============================================================================
+\section{Integration Phases}
+\label{sec:phases}
+
+The interface (ISA + reference models) is stable across all four
+phases. Only the runtime implementation of the operations changes:
+Python function call $\rightarrow$ AXI register write
+$\rightarrow$ PCIe MMIO.
+
+\begin{table}[ht]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\caption{Four-phase compiler integration plan.}
+\label{tab:phases}
+\begin{tabular}{@{}c p{3.0cm} p{4.0cm} p{5.0cm}@{}}
+\toprule
+Phase & Timeline & Compiler targets & We provide \\
+\midrule
+0 & now                      & Python + C++ reference models                & Models, ISA, tests on this branch \\
+1 & when ZCU102/104 arrives  & AXI-Lite + AXI-Stream on Zynq UltraScale+    & Vivado bitstream + PYNQ driver \\
+2 & KV / TIU / MHC blocks land & Same AXI, more blocks visible              & Larger Vivado project \\
+3 & post-tape-out (2027+)    & PCIe-attached custom chip                    & TSMC 16FFC silicon + Linux driver \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{Open Questions for the Compiler Team}
+\label{sec:open}
+
+These are in flight; the answers shape the v0.2 reference models.
+
+\begin{enumerate}
+\item \textbf{Compilation granularity.} Does your compiler emit
+      individual matmuls plus a precision-gate op, or does it expect
+      a fused \texttt{flash\_attention(Q, K, V)} op? Affects whether
+      we add a fused-attention reference operation.
+\item \textbf{FP16 bit-exactness.} Do you require bit-exact parity
+      with our hardware's eventual FP16 rounding, or is
+      numerically-close sufficient? See
+      \texttt{mac\_array\_design.pdf} \S\ref{sec:fp16}.
+\item \textbf{Async issue + token model.} Do you want non-blocking
+      matmul issue today (we would add it to v0.2 now), or wait
+      until the RTL exists?
+\item \textbf{Cost-model precision.} Are placeholder cycle counts
+      enough for your scheduler, or do you need post-synthesis
+      numbers?
+\item \textbf{\texttt{THRESHOLD} as a runtime register.} See ISA spec
+      \S9, open question 1.
+\end{enumerate}
+
+We will track answers in the design docs and tag each decision as
+\textbf{frozen} or \textbf{open} so the compiler team knows what
+they can build against.
+
+%==============================================================================
+\section{Verification Summary}
+\label{sec:verif}
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Current verification status, both blocks.}
+\label{tab:verif}
+\begin{tabular}{@{}l l c@{}}
+\toprule
+Block                   & Test                                              & Status \\
+\midrule
+Precision Controller    & 143/143 RTL replay tiles, bit-exact (C++ + Py)    & pass \\
+Precision Controller    & Stateful = batched = stateless                    & pass \\
+Precision Controller    & extern "C" = C++ class                            & pass \\
+Precision Controller    & Canonical edges (spike $=$ 10 / 11)               & pass \\
+MAC Array               & INT8 matmul = naive int64 reference               & pass \\
+MAC Array               & FP16 matmul = naive double reference (within tol) & pass \\
+MAC Array               & Edge cases (zero, identity, signed)               & pass \\
+MAC Array               & extern "C" = C++ class                            & pass \\
+MAC Array               & FP16 round-trip helpers                           & pass \\
+End-to-end              & Integration example routes match ground truth     & 82/18 vs 82/18 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{Next Blocks in the Queue}
+\label{sec:next}
+
+In order of priority for the compiler co-design effort:
+
+\begin{enumerate}
+\item \textbf{Token Importance Unit.} Accumulator + classifier;
+      $\sim$3--4 days once the keep/demote/evict threshold policy
+      is decided.
+\item \textbf{KV Cache Engine.} Codec decided --- \textbf{ChannelQuant}
+      (per-channel INT4 keys / per-token INT4 values + FP16 outlier lane);
+      RTL complete through Sky130 sign-off in the \texttt{kv-cache-engine} repo.
+\item \textbf{Memory Hierarchy Controller.} Thin allocator first,
+      refine when L1 / L2 / off-chip LPDDR5 behavior matters; $\sim$1 week.
+\end{enumerate}
+
+Each follows the same three-language template established by blocks
+1 and 2.
+
+\vspace{0.5in}
+\noindent\rule{\textwidth}{0.4pt}\\
+\noindent\small\textit{This document is the canonical entry point
+for a compiler engineer working with LonghornSilicon. It is
+versioned alongside the reference models in
+\texttt{LonghornSilicon/attention-compute-unit} and updated
+as each new block lands in software.}
+
+\end{document}

@@ -1,0 +1,84 @@
+max_iterations: 60
+checkpoint_interval: 10
+log_level: "INFO"
+
+llm:
+  provider: "claude_code"
+  models:
+    - name: "sonnet"
+      provider: "claude_code"
+      weight: 0.8
+      max_tokens: 16000
+      timeout: 600
+      max_budget_usd: 1.5
+    - name: "haiku"
+      provider: "claude_code"
+      weight: 0.2
+      max_tokens: 8000
+      timeout: 120
+      max_budget_usd: 0.5
+  retries: 3
+  retry_delay: 5
+
+prompt:
+  system_message: >
+    You are an expert in GPU kernel optimization, Triton programming, and attention
+    mechanisms. You are evolving a flash_attention_5 kernel function that computes
+    mixed-precision attention on an NVIDIA RTX A4000 GPU (Ampere, 150 TFLOPS FP16 peak).
+
+    The kernel implements tiled attention with online softmax. The Phase 1 evolution
+    discovered that int8 quantization is optimal for non-outlier blocks, while outlier
+    blocks with peaked attention (low entropy) need fp16. A helper _quantize_int8()
+    is available outside the evolve block.
+
+    Scoring: 60% throughput (TFLOPS/s ÷ 150), 30% accuracy (relative RMSE vs FP32), 10% reliability.
+
+    The baseline is a Python-loop-based tiled implementation (~0.5 TFLOPS). Major
+    optimization opportunities:
+
+    1. VECTORIZE: Replace Python for-loops over blocks with batched torch operations.
+       Reshape Q to (B, H, Tr, BLOCK, d) and process all query blocks in parallel.
+
+    2. TRITON KERNEL: Write a triton.jit kernel for fused tiled attention. This gives
+       10-50x speedup over PyTorch loops. Use triton.language (tl) for block-level
+       loads, matmuls, and reductions. Key pattern:
+       ```
+       @triton.jit
+       def _attn_fwd(Q, K, V, O, ...):
+           # load Q block, iterate over K/V blocks, online softmax, store O
+       ```
+
+    3. BLOCK SIZE TUNING: Try BLOCK sizes 64, 128, 256. Smaller blocks = more parallelism
+       but more overhead. Larger blocks = better data reuse but higher register pressure.
+
+    4. PRECISION SIMPLIFICATION: The outlier detection (computing S, checking stats,
+       recomputing S) doubles the matmul cost. Consider:
+       - Skip outlier detection entirely (use int8 everywhere, ~2% accuracy loss)
+       - Use cheaper proxies (Q/K norms instead of full S computation)
+       - Pre-classify blocks based on input statistics only
+
+    5. MEMORY: Avoid allocating intermediate tensors. Reuse buffers. Minimize
+       GPU<->CPU transfers (avoid .item() calls in hot loops).
+
+    Available imports: torch, math, triton, triton.language (as tl).
+    The function signature is: flash_attention_5(Q, K, V, causal=False) -> O
+    Q, K, V are (B, H, N, d) float32 on GPU. Output O is (B, H, N, d) float32.
+
+    The function must be correct — NaN/Inf outputs get zero score. But a fast
+    kernel with slightly lower accuracy beats a slow kernel with perfect accuracy.
+
+database:
+  population_size: 40
+  archive_size: 15
+  num_islands: 3
+  elite_selection_ratio: 0.2
+  exploitation_ratio: 0.6
+  similarity_threshold: 0.95
+
+evaluator:
+  timeout: 300
+  cascade_thresholds: [0.05]
+  parallel_evaluations: 1
+
+diff_based_evolution: true
+max_code_length: 15000
