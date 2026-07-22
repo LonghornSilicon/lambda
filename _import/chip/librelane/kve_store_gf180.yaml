@@ -1,0 +1,85 @@
+# LibreLane Classic config — KV-store memory tiling hardened with REAL GF180 SRAM.
+#
+# DESIGN: kv_sram (the GF180 SRAM tiling wrapper) — the swappable KV-store memory
+# element. Hardened with 4 placed gf180mcu_fd_ip_sram__sram512x8m8wm1 hard macros
+# (32-bit x 512-word real 6T-SRAM = 512 cached KV records, NOT the depth-2 flop
+# proxy). This closes the "KV storage is flip-flops" gap: the store now lands on
+# real SRAM bitcells — macros placed, power (PDN) connected, routed, DRC/LVS.
+#
+# kv_sram is the same module the kv-cache-engine sram_controller instantiates
+# (behavioral by default; this GF180 view tiles the macro). Hardening it as the
+# top gives the macros a clean top-level power (VDD/VSS) connection. The full
+# 80-bit TIER-0 record tiles more identical banks (wrapper is width-parameterized);
+# 32b / 4 macros keeps the placement grid tractable for this integration.
+
+meta:
+  version: 3
+  flow: Classic
+
+DESIGN_NAME: kv_sram
+PDK: gf180mcuD
+
+VERILOG_FILES:
+  - dir::../rtl/blocks/kve_gf180_sram/kv_sram.sv
+
+SYNTH_PARAMETERS:
+  - DEPTH=512
+  - WIDTH=32
+
+CLOCK_PORT: clk
+CLOCK_NET: clk
+CLOCK_PERIOD: 40
+
+VDD_NETS:
+  - VDD
+GND_NETS:
+  - VSS
+
+FP_SIZING: absolute
+DIE_AREA: [0, 0, 1071.86, 1184.88]
+CORE_AREA: [10, 10, 1061.86, 1174.88]
+PL_TARGET_DENSITY_PCT: 35
+GRT_ALLOW_CONGESTION: true
+PDN_CFG: dir::pdn_cfg_sram.tcl
+
+
+# hard macro: DRC the SRAM as its abstract (LEF/mag), do NOT re-DRC the
+# vendor-signed-off internal bitcell GDS (standard hard-macro handling)
+MAGIC_DRC_USE_GDS: false
+# blackbox the SRAM hard macro during Magic DRC via its maglef abstract — the
+# vendor-signed-off internal geometry (incl. its own sub-min-width power-pin
+# rails) is not re-checked; only the top-level design + PDN is DRC'd.
+MAGIC_DRC_MAGLEFS:
+  - dir::../rtl/blocks/kve_gf180_sram/maglef_drc/gf180mcu_fd_ip_sram__sram512x8m8wm1.mag
+
+MACROS:
+  gf180mcu_fd_ip_sram__sram512x8m8wm1:
+    vh:
+      - dir::../rtl/blocks/kve_gf180_sram/gf180mcu_fd_ip_sram__sram512x8m8wm1__bb.v
+    gds:
+      - /pdk/gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/gds/gf180mcu_fd_ip_sram__sram512x8m8wm1.gds
+    lef:
+      - /pdk/gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/lef/gf180mcu_fd_ip_sram__sram512x8m8wm1.lef
+    lib:
+      "*_tt_025C_5v00":
+        - /pdk/gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.lib
+      "*_ff_n40C_5v50":
+        - /pdk/gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram512x8m8wm1__ff_n40C_5v50.lib
+      "*_ss_125C_4v50":
+        - /pdk/gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram512x8m8wm1__ss_125C_4v50.lib
+    instances:
+      'lane[0].u_bank':
+        location: [60.0, 60.0]
+        orientation: N
+      'lane[1].u_bank':
+        location: [560.0, 60.0]
+        orientation: N
+      'lane[2].u_bank':
+        location: [60.0, 620.0]
+        orientation: N
+      'lane[3].u_bank':
+        location: [560.0, 620.0]
+        orientation: N
+
+PDN_MACRO_CONNECTIONS:
+  - '^lane.*u_bank$ VDD VSS VDD VSS'

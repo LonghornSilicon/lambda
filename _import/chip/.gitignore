@@ -1,0 +1,21 @@
+# LibreLane / OpenLane run outputs
+runs/
+build/
+*.log
+
+# cocotb / iverilog sim artifacts
+tb/sim_build*/
+tb/results.xml
+sim_build*/
+results.xml
+*.vcd
+*.vvp
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# gate-level sim binary
+tb/*.out
