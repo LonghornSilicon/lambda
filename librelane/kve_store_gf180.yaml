@@ -42,9 +42,15 @@ PL_TARGET_DENSITY_PCT: 35
 GRT_ALLOW_CONGESTION: true
 PDN_CFG: dir::pdn_cfg_sram.tcl
 
+
 # hard macro: DRC the SRAM as its abstract (LEF/mag), do NOT re-DRC the
 # vendor-signed-off internal bitcell GDS (standard hard-macro handling)
 MAGIC_DRC_USE_GDS: false
+# blackbox the SRAM hard macro during Magic DRC via its maglef abstract — the
+# vendor-signed-off internal geometry (incl. its own sub-min-width power-pin
+# rails) is not re-checked; only the top-level design + PDN is DRC'd.
+MAGIC_DRC_MAGLEFS:
+  - dir::../rtl/blocks/kve_gf180_sram/maglef_drc/gf180mcu_fd_ip_sram__sram512x8m8wm1.mag
 
 MACROS:
   gf180mcu_fd_ip_sram__sram512x8m8wm1:

@@ -193,14 +193,11 @@ add_pdn_connect \
     -grid macro \
     -layers "$::env(PDN_VERTICAL_LAYER) $::env(PDN_HORIZONTAL_LAYER)"
 
-# --- KVE SRAM macro: bridge the macro power PINS to the vertical straps ---
-# gf180mcu_fd_ip_sram exposes VDD on Metal2 and VSS on Metal1; the default macro
-# grid only connects Metal4<->Metal5, leaving the macro rings unconnected. These
-# connect the pin layers up to the Metal4 vertical straps (via stacks through
-# Metal2/Metal3), so the SRAM power rings tie into the core PDN.
+# --- KVE SRAM macro: connect the macro power PINS to the Metal4 straps ---
+# Connect on Metal3<->Metal4 (single legal Via3): the SRAM power pins fan out to
+# Metal3, so a single Via3 is legal/DRC-clean vs the Via1/Via2 stacks a Metal1/
+# Metal2 connect forces. (One sub-min-width Metal3 pin in the vendor abstract is
+# handled in the Magic-DRC blackbox maglef, not here — see kve_store_gf180.yaml.)
 add_pdn_connect \
     -grid macro \
-    -layers "Metal2 $::env(PDN_VERTICAL_LAYER)"
-add_pdn_connect \
-    -grid macro \
-    -layers "Metal1 $::env(PDN_VERTICAL_LAYER)"
+    -layers "Metal3 $::env(PDN_VERTICAL_LAYER)"

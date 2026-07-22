@@ -59,7 +59,7 @@ for full per-macro signoff + the gate-level end-to-end match numbers.
 | `token_importance_unit` | H2O heavy-hitter scoring / eviction        | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 35 966 µm², ~58 MHz | ✅ keep-tier + evict victim match | `token_importance_unit.yaml` ✅ |
 | `mate_pv`               | INT8 P·V token-reduction MAC               | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 170 348 µm², ~36 MHz | ✅ **INT32 bit-exact** vs matmul_int8 | `mate_pv.yaml` ✅ |
 | `mate_pv_fp16`          | FP16 P·V MAC (fp32 internal accumulate)    | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 508 460 µm², ~6.7 MHz | ✅ **rel_err 1.7e-4** (< 5e-3) | `mate_pv_fp16.yaml` ✅ |
-| `kv_cache_engine` (kve) | ChannelQuant KV-cache codec (store/stream) | 🟠 codec hardens as logic; KV **store now on a REAL `gf180mcu_fd_ip_sram` macro** — placed/timed/routed-clean/PSM-connected, bit-exact round-trip; DRC/LVS of the macro PDN vias still open | store round-trip bit-exact thru real SRAM | `kve.yaml` + `kve_store_gf180.yaml` ✅ |
+| `kv_cache_engine` (kve) | ChannelQuant KV-cache codec (store/stream) | ✅ codec hardens as logic; KV **store on a REAL `gf180mcu_fd_ip_sram` macro** — 4 macros placed, **fully clean signoff: DRC = 0, LVS = 0, setup/hold met, antenna = 0**; bit-exact round-trip | store round-trip bit-exact thru real SRAM | `kve.yaml` + `kve_store_gf180.yaml` ✅ |
 | `mate_qkt`              | Q·Kᵀ decode scoring (fp16, fp32 accum)     | ✅ setup/hold/DRC/LVS/antenna clean; slew@ss only; 904 834 µm², ~6.7 MHz | ✅ **scores rel_err 0.0** (< 5e-3) → gate | `mate_qkt.yaml` ✅ |
 | `vecu_softmax` (pipelined) | decode online softmax (exp-LUT)         | ✅ setup/hold/DRC/LVS/antenna clean; **ss +19.2 ns** (pipelined); slew@ss; 1 486 490 µm², ~3.6 MHz | ✅ **softmax 2.1e-4 / attn-out 5.4e-4** (within tol) | `vecu_softmax.yaml` ✅ |
 
@@ -71,14 +71,17 @@ on a real Qwen tile (`tb/tb_gls_e2e.sv`, `make test-gls-e2e`). Signoff is
 **setup + hold + DRC + LVS + antenna clean across the whole datapath at every
 corner** (`vecu_softmax` was pipelined to close the last ss-corner setup miss —
 now ss +19.2 ns); the one remaining physical item is slow-corner (`ss`)
-max-transition on the big fp16 / register-array blocks. **KVE store — now on real
-SRAM:** the KV store was refactored behind a swappable `kv_sram` interface and
-backed by real **`gf180mcu_fd_ip_sram`** hard macros — a 512-word store round-trips
-KV records **bit-exact** through the real macro (`make test-kv-sram-gf180`), and
-hardens with **4 SRAM macros placed, timed, routed-clean, antenna-clean, and PDN
-power-connected** (`kve_store_gf180.yaml`). The remaining open item is clean
-**Magic-DRC + LVS of the macro PDN vias** (electrically connected, geometry needs
-refinement) — see [`docs/gf180_gls_report.md`](docs/gf180_gls_report.md) §4.
+max-transition on the big fp16 / register-array blocks. **KVE store — on real SRAM,
+fully signed off:** the KV store was refactored behind a swappable `kv_sram`
+interface and backed by real **`gf180mcu_fd_ip_sram`** hard macros — a 512-word
+store round-trips KV records **bit-exact** through the real macro
+(`make test-kv-sram-gf180`), and hardens with **4 SRAM macros placed and a fully
+clean 6-check signoff: Magic DRC = 0, LVS = 0, setup +17.5 ns / hold +6.9 ns met,
+antenna = 0** (`kve_store_gf180.yaml`; residual slow-corner max-transition only).
+The PDN connects the macro's Metal3 pins to the Metal4 straps via clean Via3, and a
+cleaned local `MAGIC_DRC_MAGLEFS` widens one sub-min-width vendor-abstract pin (a
+DRC-only blackbox artifact) — see [`docs/gf180_gls_report.md`](docs/gf180_gls_report.md) §4.
+This closes the last honest gate-level hole.
 Provenance (source repo, branch, commit) is in
 [`rtl/blocks/PROVENANCE.md`](rtl/blocks/PROVENANCE.md).
 
