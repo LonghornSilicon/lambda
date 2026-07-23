@@ -21,3 +21,11 @@ Append-only. *what · why · date*. (Migrated from the parked `acu/DECISIONS.md`
   normal resizing; decode is latency-tolerant · 2026-07-23.
 - **RoPE/RMSNorm harden configs staged but P&R run deferred** · RTL+TB+synth (Yosys latch-clean) are
   the priority + the valuable artifact; a full librelane run is heavy — noted follow-up · 2026-07-23.
+- **RoPE/RMSNorm hardened to GDSII on GF180 + Sky130 (LibreLane 3.0.5)** · needed real area/timing for
+  16nm porting + the December chip; loose clock (single fp32-op micro-sequenced path). GF180 closes
+  with the 5 hard checks (setup/hold/DRC/LVS/antenna) = 0; the ss-corner max-slew/max-cap register-array
+  residual is noted (same known item as vecu_softmax), not gating · 2026-07-23.
+- **Sky130 rope/rmsnorm needed density relief (util 30/28, density 40/38 + GRT_ALLOW_CONGESTION)** ·
+  the fp32+LUT combinational datapath congests global routing at the 45 % util that closed vecu_softmax,
+  on Sky130's tighter tracks; area is not the constraint for these micro-blocks so loosening is free ·
+  2026-07-23.

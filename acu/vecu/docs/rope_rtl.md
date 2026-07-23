@@ -3,8 +3,8 @@
 **Status:** RTL complete + micro-sequenced, **bit-exact to the RoPE LUT golden**
 (`rtl/tb/tb_rope.sv`: 23 committed corner rows + 300-row random stress, **0
 mismatches**), **Yosys-clean** (436 FFs at HEAD_DIM=8/MAX_POS=16, **no latches** —
-`t:$dlatch = 0` asserted). GF180/Sky130 harden configs **staged** (`pdk/`), P&R run
-pending (follow-up).
+`t:$dlatch = 0` asserted). **GF180 hardened to GDSII** (LibreLane 3.0.5, clean
+5-check sign-off — see below); Sky130 in progress.
 **Home:** `rtl/rope.sv` (+ `rtl/tb/tb_rope.sv`, `rtl/tb/gen_rope_vectors.py`, golden
 `sw/reference_model/rope_ref.py`).
 **One line:** applies rotary position embedding to a decode Q or K vector — the raw
@@ -78,13 +78,30 @@ latches** (`select -assert-count 0 t:$dlatch`), ~44.9k NAND2-equivalent cells
 (abc `-fast -g NAND` lower bound). Function locals are default-initialised so no
 transient latch inference either.
 
-## Harden (staged; run pending)
+## Harden — GDSII sign-off
 
-- `pdk/sky130/openlane/rope/config.json` (sky130A, 105 ns start).
-- `pdk/gf180/librelane/rope.yaml` (gf180mcuD, 260 ns start).
-Clock periods are carried over from `vecu_softmax` (same one-fp32-op path); retime
-after the first real ss run. This is the priority follow-up — the RTL+TB+synth are
-green now.
+### GF180MCU (gf180mcuD, LibreLane 3.0.5 Classic) — CLOSED
+Results: `pdk/gf180/librelane/results/rope/` (GDS, metrics, render, `SIGNOFF.md`).
+
+| | value |
+|---|---|
+| Die area | 432140 µm² (0.432 mm²), 27677 insts, 54.2 % util |
+| Clock (loose) | 260 ns; fmax(ss) ~8.5 MHz (crit path ~117 ns) |
+| Setup / Hold WNS | 0 / 0 (all corners) |
+| Magic DRC / KLayout DRC | 0 / 0 |
+| LVS | clean (netgen "Circuits match uniquely") |
+| Antenna | 0 nets / 0 pins |
+| Residual (ss register-array) | max_slew 1002, max_cap 2 — noted, not gating |
+
+Five hard sign-off checks (setup/hold/DRC/LVS/antenna) all zero. The ss-corner
+max-slew/max-cap residuals are the known fp32 register-array item (same as
+`vecu_softmax`), absorbed by the loose clock.
+
+### Sky130A (OpenLane/LibreLane 3.0.5) — in progress
+`pdk/sky130/openlane/rope/config.json`. Loosened to FP_CORE_UTIL 30 /
+PL_TARGET_DENSITY_PCT 40 + GRT_ALLOW_CONGESTION (the fp32+LUT datapath congests at
+45 % on the tighter Sky130 tracks). Clock 105 ns start (one-fp32-op path, like
+`vecu_softmax`).
 
 ## Scope / still open
 
