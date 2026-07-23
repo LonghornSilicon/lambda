@@ -94,14 +94,19 @@ Provenance (source repo, branch, commit) is in
 
 ## Repository layout
 
-> **Note (post-monorepo-import):** the tree below describes the **upstream
-> `chipathon-lambda-acu` repo** it was authored in, not this path. After the curated import,
-> `chip/pdk/gf180/` does **not** contain an `rtl/` directory, and `chip/pdk/gf180/librelane/`
-> holds only `kve.yaml`, `kve_store_gf180.yaml`, `token_importance_unit.yaml`, and
-> `pdn_cfg_sram.tcl`. The five compute-tile GF180 configs (`mate_pv`, `mate_pv_fp16`,
-> `mate_qkt`, `vecu_softmax`, `precision_controller`) live in each block at
-> `acu/<block>/pdk/gf180/librelane/`; the block RTL lives in each block's `rtl/`. The
-> `LibreLane config` column in the table above names the upstream files, not files at this path.
+> **Note (post-monorepo-import + block-major normalization):** the tree below describes the
+> **upstream `chipathon-lambda-acu` repo** it was authored in, not this path. In the monorepo
+> every block owns its PDK hardening **block-major** under `<block>/pdk/gf180/librelane/`, so
+> `chip/pdk/gf180/` holds only the **integration / chip** assets — `PROVENANCE.md`, this
+> `README.md`, `SUBMISSION.md`, `docs/`, `scripts/` (`harden.sh`), and `tb/` (full-chip GLS);
+> it has **no** `rtl/`, `librelane/`, or `kve_gf180_sram/` directory. The per-block GF180
+> configs live at: `kve/pdk/gf180/librelane/{kve,kve_store_gf180}.yaml` (+ the real-SRAM
+> wrapper `kve/pdk/gf180/kve_gf180_sram/` and `pdn_cfg_sram.tcl`),
+> `tiu/pdk/gf180/librelane/token_importance_unit.yaml`, and the five ACU tiles (`mate_pv`,
+> `mate_pv_fp16`, `mate_qkt`, `vecu_softmax`, `precision_controller`) at
+> `acu/<block>/pdk/gf180/librelane/`; each block's RTL lives in its own `rtl/`. `scripts/harden.sh
+> <macro>` locates a block's config by name automatically. The `LibreLane config` column in the
+> table above names the upstream files, not files at this path.
 
 ```
 chipathon-lambda-acu/

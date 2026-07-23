@@ -32,3 +32,14 @@
 - **chip-level content from `architecture` brought as a curated copy** (partial/selective import —
   cosim → `chip/verif/`, key docs → `docs/`), not a subtree · subtree add is whole-tree and this
   was a selective slice · 2026-07-22.
+- **kve/ and tiu/ PDK dirs normalized to the block-major `pdk/{sky130,gf180}/` convention** (match
+  ACU) · every block now has an identical `sw/ rtl/ pdk/ docs/ research/` shape · 2026-07-23.
+  `kve/openlane`→`kve/pdk/sky130/openlane`, `tiu/openlane`→`tiu/pdk/sky130/openlane`; the per-block
+  GF180 configs left in `chip/pdk/gf180/librelane/` moved into their blocks
+  (`kve/pdk/gf180/librelane/{kve,kve_store_gf180}.yaml`+`pdn_cfg_sram.tcl`, the `kve_gf180_sram`
+  real-SRAM wrapper → `kve/pdk/gf180/`, `token_importance_unit.yaml`→`tiu/pdk/gf180/librelane/`).
+  `chip/pdk/gf180/` keeps only integration/chip assets (PROVENANCE/README/SUBMISSION/docs/scripts/tb
+  + `chip/rtl/`). All history-preserving `git mv`; moved-config `VERILOG_FILES` now resolve to the
+  block's own `rtl/` (this also fixed a latent bug: `kve.yaml` had pointed at `chip/verif/blocks/kve/`
+  which was missing kv_cache_engine/sram_controller/kv_sram.sv); `scripts/harden.sh` now locates a
+  block's config by macro name.

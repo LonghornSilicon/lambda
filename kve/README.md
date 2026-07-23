@@ -185,7 +185,9 @@ kv-cache-engine/
 │   │                             #   sim_kpath, sim_top, sim_syn  (+ vendored golden vectors)
 │   ├── constraints/, *.tcl, synth.ys, Makefile
 │   └── KEYPATH_HANDOFF.md, TEARDOWN.md, NOTES pointers
-├── openlane/kv_cache_engine/     # LibreLane / OpenROAD Sky130 flow (+ src/ symlinks)
+├── pdk/                            # PDK hardening (block-major)
+│   ├── sky130/openlane/kv_cache_engine/  # LibreLane / OpenROAD Sky130 flow (+ src/ symlinks)
+│   └── gf180/                       # chipathon shuttle: librelane/{kve,kve_store_gf180}.yaml + kve_gf180_sram/ (real SRAM)
 ├── sw/reference_model/           # channelquant_ref.{hpp,cpp} (ChannelQuant C++ ref) + tests
 ├── docs/                         # ISA spec, reference-model API, sw overview, CI docs
 ├── NOTES.md                      # dated lab notebook (every parity/synth result)
@@ -220,8 +222,8 @@ The retired TurboQuant+ modules (`rotation_unit`, `qjl_unit`, `quantizer`,
 | 2 / 7 / 8 | coverage / paper / Cadence 16FFC | disabled |
 
 **Committed Sky130A sign-off** (LibreLane 3.0.5, PDK `8afc8346`, 9 IPVT corners) lives in
-[`openlane/kv_cache_engine/results/`](openlane/kv_cache_engine/results/) —
-[full report](openlane/kv_cache_engine/results/SIGNOFF.md). Setup, hold, DRC (Magic +
+[`pdk/sky130/openlane/kv_cache_engine/results/`](pdk/sky130/openlane/kv_cache_engine/results/) —
+[full report](pdk/sky130/openlane/kv_cache_engine/results/SIGNOFF.md). Setup, hold, DRC (Magic +
 KLayout), LVS, antenna and power-grid are **all 0 across all 9 corners**. Die **0.236 mm²**
 (core 0.220 mm², 59 % util), ~1.79 mW; implied f_max ~24 MHz (ss) / ~49 MHz (tt) /
 ~78 MHz (ff) at the 100 ns constraint (WNS 0).
@@ -258,7 +260,7 @@ cd ../sw/reference_model && make test-all
 
 # synthesis / Sky130 sign-off:
 cd ../../rtl && yosys -s synth.ys
-cd ../openlane/kv_cache_engine && librelane --docker-no-tty --dockerized config.json
+cd ../pdk/sky130/openlane/kv_cache_engine && librelane --docker-no-tty --dockerized config.json
 ```
 
 End-to-end accuracy on Qwen2 is reproduced from the frozen `../channelquant`

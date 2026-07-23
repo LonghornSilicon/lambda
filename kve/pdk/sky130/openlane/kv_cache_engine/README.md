@@ -16,7 +16,7 @@ carries Yosys 0.62, OpenROAD, Magic, KLayout and Netgen.
 # enable the Sky130A PDK once (ciel manages PDK_ROOT):
 ciel enable --pdk-family sky130 8afc8346a57fe1ab7934ba5a6056ea8b43078e71
 
-cd openlane/kv_cache_engine
+cd pdk/sky130/openlane/kv_cache_engine
 librelane --docker-no-tty --dockerized --pdk sky130A config.json
 ```
 

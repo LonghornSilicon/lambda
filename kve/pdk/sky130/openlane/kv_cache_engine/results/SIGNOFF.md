@@ -93,7 +93,7 @@ area/timing regression. See `../config.json`.
 # enable the Sky130A PDK (once):
 ciel enable --pdk-family sky130 8afc8346a57fe1ab7934ba5a6056ea8b43078e71
 
-cd openlane/kv_cache_engine
+cd pdk/sky130/openlane/kv_cache_engine
 librelane --docker-no-tty --dockerized --pdk sky130A config.json
 # final metrics: runs/<tag>/final/metrics.json ; GDS: runs/<tag>/final/gds/
 ```

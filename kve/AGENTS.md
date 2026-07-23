@@ -25,7 +25,7 @@ make sim_wht_syn    # synthesizable WHT butterfly vs behavioral oracle
 make sim_wht_pathb  # Path-B (store-rotated / unspin-once) bit-exactness
 make synth          # Yosys synth smoke (use the *_syn.sv views — see gotchas)
 # harden (Sky130 flagship sign-off)
-#   librelane openlane/kv_cache_engine/config.json
+#   librelane pdk/sky130/openlane/kv_cache_engine/config.json
 ```
 
 ## Lab-notebook standard — MANDATORY

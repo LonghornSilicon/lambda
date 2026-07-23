@@ -114,7 +114,7 @@ Both `gold` (RTL) and `gate` (post-synth) reads include
 | Step | What it does |
 |---|---|
 | Install `librelane` | `pip install` |
-| Compute config dir | Defaults to `openlane/kv_cache_engine/` |
+| Compute config dir | Defaults to `pdk/sky130/openlane/kv_cache_engine/` |
 | `librelane --docker-no-tty --dockerized --condensed config.json` | Full Sky130 flow |
 | Parse `final/metrics.json` | Extract every violation count |
 
@@ -130,7 +130,7 @@ Both `gold` (RTL) and `gate` (post-synth) reads include
 | `design__power_grid_violation__count` | IR-drop / power-grid integrity |
 
 **Note on source files**: the committed symlinks in
-`openlane/kv_cache_engine/src/` point to `rtl/kv_cache_engine.sv` and
+`pdk/sky130/openlane/kv_cache_engine/src/` point to `rtl/kv_cache_engine.sv` and
 `rtl/sram_controller.sv`. `config.json` uses `"VERILOG_FILES": "dir::src/*.sv"`
 to pick them up. Only Yosys-compatible files are included — sub-modules
 with unpacked array ports will be added once wired into the top-level FSM.

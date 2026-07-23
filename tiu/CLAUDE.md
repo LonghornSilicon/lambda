@@ -22,7 +22,7 @@ make sim            # functional sim
 make sim_realdata   # real-Qwen trace parity
 make synth          # Yosys synth smoke
 # harden
-#   librelane openlane/token_importance_unit/config.json
+#   librelane pdk/sky130/openlane/token_importance_unit/config.json
 ```
 
 ## Lab-notebook standard — MANDATORY

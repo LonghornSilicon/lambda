@@ -1,0 +1,58 @@
+# LibreLane Classic-flow hardening config for the KV-cache engine macro (kve).
+#
+# STATUS: REAL RTL (kv_cache_engine, ChannelQuant KV codec) — signed off on
+# Sky130 in this block's pdk/sky130/openlane/kv_cache_engine. This config
+# re-targets it to GF180MCU for the chipathon multi-macro flow.
+# Ported from that repo's config.json (params + clock kept); CLOCK_PERIOD is a
+# starting point and MUST be re-timed for GF180 (slower node than Sky130).
+#
+# Provenance of the RTL under ../../../rtl/: see
+# ../../../../chip/pdk/gf180/PROVENANCE.md
+
+meta:
+  version: 3
+  flow: Classic
+
+DESIGN_NAME: kv_cache_engine
+
+PDK: gf180mcuD
+
+# Curated SYNTHESIS file set (matches the Sky130 signoff's
+# pdk/sky130/openlane/kv_cache_engine/src). The KVE ships two RTL views:
+# behavioral (cq_fp_pkg.sv/cq_units.sv/wht_*.sv — use `real`/`$fscanf`,
+# sim-only, yosys-incompatible) and synthesis (`*_syn.sv`, real-free). Globbing
+# all of ../../../rtl/*.sv pulls in the behavioral ones and yosys aborts on
+# `real`. This is the synth set only.
+VERILOG_FILES:
+  - dir::../../../rtl/amax_unit.sv
+  - dir::../../../rtl/cq_units_syn.sv
+  - dir::../../../rtl/cq_key_path.sv
+  - dir::../../../rtl/cq_value_path.sv
+  - dir::../../../rtl/scale_bank.sv
+  - dir::../../../rtl/residual_buffer.sv
+  - dir::../../../rtl/sram_controller.sv
+  - dir::../../../rtl/kv_sram.sv          # behavioral KV-store memory (flop proxy)
+  - dir::../../../rtl/kv_cache_engine.sv
+
+# Gate-proxy parameters (small synth footprint), mirroring the Sky130 signoff.
+# NOTE: at SRAM_DEPTH=2 the KV storage (scale_bank/residual_buffer) synthesizes
+# to FLIP-FLOP register arrays, NOT a gf180 SRAM macro. Real capacity
+# (VECTOR_DIM=128, KEY_GROUP=128, deep SRAM_DEPTH) needs gf180mcu_fd_ip_sram
+# macro integration — see docs/gf180_gls_report.md (SRAM boundary).
+SYNTH_PARAMETERS:
+  - SRAM_DEPTH=2
+  - VECTOR_DIM=8
+  - KEY_GROUP=2
+
+CLOCK_PORT: clk
+CLOCK_NET: clk
+CLOCK_PERIOD: 200    # ns — GF180 retime (loose start)
+
+FP_SIZING: relative
+FP_CORE_UTIL: 50
+PL_TARGET_DENSITY_PCT: 60
+
+IO_DELAY_CONSTRAINT: 5
+CLOCK_UNCERTAINTY_CONSTRAINT: 0.1
+PDN_MULTILAYER: false
+GRT_ALLOW_CONGESTION: true

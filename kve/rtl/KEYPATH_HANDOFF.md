@@ -98,7 +98,7 @@ CQ-8 key handling, and get all gates green again. `cq_key_path` is already built
 - **OpenLane has a hard 30-min job cap** in the SHARED `LonghornSilicon/.github`
   `block-ci.yml` — you can't override it from this repo. Full-size D=64/depth-16 P&R
   overruns it (flop-based SRAM, no Sky130 macro). Gate 6 passes as a **proxy** via
-  `openlane/kv_cache_engine/config.json` → `"SYNTH_PARAMETERS":
+  `pdk/sky130/openlane/kv_cache_engine/config.json` → `"SYNTH_PARAMETERS":
   ["SRAM_DEPTH=4","VECTOR_DIM=32"]` (LibreLane-only chparam) + `CLOCK_PERIOD: 100`.
   **Adding the key path grows the design → you may need to shrink the proxy params
   further** to keep routing under the cap (watch DetailedRouting time in the log).
@@ -106,7 +106,7 @@ CQ-8 key handling, and get all gates green again. `cq_key_path` is already built
   change, read the actual from the gate-3 log (sum the `$_*DFF*` cell counts) and set
   `expected-ff-count` in `.github/workflows/ci.yml`.
 - **New RTL files need TWO registrations**: `extra-rtl-sources` in `ci.yml` AND a
-  force-added symlink in `openlane/kv_cache_engine/src/` (the glob is gitignored).
+  force-added symlink in `pdk/sky130/openlane/kv_cache_engine/src/` (the glob is gitignored).
 - **Directed TBs** (`tb_kv_cache_engine`, `tb_realdata`) need long post-stream waits
   (`TOKWAIT ≈ 26·D`) because compress is now multi-cycle — don't use short repeats.
 - **LibreLane** installs via `pip install librelane` (v3.0.4). Introspect any flow

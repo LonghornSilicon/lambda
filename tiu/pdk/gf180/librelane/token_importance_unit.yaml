@@ -1,10 +1,10 @@
 # LibreLane Classic-flow hardening config for the Token Importance Unit macro.
 #
 # STATUS: REAL RTL (token_importance_unit, H2O heavy-hitter eviction core) —
-# signed off on Sky130 in token-importance-unit/openlane/token_importance_unit.
+# signed off on Sky130 in this block's pdk/sky130/openlane/token_importance_unit.
 # Re-targeted to GF180MCU here. Ported from that repo's config.json.
 #
-# Provenance: ../PROVENANCE.md
+# Provenance: ../../../../chip/pdk/gf180/PROVENANCE.md
 
 meta:
   version: 3
@@ -15,7 +15,7 @@ DESIGN_NAME: token_importance_unit
 PDK: gf180mcuD
 
 VERILOG_FILES:
-  - dir::../../../verif/blocks/tiu/token_importance_unit.sv
+  - dir::../../../rtl/token_importance_unit.sv
 
 SYNTH_PARAMETERS:
   - N_SLOTS=4

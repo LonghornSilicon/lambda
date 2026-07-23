@@ -29,15 +29,20 @@ Expected: `TESTS=2 PASS=2`. Requires `cocotb` + `icarus-verilog` on `PATH`.
 
 ## 1. Harden a block as a standalone GF180 macro (LibreLane Classic)
 
-Each `librelane/<macro>.yaml` is a self-contained Classic-flow config pointing at
-the real RTL under `rtl/blocks/`. From the repo root, inside the container:
+Each block owns its GF180 config **block-major** under
+`<block>/pdk/gf180/librelane/<macro>.yaml`, pointing at that block's own `rtl/`.
+The simplest path is `scripts/harden.sh <macro>` (it locates the config by macro
+name anywhere under the worktree, mounts the whole repo, and runs it from the
+config's dir). From the repo root, inside the container, the equivalent explicit
+invocations are:
 
 ```bash
-librelane librelane/mate_pv.yaml            # → runs/.../final/{gds,lef,lib,nl.v}
-librelane librelane/precision_controller.yaml
-librelane librelane/token_importance_unit.yaml
-librelane librelane/kve.yaml
-librelane librelane/mate_pv_fp16.yaml
+librelane acu/mate/pdk/gf180/librelane/mate_pv.yaml       # → runs/.../final/{gds,lef,lib,nl.v}
+librelane acu/precision_controller/pdk/gf180/librelane/precision_controller.yaml
+librelane tiu/pdk/gf180/librelane/token_importance_unit.yaml
+librelane kve/pdk/gf180/librelane/kve.yaml
+librelane kve/pdk/gf180/librelane/kve_store_gf180.yaml    # real gf180 SRAM store
+librelane acu/mate/pdk/gf180/librelane/mate_pv_fp16.yaml
 ```
 
 Each produces a reusable `GDS / LEF / Liberty / .nl.v` view set. Collect them
@@ -94,8 +99,9 @@ Then:
 
 ## Notes
 
-- Do **not** hand-edit `rtl/blocks/**` — those are unmodified copies from the
-  sibling design repos (`rtl/blocks/PROVENANCE.md`). Fix RTL upstream and re-copy.
-- The Sky130 signoff configs the GF180 yamls were ported from live in the sibling
-  repos' `openlane/<block>/config.json` — consult them for the knobs (hold-slack
-  margins, transition/fanout constraints) each block needed to close.
+- The block RTL each GF180 config points at lives in that block's own `rtl/`
+  (`kve/rtl/`, `tiu/rtl/`, `acu/*/rtl/`); provenance of the chip-imported copies
+  is in [`../PROVENANCE.md`](../PROVENANCE.md). Fix RTL in the block, not here.
+- The Sky130 signoff configs the GF180 yamls were ported from live block-major in
+  `<block>/pdk/sky130/openlane/<block>/config.json` — consult them for the knobs
+  (hold-slack margins, transition/fanout constraints) each block needed to close.

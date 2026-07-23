@@ -18,8 +18,8 @@ level on GF180 cells, must produce results matching the reference model —
 
 ## 1. Per-macro GF180 signoff (7 macros)
 
-Hardened standalone (LibreLane Classic, `librelane/<macro>.yaml`,
-`scripts/harden.sh`). Clocks re-timed for GF180 (180 nm — far slower than the
+Hardened standalone (LibreLane Classic, block-major
+`<block>/pdk/gf180/librelane/<macro>.yaml`, via `scripts/harden.sh`). Clocks re-timed for GF180 (180 nm — far slower than the
 Sky130 periods the Stage-1 configs were ported from; the fp16 blocks need the
 loosest clocks).
 
@@ -136,10 +136,11 @@ combinational reconstruct, which is a different module from the full
 
 **`kv_cache_engine` (full KVE) — hardened standalone, but not in the GLS loop:**
 - It **does harden on GF180** (Classic flow completes: setup/hold met, DRC=0,
-  LVS=0, antenna=0; §1), using the **curated synthesis file set** (the sibling
-  repo's `openlane/kv_cache_engine/src` list). The behavioral RTL views
-  (`cq_fp_pkg.sv`, `cq_units.sv`, `wht_*.sv`) use `real`/`$fscanf` and abort
-  yosys — the `*_syn.sv` real-free views are the synthesis set (`librelane/kve.yaml`).
+  LVS=0, antenna=0; §1), using the **curated synthesis file set** (the KVE Sky130
+  signoff's `kve/pdk/sky130/openlane/kv_cache_engine/src` list). The behavioral
+  RTL views (`cq_fp_pkg.sv`, `cq_units.sv`, `wht_*.sv`) use `real`/`$fscanf` and
+  abort yosys — the `*_syn.sv` real-free views are the synthesis set
+  (`kve/pdk/gf180/librelane/kve.yaml`).
 - **SRAM store — now on a REAL GF180 SRAM macro, fully signed off (see §4).** The
   KVE's KV store was previously a flip-flop register array at the `SRAM_DEPTH=2`
   proxy. It is now refactored behind a swappable `kv_sram` memory interface and
@@ -166,7 +167,7 @@ in a wrapper that tiles the hard macro. No functional change — verified no
 regression: `make sim_top` (V + grouped keys thru SRAM, ALL PASS), `make sim`
 (17/17), `make sim_realdata` (ALL PASS).
 
-**GF180 tiling wrapper (chipathon, `rtl/blocks/kve_gf180_sram/kv_sram.sv`):** the
+**GF180 tiling wrapper (chipathon, `kve/pdk/gf180/kve_gf180_sram/kv_sram.sv`):** the
 GF180 open SRAM IP is single-port, synchronous, 512×8 (registered Q). A
 WIDTH-bit × DEPTH-word store is `ceil(WIDTH/8)` byte-lane banks sharing one
 address/control; the KVE FSM writes (ST_STORE) and reads (ST_RLOAD) in distinct
@@ -180,7 +181,7 @@ the hard IP), an **80-bit × 512-word** store (10 banks). Writes KV records, rea
 them back (incl. overwrite) — all **BIT-EXACT** through the real macro protocol.
 So the KV store round-trips through real SRAM, not flip-flops.
 
-**Physical hardening with the macro placed (`librelane/kve_store_gf180.yaml`) —
+**Physical hardening with the macro placed (`kve/pdk/gf180/librelane/kve_store_gf180.yaml`) —
 FULLY CLEAN SIGNOFF:** `kv_sram` hardened as a 32-bit × 512-word store = **4
 placed `gf180mcu_fd_ip_sram__sram512x8m8wm1` hard macros** (2×2 grid), LEF/lib/gds
 from the PDK, a custom `pdn_cfg_sram.tcl` power connection:
@@ -210,7 +211,7 @@ and LVS 6 → **0**.
 the macro. It is an **abstraction artifact**: the vendor's signed-off SRAM *GDS*
 is DRC-clean (and LVS matches), only its pin *abstract* under-represents that rail.
 Magic re-checks the abstract and flags M3.1 ×8 (one pin × 4 macros × 2 edges). Fix:
-a **local cleaned maglef** (`rtl/blocks/kve_gf180_sram/maglef_drc/…mag`) that widens
+a **local cleaned maglef** (`kve/pdk/gf180/kve_gf180_sram/maglef_drc/…mag`) that widens
 that one abstract pin to min-width — used **only** as the `MAGIC_DRC_MAGLEFS`
 blackbox view for DRC (not for LVS or connectivity, both of which use the real
 device view and pass). This is legitimate hard-macro handling — you don't re-DRC

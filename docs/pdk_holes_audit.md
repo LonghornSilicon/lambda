@@ -19,7 +19,7 @@ attention datapath across PDKs. Update it as holes close — do not let it go st
 | `token_importance_unit` | ✅ | ✅ (multi-corner) | ✅ | — | ✅ RTL + GF180 GLS |
 | `mate_qkt` (Q·Kᵀ) | ✅ | ✅ **signed off** 9-corner (DRC/LVS/antenna 0; residual ss slew) | ✅ | — | ✅ RTL + GF180 GLS |
 | `vecu_softmax` | ✅ | ✅ **signed off** 9-corner, 105 ns/9.5 MHz (DRC/LVS/antenna/max-cap 0; residual ss slew) | ✅ (ss fixed) | — | ✅ RTL + GF180 GLS |
-| `kv_cache_engine` (KVE) | ✅ | ✅ **signed off** 9-corner (5/6 clean; ss-corner reset-tree cap/slew tracked) — 0.236 mm², ~24 MHz ss; `SRAM_DEPTH=2` flop proxy [committed in `kve/openlane/kv_cache_engine/results/`, run tag `sky130_signoff`] | ✅ real `gf180mcu_fd_ip_sram` (4 macros); **DRC 0 / LVS 0**, setup +17.5/hold +6.9; bit-exact round-trip + full GLS e2e pass | — | ✅ RTL; GLS via combinational reconstruct |
+| `kv_cache_engine` (KVE) | ✅ | ✅ **signed off** 9-corner (5/6 clean; ss-corner reset-tree cap/slew tracked) — 0.236 mm², ~24 MHz ss; `SRAM_DEPTH=2` flop proxy [committed in `kve/pdk/sky130/openlane/kv_cache_engine/results/`, run tag `sky130_signoff`] | ✅ real `gf180mcu_fd_ip_sram` (4 macros); **DRC 0 / LVS 0**, setup +17.5/hold +6.9; bit-exact round-trip + full GLS e2e pass | — | ✅ RTL; GLS via combinational reconstruct |
 | RoPE | ❌ **no RTL** | — | — | — | reference stand-in (pre-RoPE'd tiles) |
 | RMSNorm | ❌ **no RTL** | — | — | — | reference stand-in |
 | `lambda_acu` top + decode FSM | ❌ **stub only** | — | — | — | testbench-stitched; no integrated top |
@@ -37,7 +37,7 @@ Sky130 sign-offs, so 130nm covers the full datapath (no longer trailing GF180):
    (`acu/vecu/pdk/sky130/openlane/vecu_softmax/`, multi-cycle revision `2c458aa`): 105 ns / 9.5 MHz,
    DRC/LVS/antenna/max-cap 0 (residual ss slew only).
 3. ~~**KVE — no committed Sky130 sign-off.**~~ **RESOLVED 2026-07-21** — Sky130A 9-corner sign-off
-   committed (in `kve/openlane/kv_cache_engine/results/`, run tag `sky130_signoff`): setup/hold/DRC/LVS/antenna
+   committed (in `kve/pdk/sky130/openlane/kv_cache_engine/results/`, run tag `sky130_signoff`): setup/hold/DRC/LVS/antenna
    all 0; residual **max-cap 5 + max-slew 1503 at the ss corner only**, from the high-fanout async
    `rst_n` tree over the ~1500-flop array (functionally clean — async reset, recovery/removal +90 ns;
    it's the tracked ss-corner physical-opt item, reset-tree buffering). Also fixed a real config bug

@@ -1,6 +1,6 @@
 # Token Importance Unit — Sky130 Physical Sign-off
 
-LibreLane 3.0.5 / OpenROAD, sky130A HD. Config: `openlane/token_importance_unit/config.json`.
+LibreLane 3.0.5 / OpenROAD, sky130A HD. Config: `pdk/sky130/openlane/token_importance_unit/config.json`.
 
 ## ✅ 0-violation sign-off
 
@@ -17,7 +17,7 @@ LibreLane 3.0.5 / OpenROAD, sky130A HD. Config: `openlane/token_importance_unit/
 | Antenna violations | **0** |
 
 Die 15072 µm² (core 11272 µm²), ~660 µW (0.66 mW), 2404 cells (642 std cells). GDS/DEF/LEF/LIB in `runs/*/final/`; curated
-signoff metrics + layout render in `openlane/token_importance_unit/results/`.
+signoff metrics + layout render in `pdk/sky130/openlane/token_importance_unit/results/`.
 
 ## What it took (748 → 0 violations)
 
@@ -49,6 +49,6 @@ per-instantiation. FF count: 95 @ N_SLOTS=8 (real), 55 @ N_SLOTS=4 (proxy, seque
 ## Reproduce
 
 ```sh
-cd openlane/token_importance_unit
+cd pdk/sky130/openlane/token_importance_unit
 librelane --docker-no-tty --dockerized config.json
 ```
