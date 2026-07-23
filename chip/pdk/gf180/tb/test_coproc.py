@@ -21,7 +21,7 @@ import numpy as np
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge
 
-D = 8            # value channels per token (must match chip_core_kv.sv)
+D = 4            # value channels per token (must match chip_core_kv.sv)
 L = 4            # cache slots / tokens
 
 SCLK, CS_N, MOSI = 0, 1, 2

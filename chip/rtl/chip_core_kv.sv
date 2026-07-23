@@ -55,7 +55,7 @@ module chip_core #(
     wire [NUM_BIDIR_PADS-1:0] obs_out;
 
     lambda_kv_coproc #(
-        .D          (8),    // value channels per token (WHT dim)
+        .D          (4),    // value channels per token (WHT dim)
         .L          (4),    // cache slots / tokens per compress step
         .ADDR_WIDTH (16),
         .NUM_BIDIR  (NUM_BIDIR_PADS)
