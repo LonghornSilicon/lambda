@@ -20,7 +20,7 @@ DESIGN_NAME: kv_sram
 PDK: gf180mcuD
 
 VERILOG_FILES:
-  - dir::../rtl/blocks/kve_gf180_sram/kv_sram.sv
+  - dir::../kve_gf180_sram/kv_sram.sv
 
 SYNTH_PARAMETERS:
   - DEPTH=512
@@ -50,12 +50,12 @@ MAGIC_DRC_USE_GDS: false
 # vendor-signed-off internal geometry (incl. its own sub-min-width power-pin
 # rails) is not re-checked; only the top-level design + PDN is DRC'd.
 MAGIC_DRC_MAGLEFS:
-  - dir::../rtl/blocks/kve_gf180_sram/maglef_drc/gf180mcu_fd_ip_sram__sram512x8m8wm1.mag
+  - dir::../kve_gf180_sram/maglef_drc/gf180mcu_fd_ip_sram__sram512x8m8wm1.mag
 
 MACROS:
   gf180mcu_fd_ip_sram__sram512x8m8wm1:
     vh:
-      - dir::../rtl/blocks/kve_gf180_sram/gf180mcu_fd_ip_sram__sram512x8m8wm1__bb.v
+      - dir::../kve_gf180_sram/gf180mcu_fd_ip_sram__sram512x8m8wm1__bb.v
     gds:
       - /pdk/gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/gds/gf180mcu_fd_ip_sram__sram512x8m8wm1.gds
     lef:

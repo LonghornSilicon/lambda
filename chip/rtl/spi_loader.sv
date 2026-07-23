@@ -79,7 +79,8 @@ module spi_loader #(
     output reg                      start,        // pulse: run one decode step
     output reg  [1:0]               precision_sel,// CTRL[2:1] mirror (mode bits)
     input  wire                     busy,         // datapath asserts while running
-    input  wire                     done          // datapath pulses on completion
+    input  wire                     done,         // datapath pulses on completion
+    input  wire [7:0]               status_in     // full STATUS byte (from lambda_acu)
 );
 
     // ---------------- CDC: sample the serial inputs -------------------------
@@ -159,6 +160,14 @@ module spi_loader #(
             bus_re <= 1'b0;
             start  <= 1'b0;
 
+            // POST-ACCESS auto-increment. bus_we/bus_re are high the cycle AFTER
+            // each byte_ready, while bus_addr still equals the accessed address —
+            // so the fabric write/read targets that address this cycle, and the
+            // pointer advances for the next byte. (Incrementing in the same
+            // byte_ready cycle that sets the strobe would land the byte one
+            // address too high, since both take effect on the same edge.)
+            if (bus_we || bus_re) bus_addr <= bus_addr + 1'b1;
+
             if (cs_start) begin
                 state <= S_CMD;             // new frame
             end else if (byte_ready) begin
@@ -179,9 +188,8 @@ module spi_loader #(
                     S_ADRL: begin
                         bus_addr[7:0] <= rx_shift;
                         state         <= S_DATA;
-                        // Pre-issue a read for the first byte on a READ frame.
-                        if (cmd_r == CMD_READ)
-                            bus_re <= 1'b1;
+                        // (no read pre-issue: the MISO shifter reloads from the
+                        //  current bus_addr one cycle after each byte boundary)
                     end
                     S_DATA: begin
                         if (cmd_r == CMD_WRITE) begin
@@ -202,7 +210,7 @@ module spi_loader #(
                         end else if (cmd_r == CMD_READ) begin
                             bus_re <= 1'b1;  // request next byte
                         end
-                        bus_addr <= bus_addr + 1'b1; // auto-increment
+                        // (address advances via the post-access increment above)
                     end
                     default: state <= S_CMD;
                 endcase
@@ -210,32 +218,23 @@ module spi_loader #(
         end
     end
 
-    // ---------------- MISO shift-out (reads) --------------------------------
-    // On READ / STATUS frames, shift the response byte out MSB-first, changing
-    // MISO on the sclk falling edge so the host samples it on the rising edge.
-    // TODO: this is a minimal read path; latency vs. bus_rdata is not yet
-    // pipelined against the host's byte cadence — tighten when OUT streaming
-    // is wired to the real result buffer.
-    wire sclk_fall = (sclk_sync[2:1] == 2'b10);
-    reg [7:0] tx_shift;
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            tx_shift <= 8'd0;
-            spi_miso <= 1'b0;
-        end else begin
-            if (byte_ready && state == S_CMD && rx_shift == CMD_STATUS)
-                tx_shift <= {5'd0, 1'b0, done, busy};
-            else if (bus_re)
-                tx_shift <= bus_rdata;      // load response
-            else if (sclk_fall && cs_active)
-                tx_shift <= {tx_shift[6:0], 1'b0};
-            spi_miso <= tx_shift[7];
-        end
-    end
+    // ---------------- MISO response (reads / status) ------------------------
+    // MSB-first serial response, SPI mode 0. The response byte is stable for the
+    // whole byte (the fabric read data at the current bus_addr, which advances
+    // only at byte boundaries via the post-access increment; or the STATUS
+    // register for CMD_STATUS). We drive MISO COMBINATIONALLY as bit (7-bit_cnt)
+    // of that byte — MSB first — so it is valid the instant the host raises sclk,
+    // before the (oversampled, ~2-clk) rising-edge detect advances bit_cnt. The
+    // host samples MISO early in the high phase. No shift register, no reload
+    // race: the byte address and the bit index fully determine MISO.
+    //
+    //   response byte = STATUS register (CMD_STATUS) or the fabric read data.
+    wire [7:0] resp_byte = (cmd_r == CMD_STATUS) ? status_in : bus_rdata;
+    always @* spi_miso = cs_active ? resp_byte[3'd7 - bit_cnt] : 1'b0;
 
     // keep unused width-derived signals from being pruned in lint
     logic _unused;
-    assign _unused = &{1'b0, csr_seq_len, csr_head_dim, cs_active};
+    assign _unused = &{1'b0, csr_seq_len, csr_head_dim};
 
 endmodule
 

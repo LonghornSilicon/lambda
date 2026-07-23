@@ -12,13 +12,17 @@ the workshop padring.
   chipathon-2026 workshop padring.
 - **Verification:** cocotb (Python), RTL and gate-level against gf180 cells.
 
-> **Status: honest skeleton.** The submission *harness* (workshop-slot
-> `chip_core`, serial host loader, per-macro LibreLane configs, cocotb harness)
-> is real and the smoke test passes. **All seven datapath macros now have real RTL,
-> are GF180-hardened, and gate-level end-to-end verified** (see [Block → macro
-> mapping](#block--macro-mapping) and `docs/gf180_gls_report.md`); they are also
-> Sky130-signed. The remaining skeleton is the **padring / full-chip assembly**, not the
-> block RTL. See [What's still needed](#whats-still-needed). Every remaining stub is marked `TODO`.
+> **Status: assembled + functionally verified; full-chip GDS in progress.**
+> `lambda_acu.sv` now **wires all seven macros into one decode-step FSM**, driven
+> by the SPI loader, and a **full-chip cocotb sim** (`tb/test_fullchip.py`)
+> streams Q/K/V in over SPI, runs one decode attention pass, and checks the
+> streamed-out fp32 result: scores + softmax weights **bit-match** the reference,
+> the assembled attention row matches to **5e-4** over the reconstructed values,
+> and the SPI-streamed OUT is **bit-identical** to the on-chip result. The
+> per-macro GF180 LibreLane flow closes (TIU re-hardened here to GDS, fully clean
+> signoff). The **full-chip padring GDS** is wired and drives into synthesis but
+> does not yet close — see **[`SUBMISSION.md`](SUBMISSION.md)** for the design
+> doc, verified numbers, and the exact remaining blocker + punch-list.
 
 ---
 
