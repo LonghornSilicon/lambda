@@ -183,7 +183,7 @@ yosys elaborates both with **0 `real`, 0 inferred latches, 0 CHECK problems**.
 `lambda_acu.sv` selects them under `` `ifdef LAMBDA_SYN_KVE `` (default stays
 behavioral for the RTL sim oracle; the full-chip build defines it).
 
-### 5c. Full-chip padring assembly — the flat blocker is gone; it now synthesizes
+### 5c. Full-chip padring assembly — synthesizes AND runs through PnR
 
 Integration into `Mauricio-xx/chipathon-2026-gf180mcu-padring` (workshop slot,
 die 2935×2935 µm, core 2051×2051 µm) via `scripts/submit.sh` +
@@ -193,50 +193,72 @@ KVE `*_syn`** path are added to `VERILOG_FILES`; `SLOT=workshop make librelane`
 runs the LibreLane 3.0.5 **Chip** flow against the wafer.space GF180 PDK
 (`wafer-space/gf180mcu @ 1.8.0`, fetched — ships the `ws_io`/`ws_ip` cells).
 
-Executed on the node: the Chip flow **resolves the workshop padring, passes
-run-setup + lint (0 lint errors, 0 timing-lint errors), slang-elaborates the
-whole chip_top→chip_core→lambda_acu hierarchy (0 errors), and yosys synthesizes
-it** — the KVE `*_syn` value path (`u_kve`, `u_inv`) appears in the synthesized
-hierarchy. **Both prior blockers (PDK variant, behavioral KVE `real`) are now
-resolved.**
+The flow **resolves the workshop padring, passes lint (0 errors), slang-
+elaborates chip_top→chip_core→lambda_acu (0 errors), yosys-synthesizes it (KVE
+`*_syn` value path in-hierarchy), floorplans, connects PDN, places, runs CTS,
+and routes**. Both prior blockers (PDK variant, behavioral KVE `real`) are
+resolved. Three integration fixes were needed to drive the Chip flow this far,
+all committed:
 
-## 6. Physical implementation status — the honest remaining gap
+1. **Undriven `tiu_thr`** — the H2O keep-tier threshold in `lambda_acu` was
+   assigned only in the async-reset branch, so post-`proc` its 8-bit wire had no
+   driver → `Checker.YosysSynthChecks` 8 errors. Made a `wire = 8'd48`.
+2. **`SYNTH_HIERARCHY_MODE: keep`** — the flat fp16 datapath makes yosys' SAT
+   `SHARE` pass non-converging when flattened up front; `keep` synthesizes
+   per-module (bounded) AND preserves every instance path. The latter matters:
+   `flatten`/`deferred_flatten` rename the padring's generate-loop pad instances
+   (`dvdd_pads[i].pad`, …) and OpenROAD's power global-connect then fails
+   (`add_global_connections failed for dvdd_pads[0].pad/DVDD`). `keep` fixes both.
+3. **Decorative macros dropped** — the fork's port-less `gf180mcu_ws_ip__id`/
+   `__logo` (the template calls the logo "can be removed") were opt-cleaned out of
+   the netlist, aborting manual macro placement; `submit.sh` comments their two
+   instantiations out and the config places **no** user macros.
 
-**Closed:** end-to-end functional sim (§4); **all eight** block macros GF180
-Classic-clean signoff → GDS/LEF (§5a); KVE synthesizable lowering, bit-exact
-(§5b); the full-chip Chip flow elaborates + synthesizes clean (§5c).
+### Tile sizing for the fixed workshop core
 
-**Not yet closed — the final full-chip GDS.** The remaining blocker is now
-**physical fit, not synthesizability**:
+`lambda_acu` is a *flat* fp16 datapath; fp16/fp32 arithmetic carries a large
+FIXED cost on GF180, so the synthesized instance count barely shrinks with the
+tile and the declared `Dh=16,L=8` is far too big. Measured OpenROAD floorplan
+utilizations in the fixed 4.21 mm² core (`FP_SIZING` absolute):
 
-- **Area / density.** `lambda_acu` at the declared tile (`Dh=16, L=8`) is a
-  large *flat* fp16 datapath. Summing the synthesized blocks at those exact
-  instantiation sizes — `vecu_softmax` N=8 = 1.64 mm², `mate_qkt` N=8 = 0.90 mm²,
-  `mate_pv_fp16` N=16 ≈ 2.0 mm², `mate_pv` N=16 ≈ 0.7 mm², plus the KVE WHT
-  value path, TIU, precision gate, SPI + the 4×(L·Dh) fp16 stream buffers —
-  gives **≈ 6 mm² of cell area**, against a **workshop CORE_AREA of 2051×2051 =
-  4.21 mm²**. That is ~140 % placement density: the declared tile **does not fit
-  the fixed workshop core** and global placement cannot legalize it.
-- **Note on the hardened macros vs a drop-in hierarchical flow.** The eight
-  macros are hardened at *proxy* parameters (`mate_pv`/`mate_pv_fp16` N=4,
-  `token_importance_unit` N_SLOTS=4, `precision_controller` defaults) that do
-  **not** match `lambda_acu`'s instantiation sizes (N=16 / N_SLOTS=8 / BLOCK 2×4),
-  so a hardened macro cannot be dropped straight into the padring. The full chip
-  therefore uses **flat** synthesis (each block elaborated at its real size); the
-  per-macro GDS/LEF stand as standalone-closure proof.
+| tile | instances | effective utilization |
+|------|----------:|----------------------:|
+| Dh=16, L=8 | (≈6 mm² est, summed blocks) | ~140 % — will not place |
+| Dh=8, L=4  | 130 254 | 113.9 % — overfull |
+| Dh=4, L=2  | 78 975  | 88.5 % |
+| **Dh=2, L=2** | **60 029** | **85.2 %** |
 
-**Punch-list to a closed full-chip GDS (in priority order):**
+The chip is built at **Dh=2, L=2** (the two constants in `chip_core.sv`; the SPI
+protocol and FSM are size-agnostic). It is **re-verified functionally at this
+size** — `make -C chip/pdk/gf180/tb test-fullchip` PASSES: Q·Kᵀ scores and
+softmax weights read from the chip bit-match the reference, the assembled
+datapath attention matches attention over V̂ to **rel err 3e-4**, and the
+SPI-streamed OUT row is **bit-identical** to the on-chip `out_buf`.
 
-1. **Shrink the decode tile to fit** — instantiate `lambda_acu` at `Dh=8, L=4`
-   in `chip_core.sv` (≈ 1.5–2 mm², fits 4.21 mm² at routable density). The core
-   is fully parameterized and the SPI protocol is size-agnostic; only the two
-   constants in `chip_core.sv` change. This is the fastest path to a real
-   full-chip GDS and is the recommended shuttle configuration.
-2. **Or re-harden the six compute macros at the matched sizes** (N=16 / N_SLOTS=8)
-   and place them as hard macros with `PDN_MACRO_CONNECTIONS` (hierarchical) —
-   but the summed macro area still exceeds the workshop core at `Dh=16`, so this
-   also needs either the smaller tile or a larger die slot.
-3. **Then** run PnR to close DRC/LVS/antenna at the full-chip level (multi-hour).
+## 6. Physical implementation status
+
+**Closed:** end-to-end functional sim at Dh=16 *and* Dh=2 (§4/§5c); **all eight**
+block macros GF180 Classic-clean signoff → GDS/LEF (§5a); KVE synthesizable
+lowering, bit-exact (§5b); the full-chip Chip flow synthesizes, floorplans,
+connects power, places, and runs CTS + routing at the workshop core (§5c).
+
+**Full-chip signoff status (Dh=2/L=2):** _<FILL: PnR is multi-hour at 85.2 %
+utilization; record here the Detailed-Routing DRC / Magic DRC / Netgen LVS /
+antenna outcome + the final `final/gds/chip_top.gds`, or the exact routing
+overflow if 85 % proves too congested>_. The design reaches routing; 85 %
+utilization is tight for the GF180 fp16 datapath, so the closing risk is routing
+congestion (global-placement reported ~1.25 % overflowed tiles / "could not reach
+target"), not any earlier flow step.
+
+**If 85 % is too congested to route clean**, the only remaining lever is more core
+area than the fixed workshop slot gives (the fp16 datapath does not shrink further
+in a meaningful tile): request/assemble into a larger die slot, or harden the six
+compute blocks as macros at these Dh=2/L=2 sizes and place them hierarchically with
+their own denser internal routing. The synthesizable-lowering + integration work
+(§5b/§5c) is the reusable result; the fit is a slot-area trade.
+
+**Reproduce the closing run:** `chip/pdk/gf180/scripts/submit.sh` (Dh=2/L=2 is
+already set in `chip_core.sv`).
 
 ## 7. Reproduce
 
