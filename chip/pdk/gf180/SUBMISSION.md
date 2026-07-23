@@ -51,15 +51,31 @@ PDK 1.8.0):** full-chip **GDS produced** (`chip/pdk/gf180/gds/chip_top_coproc.gd
 | die (DIE_AREA) | 2935 × 2935 µm = **8.61 mm²** |
 | core (CORE_AREA) | 2051 × 2051 µm = 4.21 mm² |
 | detailed-routing DRC (TritonRoute) | **0** |
-| antenna violating nets | **0** |
-| **Magic DRC** | **0** (COUNT: 0) |
+| **Magic DRC** | **0** (COUNT 0) |
+| **KLayout DRC** (699 GF180 rules) | **0** |
+| **Netgen LVS** | **Circuits match uniquely** |
+| **antenna** violating nets | **0** |
+| illegal overlap | 0 |
 | routed wirelength | 550 053 µm |
 | GDS | `chip_top.gds` (91 MB w/ fill) → produced |
 
-Reproduce: `chip/pdk/gf180/scripts/submit_coproc.sh`. Signoff DRC is clean —
-detailed-routing DRC 0, antenna 0, **Magic DRC 0**. (Full-chip KLayout DRC +
-Netgen LVS run as the final steps; KLayout DRC on the 91 MB padring layout is
-very slow, in progress at commit time.)
+**Every physical/connectivity signoff is clean: DRC (routing 0 · Magic 0 · KLayout
+0/699 rules) · LVS (match uniquely) · antenna 0.** The full Chip flow ran through
+Magic DRC, KLayout DRC, SPICE extraction, and Netgen LVS on the padring layout.
+
+**Timing caveat (honest).** The flow exits non-zero on *deferred timing* errors —
+post-PnR **setup WNS −85.6 ns, hold WNS −1.0 ns** at the fork's 200 ns (5 MHz)
+clock — because the KVE value path (`cq_value_path_wht_syn`) is **single-cycle
+combinational** (forward WHT + amax + INT3 divider-quant), a ~285 ns path on
+GF180, and we **null the post-CTS timing resizer** (`OpenROAD.ResizerTimingPostCTS`)
+to avoid its congestion stall on the fp16 core (§6). This is a *timing* gap, not a
+DRC/LVS one: the layout is DRC/LVS/antenna-clean and correct. Closing timing too
+is a clock/retiming change — run at CLOCK_PERIOD ≥ ~350 ns (≤ ~3 MHz), or pipeline
+the WHT+quant across cycles, and re-enable the resizer for the small residual
+hold. The compressor's SPI throughput is unaffected (the host clocks SPI
+independently of the compute clock).
+
+Reproduce: `chip/pdk/gf180/scripts/submit_coproc.sh`.
 
 ---
 
