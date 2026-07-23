@@ -106,6 +106,14 @@ Regenerated 2026-07-21 on real Qwen2 (GPU, both rows reproduced; 1.5B matches th
 
 Both tiers clear the ≤0.02 acceptance gate (C12′, `../channelquant` spec §7) at **~4 bits/value
 (≈3.8× KV compression)** (bits/value = `eff_bits(G=128, D, k=2)`, HW_CONTRACT §6; ≈3.8× = 16 ÷ ~4.2).
+
+> **Note — two eval harnesses, same conclusion.** The absolute FP16 baselines above (0.426 / 0.522)
+> come from the `c23_headline.py` harness. A second harness — the CQ+APA end-to-end bridge (a
+> different `lm_eval` version/subset, also n=1000 HellaSwag) — reports higher absolute baselines
+> (~**0.489 / 0.590**), and some analysis docs (`analysis/WHT_INTEGRATION_FINDINGS.md`,
+> `docs/rtl_vs_qwen_validation.md`) quote those. Neither is wrong; they are different measurement
+> pipelines. The reported metric is the **Δ vs FP16**, which is consistent (within the ≤0.02 gate)
+> across both — do not "reconcile" the absolute numbers by overwriting one pipeline with the other.
 **The CQ-4+ FP16-outlier lane earns its keep only at D=128** (1.5B: 0.517 vs CQ-4's 0.505, Δ+0.012,
 McNemar p=0.088); at **D=64 (0.5B) it slightly hurts** (0.415 vs CQ-4's 0.421, Δ−0.006, p=0.50), so
 plain CQ-4 is the better value tier on the smaller model. The best tier per model lands within
