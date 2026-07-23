@@ -20,7 +20,7 @@ DESIGN_NAME: mate_qkt
 PDK: gf180mcuD
 
 VERILOG_FILES:
-  - dir::../rtl/blocks/mate_qkt.sv
+  - dir::../../../rtl/mate_qkt.sv
 
 SYNTH_PARAMETERS:
   - N=8               # keys scored in parallel (= score-row length / token count)

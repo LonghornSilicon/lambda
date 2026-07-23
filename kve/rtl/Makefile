@@ -21,7 +21,7 @@ SIM_SYN_BIN := $(TB_DIR)/tb_cq_syn.out
 
 SIM_QWEN_BIN := $(TB_DIR)/tb_qwen_validate.out
 
-.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top sim_syn sim_qwen sim_qwen_grid sim_wht sim_wht_syn sim_wht_pathb testvectors clean
+.PHONY: all sim sim_realdata sim_cq sim_amax sim_vpath sim_kpath sim_top sim_syn sim_qwen sim_qwen_grid sim_wht sim_wht_syn sim_wht_pathb sim_wht_pathb_syn testvectors clean
 
 # WHT-rotated INT3 value path (branch wht-turboquant-values): cq_wht_value (forward WHT +
 # amax + INT3 + dequant + inverse WHT + x1/D) vs the C++/numpy reference V̂ on real Qwen,
@@ -107,6 +107,18 @@ sim_wht_pathb:
 	$(VVP) $(TB_DIR)/tb_pathb64.out  +TVDIR=tb/testvectors/qwen/g05b/multi
 	$(IVERILOG) -g2012 -DQD=128 -I. -o $(TB_DIR)/tb_pathb128.out cq_fp_pkg.sv cq_units.sv wht_unit.sv wht_inverse_out.sv cq_value_path_wht.sv $(TB_DIR)/tb_wht_pathb.sv
 	$(VVP) $(TB_DIR)/tb_pathb128.out +TVDIR=tb/testvectors/qwen/g15b/multi
+
+# Path B, SYNTHESIZABLE lowering: cq_value_path_wht_syn -> wht_inverse_out_syn (no `real`,
+# on wht_unit_syn/cq_units_syn/fp16_addsub_syn) == the reference V̂, bit-exact. This is the
+# hardware the GF180 full-chip build synthesizes (lambda_acu `ifdef LAMBDA_SYN_KVE). The
+# behavioral cq_value_path_wht/wht_inverse_out are compiled in only as the sim oracle deps.
+# NOTE: the fp16 bit-emulation makes this ~100x slower than the behavioral run in Icarus —
+# D=64 (80 tokens, 5120 elems) takes ~10 min; expect it. Result: 5120/5120 bit-exact.
+sim_wht_pathb_syn:
+	$(IVERILOG) -g2012 -DQD=64  -I. -o $(TB_DIR)/tb_pathbsyn64.out  cq_fp_pkg.sv cq_units.sv cq_units_syn.sv wht_unit.sv wht_unit_syn.sv fp16_addsub_syn.sv wht_inverse_out.sv cq_value_path_wht.sv cq_value_path_wht_syn.sv wht_inverse_out_syn.sv $(TB_DIR)/tb_wht_pathb_syn.sv
+	$(VVP) $(TB_DIR)/tb_pathbsyn64.out  +TVDIR=tb/testvectors/qwen/g05b/multi
+	$(IVERILOG) -g2012 -DQD=128 -I. -o $(TB_DIR)/tb_pathbsyn128.out cq_fp_pkg.sv cq_units.sv cq_units_syn.sv wht_unit.sv wht_unit_syn.sv fp16_addsub_syn.sv wht_inverse_out.sv cq_value_path_wht.sv cq_value_path_wht_syn.sv wht_inverse_out_syn.sv $(TB_DIR)/tb_wht_pathb_syn.sv
+	$(VVP) $(TB_DIR)/tb_pathbsyn128.out +TVDIR=tb/testvectors/qwen/g15b/multi
 
 # Streaming KEY-path parity vs golden (per-channel scales + INT4 payload + K_hat
 # + sidecar). Exercises residual_buffer + amax_unit + scale_bank + cq cores.

@@ -170,7 +170,16 @@ module lambda_acu #(
     wire [15:0]      kve_scale;
     wire [IDXW-1:0]  kve_didx;   // driven combinationally by the KVE channel index
     wire [15:0]      kve_drot;
+    // LAMBDA_SYN_KVE selects the SYNTHESIZABLE KVE value-path lowering (*_syn,
+    // bit-exact vs the behavioral `real`-math oracle — kve/rtl/tb/tb_wht_pathb_syn.sv).
+    // The full-chip GF180 build (chip/pdk/gf180/librelane/config_fullchip.yaml)
+    // defines it so yosys can synthesize the KVE; RTL sims leave it undefined and
+    // keep the behavioral reference. Ports are identical either way.
+`ifdef LAMBDA_SYN_KVE
+    cq_value_path_wht_syn #(.D(DH), .DW(16)) u_kve (
+`else
     cq_value_path_wht #(.D(DH), .DW(16)) u_kve (
+`endif
         .in_vec    (kve_in),
         .out_codes (kve_codes),
         .out_scale (kve_scale),
@@ -182,7 +191,11 @@ module lambda_acu #(
     // ---- KVE: inverse WHT on the P·V output (rotation undone once) ----
     reg  [DH*16-1:0] inv_rot_in;
     wire [DH*32-1:0] inv_vhat;
+`ifdef LAMBDA_SYN_KVE
+    wht_inverse_out_syn #(.D(DH), .DW(16)) u_inv (
+`else
     wht_inverse_out #(.D(DH), .DW(16)) u_inv (
+`endif
         .rot_out (inv_rot_in),
         .vhat_out(inv_vhat));
 

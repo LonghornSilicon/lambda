@@ -17,7 +17,7 @@ DESIGN_NAME: mate_pv_fp16
 PDK: gf180mcuD
 
 VERILOG_FILES:
-  - dir::../rtl/blocks/mate_pv_fp16.sv
+  - dir::../../../rtl/mate_pv_fp16.sv
 
 SYNTH_PARAMETERS:
   - N=4               # head-dim lanes (proxy; real target N=128)

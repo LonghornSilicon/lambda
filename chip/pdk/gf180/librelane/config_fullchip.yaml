@@ -1,0 +1,187 @@
+# config_fullchip.yaml — Lambda ACU full-chip integration into the Chipathon
+# 2026 GF180MCU workshop padring (fork: Mauricio-xx/chipathon-2026-gf180mcu-padring).
+#
+# This is the fork's librelane/config.yaml with the Lambda ACU dropped in as the
+# core. It is meant to REPLACE the fork's librelane/config.yaml for the workshop
+# slot (`SLOT=workshop`). scripts/submit.sh copies our RTL into <fork>/src/ and
+# this config alongside, then runs the fork's `librelane` target.
+#
+# FLOW CHOICE — FLAT core synthesis (see chip/pdk/gf180/SUBMISSION.md §6).
+#   lambda_acu (our decode-attention core) is synthesized FLAT inside the padring
+#   Chip flow: every compute block (mate_qkt / mate_pv / mate_pv_fp16 /
+#   vecu_softmax / precision_controller / token_importance_unit) plus the KVE
+#   value path is synthesizable RTL and is elaborated at the EXACT parameters
+#   lambda_acu instantiates (Dh=16, L=8). We deliberately do NOT place the
+#   per-block hardened macros here: they were hardened at PROXY parameters
+#   (mate_pv/mate_pv_fp16 N=4, token_importance_unit N_SLOTS=4, precision_controller
+#   defaults) that do NOT match lambda_acu's instantiation sizes (N=16 / N_SLOTS=8 /
+#   BLOCK 2x4), so a hard macro cannot be dropped in as-is. The per-block macro
+#   GDS/LEF (kve/tiu/acu .../runs/) stand as standalone GF180 closure proof; the
+#   full chip uses flat synthesis so each block lands at the right size.
+#
+#   The ONLY reason the flat flow ever failed was the behavioral KVE value-path
+#   (`cq_value_path_wht` / `wht_inverse_out`) using SystemVerilog `real`. This
+#   config uses the SYNTHESIZABLE lowering (`*_syn`, bit-exact vs the behavioral
+#   oracle — see kve/rtl/tb/tb_wht_pathb_syn.sv), so yosys no longer aborts.
+
+meta:
+  version: 3
+  flow: Chip
+
+DESIGN_NAME: chip_top
+
+# Better SystemVerilog elaboration (packages, structs, the ACU generate blocks).
+USE_SLANG: true
+SLANG_ARGUMENTS: ['--keep-hierarchy']
+
+# Re-assert the slot's SLOT_WORKSHOP (this config is loaded after the slot yaml
+# and would otherwise clobber its VERILOG_DEFINES) and select the synthesizable
+# KVE value-path lowering in lambda_acu (see lambda_acu.sv `LAMBDA_SYN_KVE`).
+VERILOG_DEFINES: ["SLOT_WORKSHOP", "LAMBDA_SYN_KVE"]
+
+VERILOG_FILES:
+# --- padring + our core override ---
+- dir::../src/chip_top.sv          # fork's padring top (unchanged)
+- dir::../src/chip_core.sv         # OUR workshop-slot core override (replaces fork's)
+- dir::../src/lambda_acu.sv        # OUR decode-attention integration top + FSM
+- dir::../src/spi_loader.sv        # OUR 4-wire SPI host loader
+# --- ACU compute blocks (synthesizable, signed off standalone on Sky130+GF180) ---
+- dir::../src/mate_qkt.sv
+- dir::../src/mate_pv.sv
+- dir::../src/mate_pv_fp16.sv
+- dir::../src/vecu_softmax.sv
+- dir::../src/precision_controller.sv
+# --- TIU ---
+- dir::../src/token_importance_unit.sv
+# --- KVE value path: SYNTHESIZABLE lowering (no `real`), bit-exact vs behavioral ---
+- dir::../src/wht_unit_syn.sv
+- dir::../src/fp16_addsub_syn.sv
+- dir::../src/cq_units_syn.sv
+- dir::../src/cq_value_path_wht_syn.sv
+- dir::../src/wht_inverse_out_syn.sv
+
+PRIMARY_GDSII_STREAMOUT_TOOL: klayout
+
+# SDC files (fork's)
+PNR_SDC_FILE: dir::chip_top.sdc
+SIGNOFF_SDC_FILE: dir::chip_top.sdc
+FALLBACK_SDC: dir::chip_top.sdc
+
+VDD_NETS:
+- VDD
+GND_NETS:
+- VSS
+
+IGNORE_DISCONNECTED_MODULES:
+- gf180mcu_fd_io__bi_24t
+- gf180mcu_ws_ip__id
+- gf180mcu_ws_ip__logo
+
+# Clock — the padring clk pad feeds the core clk. 40 ns (25 MHz) matches the
+# fork; the ACU fp16 blocks are the critical paths and may need retiming (they
+# closed standalone at 180-260 ns) — raise CLOCK_PERIOD if setup fails.
+CLOCK_PORT: clk_PAD
+CLOCK_NET: clk_pad/Y
+CLOCK_PERIOD: 200
+
+PL_RESIZER_HOLD_SLACK_MARGIN: 0.35
+GRT_RESIZER_HOLD_SLACK_MARGIN: 0.3
+
+# Core is large (fp16 decode datapath); start loose and tighten.
+PL_TARGET_DENSITY_PCT: 35
+GRT_ALLOW_CONGESTION: true
+
+DRT_ANTENNA_REPAIR_ITERS: 10
+DRT_ANTENNA_REPAIR_MARGIN: 10
+
+# PDN — straps (fork's values)
+PDN_VWIDTH: 5
+PDN_HWIDTH: 5
+PDN_VSPACING: 1
+PDN_HSPACING: 1
+PDN_VPITCH: 75
+PDN_HPITCH: 75
+
+PDN_CORE_RING: True
+PDN_CORE_RING_VWIDTH: 25
+PDN_CORE_RING_HWIDTH: 25
+PDN_CORE_RING_CONNECT_TO_PADS: True
+PDN_ENABLE_PINS: False
+PDN_CORE_VERTICAL_LAYER: Metal2
+PDN_CORE_HORIZONTAL_LAYER: Metal3
+
+ERROR_ON_MAGIC_DRC: False
+
+MAGIC_GDS_FLATGLOB:
+- "*_CDNS_*"
+- "*$$*"
+- "M1_N*"
+- "M1_P*"
+- "M2_M1*"
+- "M3_M2*"
+- "nmos_5p0*"
+- "nmos_1p2*"
+- "pmos_5p0*"
+- "pmos_1p2*"
+- "via1_*"
+- "ypass_gate*"
+- "G_ring_*"
+- "dcap_103*"
+- "din_*"
+- "mux821_*"
+- "rdummy_*"
+- "pmoscap_*"
+- "xdec_*"
+- "ypredec*"
+- "xpredec*"
+- "prexdec_*"
+- "xdec8_*"
+- "xdec16_*"
+- "xdec32_*"
+- "sa_*"
+
+KLAYOUT_FILLER_OPTIONS:
+  Metal2_ignore_active: true
+
+MAGIC_EXT_UNIQUE: notopports
+
+# Only placed macros are the fork's chip_id + wafer.space logo (from <fork>/ip/).
+MACROS:
+  gf180mcu_ws_ip__id:
+    gds:
+      - dir::../ip/gf180mcu_ws_ip__id/gds/gf180mcu_ws_ip__id.gds
+    lef:
+      - dir::../ip/gf180mcu_ws_ip__id/lef/gf180mcu_ws_ip__id.lef
+    vh:
+      - dir::../ip/gf180mcu_ws_ip__id/vh/gf180mcu_ws_ip__id.v
+    lib:
+      "*":
+        - dir::../ip/gf180mcu_ws_ip__id/lib/gf180mcu_ws_ip__id.lib
+    instances:
+      chip_id:
+        location: [26, 26]
+        orientation: N
+
+  gf180mcu_ws_ip__logo:
+    gds:
+      - dir::../ip/gf180mcu_ws_ip__logo/gds/gf180mcu_ws_ip__logo.gds
+    lef:
+      - dir::../ip/gf180mcu_ws_ip__logo/lef/gf180mcu_ws_ip__logo.lef
+    vh:
+      - dir::../ip/gf180mcu_ws_ip__logo/vh/gf180mcu_ws_ip__logo.v
+    lib:
+      "*":
+        - dir::../ip/gf180mcu_ws_ip__logo/lib/gf180mcu_ws_ip__logo.lib
+    instances:
+      wafer_space_logo:
+        location: ["expr::$DIE_AREA[2] + -169.25", "expr::$DIE_AREA[3] + -169.25"]
+        orientation: N
+
+PDN_MACRO_CONNECTIONS: []
+
+FP_MACRO_HORIZONTAL_HALO: 10
+FP_MACRO_VERTICAL_HALO: 10
+PDN_HORIZONTAL_HALO: 5
+PDN_VERTICAL_HALO: 5
+
+PDN_CFG: dir::pdn_cfg.tcl

@@ -25,7 +25,7 @@ PDK: gf180mcuD
 
 
 VERILOG_FILES:
-  - dir::../rtl/blocks/vecu_softmax.sv
+  - dir::../../../rtl/vecu_softmax.sv
 
 SYNTH_PARAMETERS:
   - N=8               # max scores per row (row buffer depth)

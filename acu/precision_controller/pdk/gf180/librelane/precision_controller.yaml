@@ -15,7 +15,7 @@ DESIGN_NAME: precision_controller
 PDK: gf180mcuD
 
 VERILOG_FILES:
-  - dir::../rtl/blocks/precision_controller.sv
+  - dir::../../../rtl/precision_controller.sv
 
 CLOCK_PORT: clk
 CLOCK_NET: clk

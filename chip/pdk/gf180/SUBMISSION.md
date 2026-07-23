@@ -101,7 +101,8 @@ blocks are pulled from `acu/*/rtl/`, the KVE/TIU blocks from `chip/verif/blocks/
 | `mate_qkt`              | Q·Kᵀ decode scoring (fp16) | ✅ | Classic-clean |
 | `vecu_softmax`          | online softmax (exp-LUT) | ✅ | Classic-clean (multi-cycle) |
 | `kv_cache_engine` (KVE store) | ChannelQuant KV store on real `gf180mcu_fd_ip_sram` | ✅ | Clean signoff on real SRAM |
-| KVE value-path *reference* (`cq_value_path_wht`, `wht_unit`, `wht_inverse_out`, `cq_fp_pkg`) | CQ-3-rot value codec | ❌ **behavioral** | uses `real` fp — bit-exact contract, synthesizable fp16 lowering is future work (§6) |
+| KVE value-path (`cq_value_path_wht_syn`, `wht_inverse_out_syn`, on `wht_unit_syn`/`cq_units_syn`/`fp16_addsub_syn`) | CQ-3-rot value codec | ✅ **synthesizable** | fp16 lowering now DONE — **bit-exact vs the behavioral `real` oracle (5120/5120 elements, D=64)**; unblocks flat synthesis (§5/§6) |
+| KVE value-path *reference* (`cq_value_path_wht`, `wht_unit`, `wht_inverse_out`, `cq_fp_pkg`) | same, behavioral oracle | ❌ behavioral | `real` fp — kept as the sim oracle; the `*_syn` above is the hardware |
 
 ## 4. Functional verification — FULL-CHIP RTL SIM (closed)
 
@@ -131,77 +132,111 @@ Supporting: `make test-smoke` (elaboration + SPI framing, 2 tests pass) and the
 cross-block cosim `make -C chip/verif cosim` (every block bit-exact / within-tol
 on one shared tile) both pass.
 
-## 5. Physical implementation — per-macro (closed) + padring integration (wired)
+## 5. Physical implementation — all 8 block macros hardened clean + full-chip synthesis
 
-### Per-macro GF180 hardening — reproduced on the shuttle PDK
+### 5a. Per-macro GF180 hardening — all eight close with clean signoff
 
 `scripts/harden.sh <macro>` runs a macro through LibreLane 3.0.5 Classic inside
-`ghcr.io/librelane/librelane:3.0.5` against the GF180 PDK. The
-**`token_importance_unit`** macro was hardened end-to-end on the submission node
-as proof the flow closes:
+`ghcr.io/librelane/librelane:3.0.5` against the GF180 PDK (config is block-local
+under `<block>/pdk/gf180/librelane/`). **All eight** decode-attention block
+macros were re-hardened end-to-end on the submission node this pass — every one
+closes with **Magic DRC 0 / Netgen LVS 0 / antenna 0 / routing-DRC 0** and setup
++ hold met, producing GDS + LEF (`runs/<macro>/final/{gds,lef}`):
 
-| Metric | Value |
-|--------|-------|
-| die area | 35 966 µm² |
-| stdcell instances | 771 (1 727 total) |
-| setup WNS | **+22.6 ns** (met) |
-| hold WNS | **+0.47 ns** (met) |
-| Magic DRC | **0** |
-| Netgen LVS | **0** errors, 0 device/net/pin diffs |
-| antenna | **0** violating nets/pins |
-| routing DRC | **0** (converged in 4 iters) |
-| PG violations | **0** |
-| GDS / LEF | produced (`final/gds`, `final/lef`) |
+| Macro | die µm² | stdcells | setup WNS | hold WNS | DRC | LVS | antenna | rt-DRC |
+|-------|--------:|---------:|----------:|---------:|:---:|:---:|:---:|:---:|
+| `precision_controller`  |   20 911 |    539 | +15.14 ns | +0.40 ns | 0 | 0 | 0 | 0 |
+| `token_importance_unit` |   35 966 |    771 | +22.60 ns | +0.47 ns | 0 | 0 | 0 | 0 |
+| `mate_pv` (INT8, N=4)   |  170 348 |  4 945 | +11.83 ns | +0.49 ns | 0 | 0 | 0 | 0 |
+| `mate_pv_fp16` (N=4)    |  508 460 | 16 910 | +31.21 ns | +0.88 ns | 0 | 0 | 0 | 0 |
+| `mate_qkt` (N=8)        |  904 834 | 28 190 | +50.82 ns | +0.86 ns | 0 | 0 | 0 | 0 |
+| `vecu_softmax` (N=8)    | 1 638 550 | 50 967 | +60.95 ns | +0.42 ns | 0 | 0 | 0 | 0 |
+| `kv_cache_engine` (KVE) |  609 873 | 14 944 | +107.5 ns | +0.30 ns | 0 | 0 | 0 | 0 |
+| `kv_sram` (real SRAM×4) | 1 270 030 |  3 527 | +17.48 ns | +6.87 ns | 0 | 0 | 0 | 0 |
 
-### Full-chip padring integration — wired and driven
+`kv_sram` places four real `gf180mcu_fd_ip_sram__sram512x8m8wm1` 6T macros with
+PDN-connected VDD/VSS (0 DRC on top level + PDN, SRAM interiors handled as
+hard-macro maglef abstracts). Non-DRC warnings only: on the deliberately loose
+proxy clocks (`mate_qkt` 200 ns, `vecu_softmax` 260 ns, `kve` 200 ns) OpenROAD
+reports some max-transition / max-cap **warnings** (e.g. `vecu` 5 361 slew,
+`kve` 2 540) — non-fatal, driven by the loose clock + high fp16 fanout, and
+absorbed by the large setup margin; they would be cleaned up at a production
+clock. All six **signoff** checks (DRC/LVS/antenna) are clean.
+
+Fixed this pass: the five ACU gf180 configs (`mate_*`, `vecu_softmax`,
+`precision_controller`) had **stale pre-reorg RTL paths** (`../rtl/blocks/…`
+pointing nowhere after the block-major move); they now point at
+`../../../rtl/*.sv` so `harden.sh` reproduces all eight.
+
+### 5b. KVE value-path — synthesizable fp16 lowering DONE (bit-exact)
+
+The one piece that previously could not synthesize — the behavioral CQ-3-rot
+value path (`cq_value_path_wht` / `wht_inverse_out`, which model fp16/fp32 with
+SystemVerilog `real`) — is now lowered to synthesizable hardware:
+`cq_value_path_wht_syn` + `wht_inverse_out_syn`, built on the already-verified
+`wht_unit_syn` / `cq_units_syn` / `fp16_addsub_syn` cores plus a new
+round-half-even fp32→fp16 converter and an exact fp16→fp32 ×2⁻ᵏ inverse-scale.
+**Verified bit-exact** vs the behavioral `real` oracle on real-Qwen value rows:
+`make -C kve/rtl` — new TB `tb/tb_wht_pathb_syn.sv` reports
+**`Path B SYN vs reference V̂: 5120/5120 bit-exact (D=64), ALL TESTS PASSED`**.
+yosys elaborates both with **0 `real`, 0 inferred latches, 0 CHECK problems**.
+`lambda_acu.sv` selects them under `` `ifdef LAMBDA_SYN_KVE `` (default stays
+behavioral for the RTL sim oracle; the full-chip build defines it).
+
+### 5c. Full-chip padring assembly — the flat blocker is gone; it now synthesizes
 
 Integration into `Mauricio-xx/chipathon-2026-gf180mcu-padring` (workshop slot,
-die 2935×2935 µm) follows the fork's contract:
+die 2935×2935 µm, core 2051×2051 µm) via `scripts/submit.sh` +
+`librelane/config_fullchip.yaml`: our `chip_core.sv` replaces the fork's; our
+`lambda_acu.sv` + `spi_loader.sv` + the six ACU/TIU blocks + the **synthesizable
+KVE `*_syn`** path are added to `VERILOG_FILES`; `SLOT=workshop make librelane`
+runs the LibreLane 3.0.5 **Chip** flow against the wafer.space GF180 PDK
+(`wafer-space/gf180mcu @ 1.8.0`, fetched — ships the `ws_io`/`ws_ip` cells).
 
-1. Our `chip_core.sv` **replaces** `src/chip_core.sv` (verbatim pad interface — drops in).
-2. Our `lambda_acu.sv`, `spi_loader.sv`, and the block RTL are added to
-   `librelane/config.yaml` `VERILOG_FILES` (flat flow; `USE_SLANG: true`).
-3. `SLOT=workshop make librelane` (Chip flow) against the **wafer.space GF180 PDK**.
+Executed on the node: the Chip flow **resolves the workshop padring, passes
+run-setup + lint (0 lint errors, 0 timing-lint errors), slang-elaborates the
+whole chip_top→chip_core→lambda_acu hierarchy (0 errors), and yosys synthesizes
+it** — the KVE `*_syn` value path (`u_kve`, `u_inv`) appears in the synthesized
+hierarchy. **Both prior blockers (PDK variant, behavioral KVE `real`) are now
+resolved.**
 
-This was executed on the node. The Chip flow runs, resolves the workshop padring,
-passes run-setup + Verilator lint (after supplying the correct PDK, see §6), and
-reaches yosys synthesis.
+## 6. Physical implementation status — the honest remaining gap
 
-## 6. Physical implementation status — the honest gap
+**Closed:** end-to-end functional sim (§4); **all eight** block macros GF180
+Classic-clean signoff → GDS/LEF (§5a); KVE synthesizable lowering, bit-exact
+(§5b); the full-chip Chip flow elaborates + synthesizes clean (§5c).
 
-**Closed:** the assembled chip is functionally verified end-to-end (§4); the
-per-macro GF180 Classic flow closes with fully-clean signoff (§5 TIU); the
-padring integration is wired and drives through lint into synthesis.
+**Not yet closed — the final full-chip GDS.** The remaining blocker is now
+**physical fit, not synthesizability**:
 
-**Not closed — full-chip GDS.** Two blockers were hit, in order:
+- **Area / density.** `lambda_acu` at the declared tile (`Dh=16, L=8`) is a
+  large *flat* fp16 datapath. Summing the synthesized blocks at those exact
+  instantiation sizes — `vecu_softmax` N=8 = 1.64 mm², `mate_qkt` N=8 = 0.90 mm²,
+  `mate_pv_fp16` N=16 ≈ 2.0 mm², `mate_pv` N=16 ≈ 0.7 mm², plus the KVE WHT
+  value path, TIU, precision gate, SPI + the 4×(L·Dh) fp16 stream buffers —
+  gives **≈ 6 mm² of cell area**, against a **workshop CORE_AREA of 2051×2051 =
+  4.21 mm²**. That is ~140 % placement density: the declared tile **does not fit
+  the fixed workshop core** and global placement cannot legalize it.
+- **Note on the hardened macros vs a drop-in hierarchical flow.** The eight
+  macros are hardened at *proxy* parameters (`mate_pv`/`mate_pv_fp16` N=4,
+  `token_importance_unit` N_SLOTS=4, `precision_controller` defaults) that do
+  **not** match `lambda_acu`'s instantiation sizes (N=16 / N_SLOTS=8 / BLOCK 2×4),
+  so a hardened macro cannot be dropped straight into the padring. The full chip
+  therefore uses **flat** synthesis (each block elaborated at its real size); the
+  per-macro GDS/LEF stand as standalone-closure proof.
 
-1. **PDK variant [resolved].** The workshop padring instantiates wafer.space
-   custom IO/IP cells (`gf180mcu_ws_io__dvdd/dvss`, `gf180mcu_ws_ip__id/logo`)
-   that are **not** in the ciel `gf180mcuD` store on the node. Fetching the
-   wafer.space PDK build (`wafer-space/gf180mcu @ 1.8.0`, ~1.2 GB, ships the
-   `ws_io`/`ws_ip` cells) and pointing `--pdk-root` at it clears Verilator lint.
+**Punch-list to a closed full-chip GDS (in priority order):**
 
-2. **KVE value-path is behavioral RTL [open].** In the *flat* Chip flow, yosys
-   (slang frontend) aborts synthesizing the KVE **value-path reference** RTL:
-   `cq_fp_pkg` models fp16/fp32 with SystemVerilog `real` (`f16_to_real`,
-   `real_to_f16`, …), which is **simulation-only, not synthesizable** — slang
-   asserts on lowering it. This is a known, documented split: `cq_units.sv`'s own
-   header states the synthesizable fp16-hardware lowering "is the synthesis phase
-   (TEARDOWN.md P4)". The ACU blocks (`mate_*`, `vecu_softmax`,
-   `precision_controller`) and the TIU are fully synthesizable (TIU proven to GDS).
-
-**Two paths to close the full-chip GDS (punch-list):**
-
-- **Hierarchical (recommended).** Harden each block as its own macro from its
-  *synthesizable* config (TIU/PC/mate_*/vecu are ready; KVE from `kve.yaml`, whose
-  store path is the real fp16 hardware on `gf180mcu_fd_ip_sram`), then place the
-  macro LEF/GDS views + `PDN_MACRO_CONNECTIONS` in the padring Chip flow. This
-  sidesteps the behavioral value-path entirely. Needs the ACU macro configs
-  authored (only `kve.yaml`, `kve_store_gf180.yaml`, `token_importance_unit.yaml`
-  are committed today) plus multi-hour PnR per macro.
-- **Flat.** Complete the KVE value-path's synthesizable fp16 lowering (repo
-  TEARDOWN P4) so `cq_value_path_wht`/`wht_unit`/`wht_inverse_out` synthesize,
-  then the single flat Chip flow closes.
+1. **Shrink the decode tile to fit** — instantiate `lambda_acu` at `Dh=8, L=4`
+   in `chip_core.sv` (≈ 1.5–2 mm², fits 4.21 mm² at routable density). The core
+   is fully parameterized and the SPI protocol is size-agnostic; only the two
+   constants in `chip_core.sv` change. This is the fastest path to a real
+   full-chip GDS and is the recommended shuttle configuration.
+2. **Or re-harden the six compute macros at the matched sizes** (N=16 / N_SLOTS=8)
+   and place them as hard macros with `PDN_MACRO_CONNECTIONS` (hierarchical) —
+   but the summed macro area still exceeds the workshop core at `Dh=16`, so this
+   also needs either the smaller tile or a larger die slot.
+3. **Then** run PnR to close DRC/LVS/antenna at the full-chip level (multi-hour).
 
 ## 7. Reproduce
 
@@ -213,15 +248,29 @@ make -C chip/pdk/gf180/tb test-fullchip     # streams Q/K/V in, checks streamed-
 make -C chip/pdk/gf180/tb test-smoke        # elaboration + SPI framing
 make -C chip/verif cosim                     # cross-block bit-exact cosim
 
-# Per-macro GF180 hardening (needs docker + a GF180 PDK)
-chip/pdk/gf180/scripts/harden.sh token_importance_unit   # → runs/<macro>/final/{gds,lef}
+# KVE synthesizable value-path — bit-exact vs the behavioral oracle
+cd kve/rtl && iverilog -g2012 -DQD=64 -I. -o tb/tb_pathbsyn64.out \
+  cq_fp_pkg.sv cq_units.sv cq_units_syn.sv wht_unit.sv wht_unit_syn.sv fp16_addsub_syn.sv \
+  wht_inverse_out.sv cq_value_path_wht.sv cq_value_path_wht_syn.sv wht_inverse_out_syn.sv \
+  tb/tb_wht_pathb_syn.sv && vvp tb/tb_pathbsyn64.out +TVDIR=tb/testvectors/qwen/g05b/multi
+  #  → "Path B SYN vs reference V̂: 5120/5120 bit-exact (D=64), ALL TESTS PASSED"
 
-# Full-chip padring GDS (see §5/§6; needs the wafer.space GF180 PDK @ 1.8.0)
-#   git clone Mauricio-xx/chipathon-2026-gf180mcu-padring
-#   cp chip/rtl/chip_core.sv <fork>/src/chip_core.sv
-#   add chip/rtl/{lambda_acu,spi_loader}.sv + block RTL to <fork>/librelane/config.yaml
-#   SLOT=workshop make librelane   (--pdk-root <wafer.space gf180mcuD>)
+# Per-macro GF180 hardening — all 8 close clean (needs docker + a GF180 PDK)
+for m in precision_controller token_importance_unit mate_pv mate_pv_fp16 mate_qkt \
+         vecu_softmax kve kve_store_gf180; do
+  chip/pdk/gf180/scripts/harden.sh $m       # → <block>/pdk/gf180/librelane/runs/$m/final/{gds,lef}
+done
+
+# Full-chip padring assembly + Chip flow (needs the wafer.space GF180 PDK @ 1.8.0).
+# submit.sh clones the fork, fetches the PDK, drops in our core + block RTL + the
+# synthesizable KVE, and runs SLOT=workshop make librelane. See §6 for the fit gap:
+# for a GDS that CLOSES, set Dh=8,L=4 in chip/rtl/chip_core.sv first (Dh=16 overflows
+# the 4.21 mm² workshop core). Run inside the librelane 3.0.5 docker.
+chip/pdk/gf180/scripts/submit.sh [FORK_DIR]
 ```
+
+Full-chip integration collateral lives in `chip/pdk/gf180/librelane/config_fullchip.yaml`
+(the merged padring config) and `chip/pdk/gf180/scripts/submit.sh`.
 
 ## 8. Credits & license
 
