@@ -1,0 +1,163 @@
+# config_coproc.yaml — Lambda KV-cache COPROCESSOR full-chip integration into the
+# Chipathon 2026 GF180MCU workshop padring (Mauricio-xx/chipathon-2026-gf180mcu-padring).
+#
+# THE CHIPATHON SUBMISSION. The full fp16 attention datapath (config_fullchip.yaml)
+# does not fit the fixed 2051x2051 = 4.21 mm2 workshop core even minimized. This
+# coprocessor — KVE CQ-3 value compression (cq_value_path_wht_syn) + TIU H2O
+# importance + precision gate, on the SPI loader — is ~0.5 mm2 and closes with wide
+# margin. Function: host streams K/V + attention masses in over SPI, the chip
+# compresses the value cache + scores token importance + emits the keep/evict/
+# precision decision, host reads the compressed records back out. (The host does
+# the attention; this is the KV-cache offload engine.)
+#
+# submit.sh copies the coprocessor RTL into <fork>/src/ (chip_core_kv.sv AS
+# chip_core.sv) and this config over <fork>/librelane/config.yaml, then runs the
+# fork's `librelane` target for SLOT=workshop.
+
+meta:
+  version: 3
+  flow: Chip
+
+DESIGN_NAME: chip_top
+
+# Better SystemVerilog elaboration (packages, structs, the ACU generate blocks).
+USE_SLANG: true
+SLANG_ARGUMENTS: ['--keep-hierarchy']
+
+# Keep FULL hierarchy through synthesis AND into the netlist. Two reasons:
+#  1. The flat fp16 decode datapath makes yosys' SAT resource-sharing (SHARE) pass
+#     pathologically slow when flattened up front (never converges);
+#     `SYNTH_HIERARCHY_MODE: keep` synthesizes per-module so SHARE stays bounded.
+#  2. `flatten`/`deferred_flatten` rename or strip the padring's generate-loop pad
+#     instances (dvdd_pads[i].pad, ...), which breaks OpenROAD's power global-
+#     connect ("add_global_connections failed for dvdd_pads[0].pad/DVDD") and the
+#     manual placement of the id/logo macros. `keep` preserves every instance path,
+#     so the padring power connections resolve. Placement is still flat.
+SYNTH_HIERARCHY_MODE: keep
+
+# Re-assert the slot's SLOT_WORKSHOP (this config loads after the slot yaml and
+# would otherwise clobber its VERILOG_DEFINES). The coprocessor instantiates the
+# synthesizable KVE value path by name — no LAMBDA_SYN_KVE ifdef needed.
+VERILOG_DEFINES: ["SLOT_WORKSHOP"]
+
+VERILOG_FILES:
+# --- padring + our coprocessor core override ---
+- dir::../src/chip_top.sv              # fork's padring top (unchanged)
+- dir::../src/chip_core.sv             # OUR coproc core override (= chip_core_kv.sv)
+- dir::../src/lambda_kv_coproc.sv      # OUR KV-cache coprocessor top + FSM
+- dir::../src/spi_loader.sv            # OUR 4-wire SPI host loader
+# --- the three coprocessor blocks ---
+- dir::../src/precision_controller.sv  # ACU precision gate
+- dir::../src/token_importance_unit.sv # TIU H2O importance
+# --- KVE value path: SYNTHESIZABLE CQ-3 compressor (no `real`, bit-exact) ---
+- dir::../src/wht_unit_syn.sv
+- dir::../src/fp16_addsub_syn.sv
+- dir::../src/cq_units_syn.sv
+- dir::../src/cq_value_path_wht_syn.sv
+
+PRIMARY_GDSII_STREAMOUT_TOOL: klayout
+
+# SDC files (fork's)
+PNR_SDC_FILE: dir::chip_top.sdc
+SIGNOFF_SDC_FILE: dir::chip_top.sdc
+FALLBACK_SDC: dir::chip_top.sdc
+
+VDD_NETS:
+- VDD
+GND_NETS:
+- VSS
+
+IGNORE_DISCONNECTED_MODULES:
+- gf180mcu_fd_io__bi_24t
+- gf180mcu_ws_ip__id
+- gf180mcu_ws_ip__logo
+
+# Clock — the padring clk pad feeds the core clk. 40 ns (25 MHz) matches the
+# fork; the ACU fp16 blocks are the critical paths and may need retiming (they
+# closed standalone at 180-260 ns) — raise CLOCK_PERIOD if setup fails.
+CLOCK_PORT: clk_PAD
+CLOCK_NET: clk_pad/Y
+CLOCK_PERIOD: 200
+
+PL_RESIZER_HOLD_SLACK_MARGIN: 0.35
+GRT_RESIZER_HOLD_SLACK_MARGIN: 0.3
+
+# Core is large (fp16 decode datapath); start loose and tighten.
+PL_TARGET_DENSITY_PCT: 35
+GRT_ALLOW_CONGESTION: true
+
+DRT_ANTENNA_REPAIR_ITERS: 10
+DRT_ANTENNA_REPAIR_MARGIN: 10
+
+# PDN — straps (fork's values)
+PDN_VWIDTH: 5
+PDN_HWIDTH: 5
+PDN_VSPACING: 1
+PDN_HSPACING: 1
+PDN_VPITCH: 75
+PDN_HPITCH: 75
+
+PDN_CORE_RING: True
+PDN_CORE_RING_VWIDTH: 25
+PDN_CORE_RING_HWIDTH: 25
+PDN_CORE_RING_CONNECT_TO_PADS: True
+PDN_ENABLE_PINS: False
+PDN_CORE_VERTICAL_LAYER: Metal2
+PDN_CORE_HORIZONTAL_LAYER: Metal3
+
+ERROR_ON_MAGIC_DRC: False
+
+MAGIC_GDS_FLATGLOB:
+- "*_CDNS_*"
+- "*$$*"
+- "M1_N*"
+- "M1_P*"
+- "M2_M1*"
+- "M3_M2*"
+- "nmos_5p0*"
+- "nmos_1p2*"
+- "pmos_5p0*"
+- "pmos_1p2*"
+- "via1_*"
+- "ypass_gate*"
+- "G_ring_*"
+- "dcap_103*"
+- "din_*"
+- "mux821_*"
+- "rdummy_*"
+- "pmoscap_*"
+- "xdec_*"
+- "ypredec*"
+- "xpredec*"
+- "prexdec_*"
+- "xdec8_*"
+- "xdec16_*"
+- "xdec32_*"
+- "sa_*"
+
+KLAYOUT_FILLER_OPTIONS:
+  Metal2_ignore_active: true
+
+MAGIC_EXT_UNIQUE: notopports
+
+# DECORATIVE MACROS DROPPED for the Lambda full-chip build. The fork places two
+# purely-decorative wafer.space IP macros (gf180mcu_ws_ip__id chip identifier +
+# __logo; the fork's own chip_top.sv comments the logo "can be removed"). They are
+# EMPTY, port-less instances with no functional connection. Under our fast
+# `deferred_flatten` synthesis (needed so yosys' SHARE pass converges on the fp16
+# datapath) the post-flatten opt_clean strips port-less cells, and a `(* keep *)`
+# does not survive slang -> flatten, so OpenROAD's manual macro placement aborts
+# ("No macro instance ... found"). Since they are cosmetic, submit.sh strips their
+# two instantiations from chip_top.sv and we place NO user macros — the Lambda
+# core is flat std-cell logic. (To restore them: use SYNTH_HIERARCHY_MODE flatten,
+# but that makes SHARE non-converging on this design.)
+MACROS: {}
+
+PDN_MACRO_CONNECTIONS: []
+
+FP_MACRO_HORIZONTAL_HALO: 10
+FP_MACRO_VERTICAL_HALO: 10
+PDN_HORIZONTAL_HALO: 5
+PDN_VERTICAL_HALO: 5
+
+PDN_CFG: dir::pdn_cfg.tcl

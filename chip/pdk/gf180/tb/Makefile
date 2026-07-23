@@ -20,7 +20,7 @@
 #
 # Requires:  cocotb, icarus-verilog  (both in hpretl/iic-osic-tools).
 
-.PHONY: test-smoke test-fullchip test-all clean
+.PHONY: test-smoke test-fullchip test-coproc test-all clean
 
 TOPLEVEL_LANG ?= verilog
 SIM           ?= icarus
@@ -62,6 +62,19 @@ test-fullchip:
 	    VERILOG_SOURCES="timescale.v chip_core_wrap.sv $(RTL)/chip_core.sv $(RTL)/lambda_acu.sv $(RTL)/spi_loader.sv $(MACRO_SRC)" \
 	    COMPILE_ARGS="-g2012 -I$(BLOCKS)/kve" \
 	    SIM_BUILD=sim_build_fullchip
+
+# KV-cache compression coprocessor (KVE cq_value_path_wht_syn + TIU + PC + spi).
+KVE_SYN = ../../../../kve/rtl/wht_unit_syn.sv ../../../../kve/rtl/fp16_addsub_syn.sv \
+          ../../../../kve/rtl/cq_units_syn.sv ../../../../kve/rtl/cq_value_path_wht_syn.sv
+COPROC_SRC = $(KVE_SYN) $(ACU)/precision_controller/rtl/precision_controller.sv \
+             ../../../../tiu/rtl/token_importance_unit.sv
+test-coproc:
+	$(MAKE) -f Makefile.cocotb \
+	    TOPLEVEL=chip_core_wrap \
+	    MODULE=test_coproc \
+	    VERILOG_SOURCES="timescale.v chip_core_wrap.sv $(RTL)/chip_core_kv.sv $(RTL)/lambda_kv_coproc.sv $(RTL)/spi_loader.sv $(COPROC_SRC)" \
+	    COMPILE_ARGS="-g2012" \
+	    SIM_BUILD=sim_build_coproc
 
 test-all: test-smoke test-fullchip
 
