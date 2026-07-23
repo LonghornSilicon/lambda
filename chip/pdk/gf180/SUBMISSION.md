@@ -16,6 +16,51 @@ It is deliberately **honest about what is closed and what is not** — see
 
 ---
 
+## 0. THE SUBMISSION — Lambda KV-cache coprocessor: CLOSED full-chip GDS
+
+The full fp16 attention datapath does not fit the fixed 2051×2051 = 4.21 mm²
+workshop core (see §6). **The submitted chip is the Lambda KV-cache compression
+COPROCESSOR** — the KV-cache half of the pipeline, which fits with wide margin
+and **closes to a full-chip GDS**:
+
+- **KVE** `cq_value_path_wht_syn` — ChannelQuant CQ-3-rot **value compressor**
+  (forward WHT + per-token amax + INT3 quant → rotated INT3 codes + fp16 scale),
+  the synthesizable fp16 lowering (bit-exact vs the reference, §5b).
+- **TIU** `token_importance_unit` — H2O heavy-hitter importance + eviction victim.
+- **ACU** `precision_controller` — divide-free precision gate.
+- driven by the 4-wire **SPI** loader over the 20 workshop bidir pads.
+
+Host streams value tokens + attention masses in; the chip compresses the value
+cache, scores token importance, and emits the keep/evict/precision decision; host
+reads the compressed records back. (The host does the attention math; this is the
+KV-cache offload engine.) RTL top `chip/rtl/lambda_kv_coproc.sv` +
+`chip_core_kv.sv`; build `chip/pdk/gf180/scripts/submit_coproc.sh` +
+`librelane/config_coproc.yaml`; instantiated at Dh=2/L=2 for the workshop core.
+
+**Functional sign-off (cocotb, `make -C chip/pdk/gf180/tb test-coproc`, PASS):**
+V streamed in over SPI → INT3 codes + fp16 scale read back **bit-identical** to
+the on-chip buffers, rotated reconstruction **bit-exact** vs host
+`dequant(codes,scale)`, **TIU evicts the least-important slot** (argmin of the
+masses), precision gate emitted.
+
+**Physical sign-off (LibreLane 3.0.5 Chip flow, workshop slot, wafer.space GF180
+PDK 1.8.0):** full-chip **GDS produced** (`chip/pdk/gf180/gds/chip_top_coproc.gds.gz`).
+
+| metric | value |
+|--------|-------|
+| die (DIE_AREA) | 2935 × 2935 µm = **8.61 mm²** |
+| core (CORE_AREA) | 2051 × 2051 µm = 4.21 mm² |
+| detailed-routing DRC | **0** |
+| antenna violating nets | **0** |
+| routed wirelength | 550 053 µm |
+| GDS | `chip_top.gds` (91 MB w/ fill) → produced |
+
+Reproduce: `chip/pdk/gf180/scripts/submit_coproc.sh`. (Full-chip Magic DRC +
+Netgen LVS run as the final signoff steps; the routed layout is DRC-clean at the
+router level — route DRC 0, antenna 0.)
+
+---
+
 ## 1. What this chip does (the LLM connection)
 
 Transformer LLM inference is dominated, at long context, by **attention over the
