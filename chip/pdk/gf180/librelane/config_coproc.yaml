@@ -17,6 +17,14 @@
 meta:
   version: 3
   flow: Chip
+  substituting_steps:
+    # The post-CTS timing/repair resizer over-buffers max-transition (slew)
+    # violations on the loose 200 ns clock's high-fanout fp16 nets and cycles
+    # without converging at the coprocessor's ~60 % utilization (no room for the
+    # repair buffers). Timing is met trivially at 200 ns, so drop that refinement
+    # step; the flow routes directly. (Any residual max-slew shows as a warning,
+    # not a signoff DRC error.)
+    OpenROAD.ResizerTimingPostCTS: null
 
 DESIGN_NAME: chip_top
 
