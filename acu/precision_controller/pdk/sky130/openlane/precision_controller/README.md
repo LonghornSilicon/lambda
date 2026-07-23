@@ -85,6 +85,10 @@ temperature corners. This provides an independent cross-check of the
 ASAP7 Yosys numbers in `analysis/` and gives a real point estimate
 to scale from when the TSMC 16FFC PDK becomes available.
 
-Projected to 16FFC (5× area shrink, 2× speed gain, 0.5× power):
-~700 µm², ~600 MHz, ~30 µW. Consistent with our earlier 16FFC
-projections in `analysis/tsmc16_fit_report.md`.
+Projected to 16FFC — two independent estimates that **do not reconcile**. Scaling
+this measured Sky130 sign-off by published node ratios (~5× area, ~2× speed, ~10×
+dynamic power) gives ~700 µm², ~160 MHz, ~30 µW; the ASAP7-derived projection
+(`analysis/tsmc16_fit_report.md`) instead gives ~150 µm² / ~800 MHz / ~5–15 µW. The
+area estimates differ ~5× and the frequencies do not reconcile — treat 16nm speed/area
+as a **range** pending a real Cadence 16FFC run, not a single number (see
+`acu/docs/acu_overview.md` and the ACU README).

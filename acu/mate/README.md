@@ -26,6 +26,8 @@ The matmul tiles of the ACU. Three signed-off logic tiles plus the MAC-array ref
   ~520 flat tokens, INT32 covers ~133k.
 - **The 8×8 grid = 64 PEs = 128 GOPS** — an old ref-model default said 16×16/256; that was stale.
 - **FP16 can't be bit-exact to numpy `@`** — verify FP16 tiles vs a sequential-fp32 golden (`rel_err < 5e-3`).
-- **ASAP7 ORFS is 4×-drawn** — de-scale areas (SITE `0.054×0.270`) before quoting µm².
+- **ASAP7 ORFS is 4×-drawn** — areas read 16× too large unless de-scaled, but this ORFS platform
+  already ships the de-scaled 1× LEFs (SITE `0.054×0.270` is the real dimension), so **confirm the
+  SITE, don't re-apply /16** (`../docs/pdk_bracket_asap7.md` — de-scale is RESOLVED).
 
 See `DECISIONS.md` and `AGENTS.md`.

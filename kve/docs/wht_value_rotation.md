@@ -1,8 +1,9 @@
 # CQ-3-rot — Walsh-Hadamard-rotated INT3 values
 
-**Status:** merged — the reference codec, accuracy, and this spec are on `main`; the RTL
-(`wht_unit`, `cq_wht_value`, `wht_inverse_out`) and its bit-exact proof are on the `rtl`
-branch. **Idea and result:** Abhiram Bandi + Chaithu Talasila.
+**Status:** integrated — the reference codec, accuracy, this spec, **and the RTL**
+(`wht_unit`, `cq_wht_value`, `wht_inverse_out`, `cq_value_path_wht`) with its bit-exact proof
+all live in this block (`kve/rtl/`) on `main`. There is no separate `rtl` branch (monorepo
+migration 2026-07-22). **Idea and result:** Abhiram Bandi + Chaithu Talasila.
 **One line:** rotate each per-token value row by a fixed Walsh-Hadamard transform before
 quantizing, so values drop from 4 to a **flat, uniform 3 bits** (no calibration) — keys
 untouched.
@@ -111,5 +112,5 @@ store-rotated / unspin-once dataflow is proven equivalent to the full codec.
 
 - Fold Path B into the pipelined streaming schedule of the top FSM (a throughput
   optimization; the arithmetic and dataflow are proven).
-- Chip-hub docs (`architecture/arch.yml` codec-of-record + MatE inverse-WHT stage, org
-  profile README compression numbers) — updated at merge to master.
+- Chip-hub docs (the monorepo-root `arch.yml` codec-of-record + MatE inverse-WHT stage, org
+  profile README compression numbers) — update in the monorepo on `main`.

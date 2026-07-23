@@ -24,6 +24,11 @@
 - **ACU import HELD** · `attention-compute-unit` (Sky130 sign-offs) and `chipathon-lambda-acu`
   (vecu_softmax re-harden) were mid-flight · `acu/` and `chip/pdk/gf180/` are documented
   placeholders with TODOs; ACU-level decisions parked in `acu/DECISIONS.md` · 2026-07-22.
+  · **SUPERSEDED — ACU import DONE 2026-07-22** (`edaaa41`): `acu/{mate,vecu,precision_controller}`
+  imported block-major with real `rtl/ sw/ pdk/` sign-off results (all 5 tiles Sky130-signed);
+  `chip/pdk/gf180/` holds real content (LibreLane configs, real `gf180mcu_fd_ip_sram` macro, GLS
+  report), not placeholders; `acu/DECISIONS.md` now holds settled calls. Root README/AGENTS state
+  "Imported; all 5 tiles Sky130-signed."
 - **chip-level content from `architecture` brought as a curated copy** (partial/selective import —
   cosim → `chip/verif/`, key docs → `docs/`), not a subtree · subtree add is whole-tree and this
   was a selective slice · 2026-07-22.

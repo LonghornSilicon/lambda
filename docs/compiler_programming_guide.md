@@ -189,7 +189,7 @@ transparent to it.
 | KV codec tier | `KVE_TIER` CSR | CQ-4+ default; per-layer today (per-tile is an open CSR-granularity question, STATUS §7). |
 | KV budget + eviction | `TIU_MODE` + control | `h2o`, budget ≈ 25% of context, 50/50 recent/heavy. |
 | Per-block value tier | TIU threshold (runtime) + `TIU_MODE=adaptive_precision` | keep→CQ-8 / demote→CQ-4; calibrate the threshold to a mass percentile. |
-| Precision mode | `MATE_MODE.precision` | `static_w4a8` for silicon-of-record; `adaptive` reserved pending the §6 reconciliation. |
+| Precision mode | `MATE_MODE.precision` | `adaptive` is the **default** and is **committed** (decided 2026-07-18, §6; STATUS.md §7 RESOLVED); `static_w4a8` forces INT8 `P·V` for calibration-proven-INT8-safe workloads. |
 | Sampling | `SAMPLING` CSR | From the request. |
 
 Calibration: run the reference models over a representative workload offline to fix codec

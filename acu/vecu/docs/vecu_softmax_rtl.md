@@ -1,6 +1,6 @@
 # `vecu_softmax` — synthesizable VecU decode online-softmax slice (RTL)
 
-**Status:** RTL complete + **micro-sequenced (rebalanced timing)**, bit-exact to the LUT online-softmax golden, Yosys-clean (1062 FFs at N=16, no latches). GF180MCU hardening is a later phase (chipathon shuttle PDK).
+**Status:** RTL complete + **micro-sequenced (rebalanced timing)**, bit-exact to the LUT online-softmax golden, Yosys-clean (1062 FFs at N=16, no latches). **Signed off on Sky130A** (this micro-sequenced revision, commit `2c458aa`): 105 ns / 9.5 MHz, all 9 IPVT corners clean (DRC/LVS/antenna/max-cap 0; residual ss slew only) — `pdk/sky130/openlane/vecu_softmax/README.md`. Also **GF180-hardened** (multi-cycle, 260 ns, ss +60.9 ns; `chip/pdk/gf180/docs/gf180_gls_report.md` §1).
 **Home:** `rtl/vecu_softmax.sv` (+ `rtl/tb/tb_vecu_softmax.sv`, `rtl/tb/gen_vecu_softmax_vectors.py`, golden `sw/reference_model/vecu_softmax_ref.py`).
 **One line:** the decode-time softmax of the VecU vector unit — turns a row of Q·Kᵀ scores into attention weights in hand-written synthesizable Verilog, replacing the last reference stand-in in the cross-block cosim.
 
@@ -86,13 +86,14 @@ and the intermediate registers are reused across scores/weights. Added latency
 (~8 cycles/score compute + ~8 cycles/weight emit) is transparent via the `w_valid`
 handshake — decode is latency-tolerant.
 
-**Why this brings area back down:** the longest path is now **one fp32 op (est.
-~170–190 ns at ss)** instead of two (~263 ns aggressively-resized / ~340 ns normal),
-so ss closes at a faster clock with **normal, non-aggressive resizing** — no cell
-cloning / buffer explosion, so the combinational cells return to ~their base count
-(the ~2× resize blow-up is what drove the 101k / 1.49 mm²). The multi-cycle datapath
-uses the same fp32 hardware as the pipeline but reuses one register set, so
-combinational area is comparable while avoiding the resize. Sequential cost:
+**What this buys (and what it does NOT — area was not reclaimed):** the longest path is
+now **one fp32 op** instead of two, so ss closes at a faster clock with **normal,
+non-aggressive resizing**. The predicted area reclaim did **not** materialize: the GF180
+re-harden **measured** the multi-cycle datapath at **111,253 cells / 1.64 mm²**, ~10 %
+*larger* than the 3-stage's 101,236 cells / 1.49 mm² (the FSM + reused-intermediate
+registers + score buffer offset the fewer parallel fp32 units). The 1.49 mm² was largely
+**inherent, not resize bloat** (`chip/pdk/gf180/docs/gf180_gls_report.md` §1). The real win
+is timing robustness at normal effort + a tighter clock, not area. Sequential cost:
 **1062 FFs at N=16** (256 score buffer + fp32 ℓ / m / 1/ℓ + one reused set of
 COMPUTE + EMIT intermediates + pointers/steps) — FFs are small; the combinational
 resize-avoidance dominates the net area. The one-fp32-op path is the floor without
@@ -127,5 +128,6 @@ reference attention within a tolerance set from the LUT error. Cosim stays green
   RMSNorm, SiLU, residual) are separate and pending — RoPE/RMSNorm are needed for
   the chip-top raw-Q/K path (the cosim's loaded Qwen tiles are already RoPE'd), so
   they are not part of this slice.
-- fp_max is set by the single-cycle exp-LUT + fp32-accumulate recurrence path;
-  a later GF180MCU P&R phase sets the real clock.
+- fp_max is set by the single fp32-op-per-cycle micro-sequence. The real P&R clocks are
+  now set: **Sky130A 105 ns / 9.5 MHz** (signed off, `pdk/sky130/openlane/vecu_softmax/`) and
+  **GF180 260 ns** (ss +60.9 ns, `chip/pdk/gf180/docs/gf180_gls_report.md` §1).

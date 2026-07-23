@@ -17,9 +17,9 @@ attention datapath across PDKs. Update it as holes close — do not let it go st
 | `mate_pv` (INT8 P·V) | ✅ | ✅ 71 MHz | ✅ | ✅ | ✅ RTL + GF180 GLS |
 | `mate_pv_fp16` (FP16 P·V) | ✅ | ✅ 12 MHz | ✅ | ✅ | ✅ RTL + GF180 GLS |
 | `token_importance_unit` | ✅ | ✅ (multi-corner) | ✅ | — | ✅ RTL + GF180 GLS |
-| `mate_qkt` (Q·Kᵀ) | ✅ | ❌ **none** (Yosys smoke only) | ✅ | — | ✅ RTL + GF180 GLS |
-| `vecu_softmax` | ✅ | ❌ **none** | ✅ (ss fixed) | — | ✅ RTL + GF180 GLS |
-| `kv_cache_engine` (KVE) | ✅ | ✅ **signed off** 9-corner (5/6 clean; ss-corner reset-tree cap/slew tracked) — 0.236 mm², ~24 MHz ss; `SRAM_DEPTH=2` flop proxy [merged to `rtl` `d4143c1`] | ✅ real `gf180mcu_fd_ip_sram` (4 macros); **DRC 0 / LVS 0**, setup +17.5/hold +6.9; bit-exact round-trip + full GLS e2e pass | — | ✅ RTL; GLS via combinational reconstruct |
+| `mate_qkt` (Q·Kᵀ) | ✅ | ✅ **signed off** 9-corner (DRC/LVS/antenna 0; residual ss slew) | ✅ | — | ✅ RTL + GF180 GLS |
+| `vecu_softmax` | ✅ | ✅ **signed off** 9-corner, 105 ns/9.5 MHz (DRC/LVS/antenna/max-cap 0; residual ss slew) | ✅ (ss fixed) | — | ✅ RTL + GF180 GLS |
+| `kv_cache_engine` (KVE) | ✅ | ✅ **signed off** 9-corner (5/6 clean; ss-corner reset-tree cap/slew tracked) — 0.236 mm², ~24 MHz ss; `SRAM_DEPTH=2` flop proxy [committed in `kve/openlane/kv_cache_engine/results/`, run tag `sky130_signoff`] | ✅ real `gf180mcu_fd_ip_sram` (4 macros); **DRC 0 / LVS 0**, setup +17.5/hold +6.9; bit-exact round-trip + full GLS e2e pass | — | ✅ RTL; GLS via combinational reconstruct |
 | RoPE | ❌ **no RTL** | — | — | — | reference stand-in (pre-RoPE'd tiles) |
 | RMSNorm | ❌ **no RTL** | — | — | — | reference stand-in |
 | `lambda_acu` top + decode FSM | ❌ **stub only** | — | — | — | testbench-stitched; no integrated top |
@@ -27,15 +27,17 @@ attention datapath across PDKs. Update it as holes close — do not let it go st
 
 ## 🔴 130nm (Sky130) flagship holes — PRIORITY
 
-The flagship is currently **less complete than GF180** for the datapath, because `mate_qkt` and
-`vecu_softmax` were advanced on GF180 with Sky130 sign-off skipped. To keep 130nm as the flagship:
+The flagship-parity backfill is **done** — `mate_qkt` and `vecu_softmax` now have committed
+Sky130 sign-offs, so 130nm covers the full datapath (no longer trailing GF180):
 
-1. **`mate_qkt` — no Sky130 sign-off.** Only a Yosys smoke + GF180 hardening exist. The flagship
-   cannot do Q·Kᵀ scoring in 130nm silicon terms. → *Backfill a Sky130 OpenLane sign-off.*
-2. **`vecu_softmax` — no Sky130 sign-off.** Only GF180. Flagship missing softmax. → *Backfill
-   Sky130 (use the pipelined + area-reclaimed version once it lands).*
+1. ~~**`mate_qkt` — no Sky130 sign-off.**~~ **RESOLVED** — Sky130A 9-corner sign-off committed
+   (`acu/mate/pdk/sky130/openlane/mate_qkt/`): DRC/LVS/antenna 0, setup/hold met all corners
+   (residual ss max-slew only). The flagship now does Q·Kᵀ scoring in 130nm silicon terms.
+2. ~~**`vecu_softmax` — no Sky130 sign-off.**~~ **RESOLVED** — Sky130A 9-corner sign-off committed
+   (`acu/vecu/pdk/sky130/openlane/vecu_softmax/`, multi-cycle revision `2c458aa`): 105 ns / 9.5 MHz,
+   DRC/LVS/antenna/max-cap 0 (residual ss slew only).
 3. ~~**KVE — no committed Sky130 sign-off.**~~ **RESOLVED 2026-07-21** — Sky130A 9-corner sign-off
-   committed (`sky130-kve-signoff` `440c7b5`, pending merge to `rtl`): setup/hold/DRC/LVS/antenna
+   committed (in `kve/openlane/kv_cache_engine/results/`, run tag `sky130_signoff`): setup/hold/DRC/LVS/antenna
    all 0; residual **max-cap 5 + max-slew 1503 at the ss corner only**, from the high-fanout async
    `rst_n` tree over the ~1500-flop array (functionally clean — async reset, recovery/removal +90 ns;
    it's the tracked ss-corner physical-opt item, reset-tree buffering). Also fixed a real config bug
@@ -58,13 +60,13 @@ The flagship is currently **less complete than GF180** for the datapath, because
    abstract artifact; the vendor's real GDS is DRC-clean and LVS ran on the real device = 0) → DRC 8→0.
    **Independently re-verified:** bit-exact SRAM round-trip + full GLS e2e **ALL PASS**. Residual
    ss-corner slew/cap (54/12) on mux/control logic tracked separately (DRC/LVS-independent).
-2. **`vecu_softmax` area** — the ss-close resize ~2×'d cells (→1.49 mm²). **RTL rebalanced 2026-07-21**
-   (`attention-compute-unit` `rtl` `2c458aa`, architecture `rtl` `d837b42`): converted to a
-   multi-cycle datapath (one fp32 op/cycle, longest path ~one fp32 op vs two → closes ss at a
-   faster clock with *normal* resizing, no cell-cloning blow-up; +FFs but combinational area
-   returns toward the ~55k base). Bit-exact, cosim re-confirmed `ALL BLOCKS PASS`. → **GF180
-   re-harden pending** (queued behind the KVE SRAM agent, which owns the chipathon repo) to confirm
-   the actual area drop + that ss still closes.
+2. ~~**`vecu_softmax` area**~~ — **RESOLVED 2026-07-22 (GF180 re-harden done; no area drop).** The RTL
+   was rebalanced to a multi-cycle datapath (one fp32 op/cycle, `2c458aa`) and GF180-re-hardened: it
+   **closes ss at +60.9 ns @ 260 ns** with normal resizing (all corners meet setup/hold, bit-exact,
+   cosim `ALL BLOCKS PASS`). But the predicted area drop did **not** happen — the multi-cycle version
+   is **111,253 cells / 1.64 mm², ~10% *larger*** than the 3-stage's 101,236 / 1.49 mm²; the 1.49 mm²
+   was largely *inherent*, not ss-close resize bloat (`chip/pdk/gf180/docs/gf180_gls_report.md` §1).
+   The win is timing robustness, not area.
 3. **ss-corner max-transition (slew)** on the large fp16 / register-array blocks (`mate_pv_fp16`,
    `vecu_softmax`, `kve`). Setup/hold/DRC/LVS unaffected. → physical-opt (driver upsizing / slew
    repair).
@@ -85,9 +87,10 @@ The flagship is currently **less complete than GF180** for the datapath, because
 
 ## Priority ranking (as of 2026-07-21)
 
-1. **Flagship parity (Sky130):** ~~KVE Sky130 run~~ ✅ done; still backfill Sky130 sign-off for
-   `mate_qkt` + `vecu_softmax` (use the area-reclaimed softmax). *The flagship should not trail the shuttle.*
-2. GF180 KVE real SRAM macro + `vecu_softmax` area — *in progress.*
+1. ~~**Flagship parity (Sky130):**~~ ✅ **done** — KVE, `mate_qkt`, and `vecu_softmax` all have
+   committed Sky130 sign-offs; the flagship covers the full datapath and no longer trails the shuttle.
+2. ~~GF180 KVE real SRAM macro + `vecu_softmax` area~~ — ✅ **done** — KVE real `gf180mcu_fd_ip_sram`
+   macro signed off; `vecu_softmax` GF180 re-hardened (area **not** reclaimed — see GF180 hole #2).
 3. `lambda_acu` integration top + decode FSM (both PDKs) → Phase 3.
 4. RoPE / RMSNorm RTL for the chip-top.
 5. ss-corner slew physical-opt; full-chip padring GL.

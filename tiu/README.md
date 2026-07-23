@@ -24,7 +24,7 @@ KV entry — so the KV cache stays within a fixed on-die budget as context grows
 | **Why** | KV cache grows linearly with context; a fixed on-die budget needs a policy for *which* tokens to drop first |
 | **How** | **H2O** — accumulate each token's post-softmax attention mass; keep a recent local window + the top "heavy-hitter" tokens by accumulated mass; evict the rest |
 | **Signal** | Post-softmax attention mass (the ACU sparsity study proved pre-softmax proxies fail at r≈0, post-softmax works at r≈0.99) |
-| **Integration** | Emits the **tier signal** that the KV Cache Engine already consumes (keep → CQ-8, demote → CQ-4, evict → drop) — mixed-precision retention |
+| **Integration** | Emits the **tier signal** the KV Cache Engine consumes: **evict → drop** and a keep/demote lever. The keep→CQ-8 / demote→CQ-4 *value-precision* reading is **retired** under KVE's flat CQ-3-rot (INT3) value tier — only evict/keep survives (see [`DECISIONS.md`](DECISIONS.md), [`docs/tier_handshake.md`](docs/tier_handshake.md)) |
 | **Verified (algorithm)** | HellaSwag acc_norm within **−0.006** of full cache down to **25% KV budget** on Qwen2-0.5B (n=500, per-layer/head H2O, recent-ratio 0.5; source `analysis/h2o_qwen05b_n500.json`) |
 | **Status** | Built & signed off — RTL verified (29/29 directed `rtl/tb/tb_token_importance_unit.sv`, 40/40 real-data replay `rtl/tb/tb_realdata.sv`), **0-violation Sky130** (`openlane/token_importance_unit/results/signoff_metrics.json`), bit-exact Python reference at parity, ISA spec + paper shipped |
 
@@ -143,8 +143,12 @@ python analysis/full_stack_integration.py --model Qwen/Qwen2-0.5B --n 1000 --fra
 The TIU closes the loop on the KV cache: the ACU produces attention scores → the
 TIU accumulates per-token importance and rules keep/demote/evict → the KV Cache
 Engine applies the resulting precision tier (or frees the slot). Together the three
-live blocks turn a linearly-growing FP16 KV cache into a **bounded, mixed-precision**
-one.
+live blocks turn a linearly-growing FP16 KV cache into a **bounded** one.
+
+> **Note (CQ-3-rot):** the diagram's `keep→CQ-8 / demote→CQ-4` value-precision ladder is the
+> pre-CQ-3-rot design. KVE now stores a single flat rotated-INT3 value tier, so there is no
+> per-token value bit-width to select — the value-precision role of `tier_keep` is retired and
+> only the **evict/keep** lever remains. See [`docs/tier_handshake.md`](docs/tier_handshake.md).
 
 | Block | Repo | Role |
 |---|---|---|

@@ -16,7 +16,7 @@ LibreLane 3.0.5 / OpenROAD, sky130A HD. Config: `openlane/token_importance_unit/
 | LVS errors | **0** |
 | Antenna violations | **0** |
 
-Die 13833 µm², ~0.58 µW, 2075 cells. GDS/DEF/LEF/LIB in `runs/*/final/`; curated
+Die 15072 µm² (core 11272 µm²), ~660 µW (0.66 mW), 2404 cells (642 std cells). GDS/DEF/LEF/LIB in `runs/*/final/`; curated
 signoff metrics + layout render in `openlane/token_importance_unit/results/`.
 
 ## What it took (748 → 0 violations)
@@ -44,7 +44,7 @@ bit-exact). The physical run synthesizes an **N_SLOTS = 4 proxy** via
 `SYNTH_PARAMETERS`, exactly as the KV Cache Engine ships a `VECTOR_DIM = 8` proxy: it
 shrinks the argmin mux fanout and the clock tree so TritonCTS's clock-root fanout
 clears the limit, while the datapath is parameter-identical. Real N_SLOTS is set
-per-instantiation. FF count: 95 @ N_SLOTS=8 (real), 53 @ N_SLOTS=4 (proxy).
+per-instantiation. FF count: 95 @ N_SLOTS=8 (real), 55 @ N_SLOTS=4 (proxy, sequential-cell count in the signoff metrics).
 
 ## Reproduce
 

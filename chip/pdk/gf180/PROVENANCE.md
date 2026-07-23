@@ -29,10 +29,12 @@ GF180 at N=8. **Both are now VERBATIM** — no local edits.
 datapath is now a **micro-sequenced FSM (S_COMPUTE / S_EMIT) that executes one
 fp32 op per cycle** (each register-to-register path holds at most one fp32 add or
 multiply), reusing intermediate registers instead of the earlier 3-stage
-feed-forward pipeline. This rebalances area — the aggressive resize the 3-stage
-version needed to close the ss corner had bloated it to ~101k cells / 1.49 mm²;
-the multi-cycle datapath shrinks the reg-to-reg path so a normal-effort close is
-possible. Bit-exact (same online-softmax result); the extra latency is
+feed-forward pipeline. The multi-cycle datapath shrinks the reg-to-reg path so a
+normal-effort ss close is possible (the 3-stage version needed an aggressive resize
+→ ~101k cells / 1.49 mm²). It does **NOT** reclaim area: the GF180 re-harden measured
+the multi-cycle version at **~111k cells / 1.64 mm², ~10% larger** — the 1.49 mm² was
+largely inherent, not resize bloat (`docs/gf180_gls_report.md` §1). The benefit is
+timing robustness, not area. Bit-exact (same online-softmax result); the extra latency is
 data-independent and transparent to the w_valid handshake. Still verbatim (no
 `gi_unused`/synth-compat patch), synthesizes with the default yosys frontend.
 

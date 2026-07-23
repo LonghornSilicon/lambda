@@ -25,7 +25,7 @@ sitting between the ACU (attention compute unit) and the memory hierarchy.
 > algorithm is prior art (KIVI ICML'24, KVQuant 2024); **the contribution of this
 > block is the streaming silicon implementation.**
 >
-> **Status (master, 2026-07-03): DONE.**
+> **Status (main): DONE.** (ChannelQuant integration 2026-07-03; committed Sky130A sign-off landed 2026-07-21.)
 > - RTL fully wired into the top (`kv_cache_engine.sv`): keys → grouped per-channel
 >   INT4 (`cq_key_path`), values → per-token INT4 (`cq_value_path`), outlier lane +
 >   unified per-channel SRAM record. All cores serialized (one shared scale / quant /

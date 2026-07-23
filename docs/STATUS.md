@@ -2,7 +2,7 @@
 
 > **Codec-of-record note:** The KV-cache compression codec is **ChannelQuant** (per-channel INT4 keys, grouped G=128, D per-channel FP16 scales; per-token INT4 values; static top-k k=2 FP16 outlier-channel lane via calibrated ROM mask; tiers CQ-8 / CQ-4 / CQ-4+; ~3.8× KV compression at ~4 bits/value, near-lossless), packaged as the **KV Cache Engine (KVE)**. Decompression is per-channel `INT4·FP16` (+ FP16 replay for outlier channels); keys are dequantized per-channel before the score matmul (no compressed-domain read path). The full block RTL is complete through Sky130 sign-off in the `kve` block. The KVE's **physical PD numbers at 16nm (area / power / Fmax) are TBD — pending re-measurement for ChannelQuant**, and the per-model throughput/capacity/accumulator numbers derived for the retired 3-5B target are **TBD — pending re-derivation for ChannelQuant / Qwen2-1.5B**. TurboQuant remains a cited prior work only; its pure history is on the `legacy/turboquant` branch.
 
-**Last updated: 2026-06-06 (chamber tooling v0.4.1: closes v0.4 audit gaps #1/#2/#4 — per-runid Stratus, STATUS markers, Stratus→Genus release contract)**
+**Last updated: 2026-07-21 (RTL-maturity honest-status refresh + CQ-3-rot value tier; see the change log below. Prior tooling entry: 2026-06-06 chamber v0.4.1.)**
 
 ## Change log
 
@@ -85,9 +85,9 @@ synthesizable RTL. Actual RTL status:
 | **TIU** | RTL-complete, Sky130 sign-off (`token-importance-unit` repo) |
 | **ACU precision controller** | RTL, Sky130 sign-off (`attention-compute-unit` repo) |
 | **MatE — P·V tile** | RTL, Sky130 sign-off — `mate_pv` (INT8) + `mate_pv_fp16` (FP16 escape). *Only the P·V vector-MAC.* |
-| **MatE — Q·Kᵀ decode scoring** | **RTL** — `mate_qkt` (INT8 Q × per-channel FP16 K → L scores), bit-exact to `mac_array_ref` sequential-fp32 golden, live in the cosim BLOCK 1 (Phase 1 done 2026-07-21, `attention-compute-unit` `rtl` `93e9960`). GF180 hardening pending (Phase 4). |
+| **MatE — Q·Kᵀ decode scoring** | **RTL** — `mate_qkt` (INT8 Q × per-channel FP16 K → L scores), bit-exact to `mac_array_ref` sequential-fp32 golden, live in the cosim BLOCK 1 (Phase 1 done 2026-07-21, `attention-compute-unit` `rtl` `93e9960`). **Sky130 sign-off** (9-corner, DRC/LVS/antenna 0, residual ss slew) + **GF180-hardened** (gate-level e2e verified). |
 | **MatE — 8×8 systolic array (general GEMM/FFN)** | **no RTL** — off-chip for the shuttle; the general weight-stationary GEMM/FFN engine is a separate later program. |
-| **VecU — decode online-softmax** | **RTL** — `vecu_softmax` (64-entry exp LUT + linear interp + online running-max/running-sum recurrence, fp32 accumulator → fp16 weights), bit-exact to `sw/reference_model/vecu_softmax_ref.py` (LUT golden ≈2% vs exact fp64 softmax), live in the cosim BLOCK 2d (Phase 2 done 2026-07-21, `attention-compute-unit` `rtl` `4a30d93`). RoPE / RMSNorm slices still pending (chip-top raw-Q/K path). GF180 hardening pending (Phase 4). |
+| **VecU — decode online-softmax** | **RTL** — `vecu_softmax` (64-entry exp LUT + linear interp + online running-max/running-sum recurrence, fp32 accumulator → fp16 weights), bit-exact to `sw/reference_model/vecu_softmax_ref.py` (LUT golden ≈2% vs exact fp64 softmax), live in the cosim BLOCK 2d (Phase 2 done 2026-07-21, `attention-compute-unit` `rtl` `4a30d93`; multi-cycle revision `2c458aa`). **Sky130 sign-off** (9-corner, 105 ns/9.5 MHz, DRC/LVS/antenna/max-cap 0) + **GF180-hardened** (multi-cycle, ss +60.9 ns @ 260 ns; gate-level e2e verified). RoPE / RMSNorm slices still pending (chip-top raw-Q/K path). |
 | **MSC / LSU / HIF** | spec-level; not in the decode-attention-datapath tapeout boundary. |
 
 The cross-block cosim (`rtl/tb/tb_chip_cosim.sv`) verifies the RTL blocks end-to-end on real

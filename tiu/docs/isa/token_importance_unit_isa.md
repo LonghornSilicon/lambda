@@ -49,7 +49,7 @@ combinational tier read:
 **Latency:** LOAD and ACC complete in 1 cycle from idle; EVICT takes
 `N_SLOTS + 1` cycles (the serialized argmin scan + result). TIER is combinational.
 **Throughput:** one LOAD/ACC op per cycle; one eviction per `N_SLOTS + 1` cycles.
-**Footprint:** 95 flip-flops at `N_SLOTS = 8`; 13 833 µm² die, ~0.58 µW at
+**Footprint:** 95 flip-flops at `N_SLOTS = 8`; 15 072 µm² die, ~660 µW at
 SkyWater Sky130A (`N_SLOTS = 4` physical proxy; see §6 and `docs/sky130_signoff.md`).
 **Bit-exact reference:** `sw/reference_model/tiu_ref.py` (40/40 RTL replay
 evictions match).
@@ -75,7 +75,7 @@ The block exposes a 256-byte AXI-Lite slave register window. All registers are
 | `0x20` | `OP_ACC`            | W     | —     | bits[`SLOT_WIDTH`−1:0] = slot; bits[16+`WEIGHT_WIDTH`−1:16] = weight → ACC |
 | `0x24` | `OP_EVICT`          | W     | —     | Write-1 to bit[0] → trigger a serialized-argmin eviction scan |
 | `0x28` | `EVICT_RESULT`      | R     | 0x0   | bit[31]: `valid` (1 once the scan completed); bits[`SLOT_WIDTH`−1:0]: victim slot |
-| `0x2C` | `TIER_KEEP`         | R     | 0x0   | bit[k] = `tier_keep[k]` for k in 0..`N_SLOTS`−1 (1 = keep/CQ-8, 0 = demote/CQ-4) |
+| `0x2C` | `TIER_KEEP`         | R     | 0x0   | bit[k] = `tier_keep[k]` for k in 0..`N_SLOTS`−1 (1 = keep, 0 = demote; the CQ-8/CQ-4 value-precision reading is **retired** under KVE's flat CQ-3-rot tier — see §5) |
 | `0x30` | `SLOT_VALID`        | R     | 0x0   | bit[k] = `valid[k]` (diagnostic occupancy map) |
 | `0x34` | `SCORE_SEL`         | RW    | 0x0   | Slot index selecting which score `SCORE_READ` returns (diagnostic) |
 | `0x38` | `SCORE_READ`        | R     | —     | Accumulated mass of the slot selected by `SCORE_SEL` (diagnostic) |
@@ -158,6 +158,12 @@ The TIU tells the KV Cache Engine (block 2) how to treat each cached token —
    - `tier_keep[s] = 1` (heavy hitter) → store the **value at CQ-8** (per-token INT8).
    - `tier_keep[s] = 0` (demote)       → store the **value at CQ-4** (per-token INT4).
 
+> **RETIRED under CQ-3-rot.** Once KVE moved to a single flat rotated-INT3 value tier
+> (CQ-3-rot), there is no per-token value bit-width left to select, so the CQ-8/CQ-4
+> value-precision role of `tier_keep` is dropped — the TIU keeps only its **evict-or-keep**
+> lever (item 1). This section is kept for provenance; see `../../DECISIONS.md` and
+> `docs/tier_handshake.md`.
+
 The tier is a per-token **value**-precision lever only. Keys stay uniform
 per-channel (per-token key demotion collapses GQA); the whole key cache shares one
 ChannelQuant key tier, set globally. `tier_keep` is emitted as `N_SLOTS` parallel
@@ -190,8 +196,8 @@ the testbench verifies bit-exact). The Sky130 physical run synthesizes an
 `N_SLOTS = 4` proxy via `SYNTH_PARAMETERS` — exactly as the KV Cache Engine ships
 a `VECTOR_DIM = 8` proxy — to shrink the argmin-mux fanout and clock tree so the
 clock-root fanout clears the flow's limit; the datapath is parameter-identical.
-FF count: **95 @ N_SLOTS=8** (real), **53 @ N_SLOTS=4** (proxy). Real `N_SLOTS`
-is set per-instantiation.
+FF count: **95 @ N_SLOTS=8** (real), **55 @ N_SLOTS=4** (proxy, the sequential-cell
+count in the signoff metrics). Real `N_SLOTS` is set per-instantiation.
 
 The FF count tracks the closed form
 `N_SLOTS·(SCORE_WIDTH+1) + SCORE_WIDTH + 3·SLOT_WIDTH + 3` (92 @ N_SLOTS=8;

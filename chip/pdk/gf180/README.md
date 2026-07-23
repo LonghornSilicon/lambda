@@ -14,11 +14,11 @@ the workshop padring.
 
 > **Status: honest skeleton.** The submission *harness* (workshop-slot
 > `chip_core`, serial host loader, per-macro LibreLane configs, cocotb harness)
-> is real and the smoke test passes. The datapath macros are dropped into their
-> reserved instantiation sites as their RTL is hardened for GF180. Five blocks
-> already have real, Sky130-signed RTL (copied in under `rtl/blocks/`); two are
-> still being written. See [Block → macro mapping](#block--macro-mapping) and
-> [What's still needed](#whats-still-needed). Every stub is marked `TODO`.
+> is real and the smoke test passes. **All seven datapath macros now have real RTL,
+> are GF180-hardened, and gate-level end-to-end verified** (see [Block → macro
+> mapping](#block--macro-mapping) and `docs/gf180_gls_report.md`); they are also
+> Sky130-signed. The remaining skeleton is the **padring / full-chip assembly**, not the
+> block RTL. See [What's still needed](#whats-still-needed). Every remaining stub is marked `TODO`.
 
 ---
 
@@ -89,6 +89,15 @@ Provenance (source repo, branch, commit) is in
 [`rtl/blocks/PROVENANCE.md`](rtl/blocks/PROVENANCE.md).
 
 ## Repository layout
+
+> **Note (post-monorepo-import):** the tree below describes the **upstream
+> `chipathon-lambda-acu` repo** it was authored in, not this path. After the curated import,
+> `chip/pdk/gf180/` does **not** contain an `rtl/` directory, and `chip/pdk/gf180/librelane/`
+> holds only `kve.yaml`, `kve_store_gf180.yaml`, `token_importance_unit.yaml`, and
+> `pdn_cfg_sram.tcl`. The five compute-tile GF180 configs (`mate_pv`, `mate_pv_fp16`,
+> `mate_qkt`, `vecu_softmax`, `precision_controller`) live in each block at
+> `acu/<block>/pdk/gf180/librelane/`; the block RTL lives in each block's `rtl/`. The
+> `LibreLane config` column in the table above names the upstream files, not files at this path.
 
 ```
 chipathon-lambda-acu/

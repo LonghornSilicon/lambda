@@ -24,7 +24,7 @@ TSMC University Program (tape-out target Summer 2027):
    through Sky130 sign-off (see the `kve` block).*
 3. **Token Importance Unit** — per-token attention-weight accumulator
    driving keep/demote/evict decisions for mixed-precision KV
-   retention. *Not yet implemented.*
+   retention. *RTL complete through Sky130 sign-off (see the `tiu` block).*
 4. **Memory Hierarchy Controller** — routes 0.8 MB on-die SRAM ↔ off-chip
    LPDDR5X, direct (no separate eDRAM tier). *Not yet implemented.*
 
@@ -107,9 +107,10 @@ To keep boundaries clear up front:
 
 - **Schedule promises tied to tape-out** — the TSMC University Program
   shuttle date is outside our control.
-- **An ISA for the full chip** — three of the four blocks are not yet
-  RTL. The precision-controller ISA is stable; the chip-level ISA
-  isn't.
+- **An ISA for the full chip** — one of the four blocks (the Memory
+  Hierarchy Controller) is not yet RTL; ACU, KVE, and TIU are RTL
+  through Sky130 sign-off. The per-block ISAs are stable; the unified
+  chip-level ISA isn't.
 - **Source access to private repos** — until we know the
   collaboration shape, the public repo is the boundary.
 - **Exclusivity** — other compiler projects may also be interested in

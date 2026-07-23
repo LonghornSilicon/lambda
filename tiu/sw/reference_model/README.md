@@ -72,7 +72,9 @@ open an issue with the failing trace.
 
 This directory is the compiler-team deliverable: the model exposes the same
 functional contract the hardware implements, so compiler backends can target the
-TIU today. The tier signal it emits (`keep → CQ-8`, `demote → CQ-4`, `evict →
-drop`) is consumed by the KV Cache Engine (block 2) — see
+TIU today. The tier signal it emits is consumed by the KV Cache Engine (block 2):
+**`evict → drop`** plus a keep/demote lever. The historical value-precision reading
+(`keep → CQ-8`, `demote → CQ-4`) is **retired** — KVE now stores a flat CQ-3-rot (INT3)
+value tier, so there is no per-token value bit-width to select; only evict/keep remains. See
 [`docs/tier_handshake.md`](../../docs/tier_handshake.md) and the interface spec
 [`docs/isa/token_importance_unit_isa.pdf`](../../docs/isa/token_importance_unit_isa.pdf).

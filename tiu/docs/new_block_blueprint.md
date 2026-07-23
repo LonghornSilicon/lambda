@@ -1,5 +1,14 @@
 # Blueprint for new LonghornSilicon block repos
 
+> **SUPERSEDED (monorepo migration, 2026-07-22).** LonghornSilicon no longer develops each
+> block as its own GitHub repo. Blocks are now **block-major folders inside the `lambda`
+> monorepo** (`acu/`, `kve/`, `tiu/`), developed in-place and **auto-mirrored read-only** to
+> `lambda-<block>`. Ignore the "create/clone a new per-block repo" steps below (Step 0 and the
+> standalone-repo names like `LonghornSilicon/kv-cache-engine`); instead add a new top-level
+> block folder in the monorepo. The per-block pipeline (RTL → sim → Yosys → LibreLane sign-off,
+> closed-form FF counts, two-testbench pattern, ISA/paper) is still valid — only the *repo layout*
+> and *per-block CI* changed. See the repo-root `AGENTS.md`/`CLAUDE.md` and `DECISIONS.md` (2026-07-22).
+
 **Purpose**: If you're a Claude Code session starting work on a new
 LonghornSilicon block (KV Cache Engine, Token Importance Unit, Memory
 Hierarchy Controller, or any future block), read this end-to-end before
