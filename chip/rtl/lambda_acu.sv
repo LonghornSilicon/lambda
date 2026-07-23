@@ -254,7 +254,9 @@ module lambda_acu #(
     // ---- TIU: H2O token importance ----
     reg               tiu_av, tiu_lv, tiu_er;
     reg  [SLW-1:0]    tiu_as, tiu_ls;
-    reg  [7:0]        tiu_aw, tiu_thr;
+    reg  [7:0]        tiu_aw;
+    wire [7:0]        tiu_thr = 8'd48;   // H2O keep-tier threshold (constant; was a
+                                         // reset-only reg -> undriven post-proc)
     wire              tiu_ev, tiu_busy;
     wire [SLW-1:0]    tiu_es;
     wire [L-1:0]      tiu_keep;
@@ -331,7 +333,7 @@ module lambda_acu #(
             pv16_sv <= 0; pv16_sl <= 0; pv16_a <= 0; pv16_v <= '0;
             pv8_sv <= 0; pv8_sl <= 0; pv8_a <= 0; pv8_v <= '0;
             tiu_av <= 0; tiu_lv <= 0; tiu_er <= 0; tiu_as <= 0; tiu_ls <= 0;
-            tiu_aw <= 0; tiu_thr <= 8'd48; inv_rot_in <= '0;
+            tiu_aw <= 0; inv_rot_in <= '0;
             evict_slot_r <= 0; keep_r <= 0; pv_i8_dbg <= 0;
         end else begin
             // default deassert of 1-cycle strobes

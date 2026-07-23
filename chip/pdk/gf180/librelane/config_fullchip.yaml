@@ -34,6 +34,13 @@ DESIGN_NAME: chip_top
 USE_SLANG: true
 SLANG_ARGUMENTS: ['--keep-hierarchy']
 
+# Keep block hierarchy THROUGH synthesis, flatten only afterwards for PnR. The
+# flat fp16 decode datapath makes yosys' SAT resource-sharing (SHARE) pass
+# pathologically slow when the whole chip is flattened up front; running synth
+# per-module (each mate_*/vecu/KVE block on its own) keeps SHARE fast AND still
+# shares/merges within each block, then flattening happens before placement.
+SYNTH_HIERARCHY_MODE: deferred_flatten
+
 # Re-assert the slot's SLOT_WORKSHOP (this config is loaded after the slot yaml
 # and would otherwise clobber its VERILOG_DEFINES) and select the synthesizable
 # KVE value-path lowering in lambda_acu (see lambda_acu.sv `LAMBDA_SYN_KVE`).
