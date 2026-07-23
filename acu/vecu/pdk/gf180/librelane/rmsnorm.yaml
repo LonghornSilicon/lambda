@@ -1,0 +1,40 @@
+# LibreLane Classic-flow hardening config for the rmsnorm macro.
+#
+# STATUS: REAL RTL (MULTI-CYCLE) — rmsnorm is the VecU RMSNorm slice: it buffers a
+# D-element fp16 vector + per-channel gain, computes the fp32 sum-of-squares, does
+# rsqrt(mean+eps) via a 64-entry LUT + linear interpolation, and emits
+# x_i*scale*g_i (one fp16 rounding). Bit-exact to sw/reference_model/rmsnorm_ref.py
+# (RTL cross-check: rtl/tb/tb_rmsnorm.sv, 308 rows, 0 mismatches). The rsqrt LUT
+# carries ~7.9e-4 rel-err vs exact RMSNorm (documented tol).
+#
+# MULTI-CYCLE: micro-sequenced FSM (S_ACC / S_PREP / S_EMIT) executing at most one
+# fp32 op per register-to-register path, like vecu_softmax, so the ss corner closes
+# with normal-effort resizing. CLOCK_PERIOD is a starting estimate carried over from
+# vecu_softmax (same one-fp32-op path); retime after the first real ss run.
+
+meta:
+  version: 3
+  flow: Classic
+
+DESIGN_NAME: rmsnorm
+
+PDK: gf180mcuD
+
+VERILOG_FILES:
+  - dir::../../../rtl/rmsnorm.sv
+
+SYNTH_PARAMETERS:
+  - D=16
+
+CLOCK_PORT: clk
+CLOCK_NET: clk
+CLOCK_PERIOD: 260    # ns — GF180 starting estimate (single fp32-op path, like vecu_softmax); retime after first ss run
+
+FP_SIZING: relative
+FP_CORE_UTIL: 40
+PL_TARGET_DENSITY_PCT: 50
+
+DESIGN_IS_CORE: false
+IO_DELAY_CONSTRAINT: 2
+CLOCK_UNCERTAINTY_CONSTRAINT: 0.1
+GRT_ALLOW_CONGESTION: true

@@ -1,0 +1,42 @@
+# LibreLane Classic-flow hardening config for the rope macro.
+#
+# STATUS: REAL RTL (MULTI-CYCLE) — rope is the VecU rotary-position-embedding
+# slice: it buffers a Q/K vector (HEAD_DIM fp16 channels + a position), reads the
+# sin/cos LUT (codebook ROM RoPE table), and rotates each (even,odd) channel pair
+# in fp32 (one fp16 rounding on emit). Bit-exact to sw/reference_model/rope_ref.py
+# (RTL cross-check: rtl/tb/tb_rope.sv, 323 rows, 0 mismatches). The cos/sin LUT
+# carries ~7.4e-4 rel-err vs an exact rotation (documented tol).
+#
+# MULTI-CYCLE: the rotation is a micro-sequenced FSM (S_RUN) executing at most one
+# fp32 op per register-to-register path (a few independent ops in parallel), like
+# vecu_softmax, so the ss corner closes with normal-effort resizing. CLOCK_PERIOD
+# is a starting estimate carried over from vecu_softmax (same one-fp32-op path);
+# retime after the first real ss run.
+
+meta:
+  version: 3
+  flow: Classic
+
+DESIGN_NAME: rope
+
+PDK: gf180mcuD
+
+VERILOG_FILES:
+  - dir::../../../rtl/rope.sv
+
+SYNTH_PARAMETERS:
+  - HEAD_DIM=8
+  - MAX_POS=16
+
+CLOCK_PORT: clk
+CLOCK_NET: clk
+CLOCK_PERIOD: 260    # ns — GF180 starting estimate (single fp32-op path, like vecu_softmax); retime after first ss run
+
+FP_SIZING: relative
+FP_CORE_UTIL: 45
+PL_TARGET_DENSITY_PCT: 55
+
+DESIGN_IS_CORE: false
+IO_DELAY_CONSTRAINT: 2
+CLOCK_UNCERTAINTY_CONSTRAINT: 0.1
+GRT_ALLOW_CONGESTION: true

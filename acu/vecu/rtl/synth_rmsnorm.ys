@@ -1,0 +1,24 @@
+# synth_rmsnorm.ys — Yosys synthesis smoke for rmsnorm (FF/area + latch check)
+#
+# Run from rtl/:   yosys -s synth_rmsnorm.ys
+# Or via Makefile: make synth_rmsnorm
+#
+# Asserts ZERO inferred latches (t:$dlatch = 0) — the block must be flop-only.
+
+read_verilog -sv rmsnorm.sv
+hierarchy -check -top rmsnorm
+synth -top rmsnorm -flatten
+
+# --- latch check: must be exactly zero ($dlatch inference = a coding bug) ---
+select -assert-count 0 t:$dlatch
+
+# --- area report (technology-independent FF + gate counts) ---
+echo on
+stat -width
+echo off
+
+# NAND2-equivalent lower bound
+abc -fast -g NAND
+echo on
+stat -width
+echo off
