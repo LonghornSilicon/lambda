@@ -20,13 +20,25 @@
 #
 # Requires:  cocotb, icarus-verilog  (both in hpretl/iic-osic-tools).
 
-.PHONY: test-smoke test-all clean
+.PHONY: test-smoke test-fullchip test-all clean
 
 TOPLEVEL_LANG ?= verilog
 SIM           ?= icarus
 
-RTL   = ../rtl
-BLOCKS = $(RTL)/blocks
+RTL   = ../../../rtl
+BLOCKS = ../../../verif/blocks
+ACU    = ../../../../acu
+
+# Hardened decode-attention macro RTL instantiated by lambda_acu (block sources
+# of truth: KVE/TIU under chip/verif/blocks, ACU under acu/*/rtl).
+KVE_SRC = $(BLOCKS)/kve/cq_fp_pkg.sv $(BLOCKS)/kve/cq_units.sv \
+          $(BLOCKS)/kve/wht_unit.sv $(BLOCKS)/kve/wht_inverse_out.sv \
+          $(BLOCKS)/kve/cq_value_path_wht.sv
+ACU_SRC = $(ACU)/precision_controller/rtl/precision_controller.sv \
+          $(ACU)/mate/rtl/mate_pv.sv $(ACU)/mate/rtl/mate_pv_fp16.sv \
+          $(ACU)/mate/rtl/mate_qkt.sv $(ACU)/vecu/rtl/vecu_softmax.sv
+TIU_SRC = $(BLOCKS)/tiu/token_importance_unit.sv
+MACRO_SRC = $(KVE_SRC) $(ACU_SRC) $(TIU_SRC)
 
 # ----- RTL sim -------------------------------------------------------------
 
@@ -36,11 +48,22 @@ test-smoke:
 	$(MAKE) -f Makefile.cocotb \
 	    TOPLEVEL=chip_core_wrap \
 	    MODULE=test_smoke \
-	    VERILOG_SOURCES="timescale.v chip_core_wrap.sv $(RTL)/chip_core.sv $(RTL)/lambda_acu.sv $(RTL)/spi_loader.sv" \
-	    COMPILE_ARGS="-g2012" \
+	    VERILOG_SOURCES="timescale.v chip_core_wrap.sv $(RTL)/chip_core.sv $(RTL)/lambda_acu.sv $(RTL)/spi_loader.sv $(MACRO_SRC)" \
+	    COMPILE_ARGS="-g2012 -I$(BLOCKS)/kve" \
 	    SIM_BUILD=sim_build_smoke
 
-test-all: test-smoke
+# Full-chip decode-attention pass: stream Q/K/V in over SPI, run one decode
+# step through the assembled macros, stream the fp32 attention row back out,
+# and check it against the host reference (chip/pdk/gf180/tb/test_fullchip.py).
+test-fullchip:
+	$(MAKE) -f Makefile.cocotb \
+	    TOPLEVEL=chip_core_wrap \
+	    MODULE=test_fullchip \
+	    VERILOG_SOURCES="timescale.v chip_core_wrap.sv $(RTL)/chip_core.sv $(RTL)/lambda_acu.sv $(RTL)/spi_loader.sv $(MACRO_SRC)" \
+	    COMPILE_ARGS="-g2012 -I$(BLOCKS)/kve" \
+	    SIM_BUILD=sim_build_fullchip
+
+test-all: test-smoke test-fullchip
 
 # ----- GF180 gate-level end-to-end (the full compute-datapath deliverable) --
 # Compiles the GF180 LibreLane gate-level netlists (../librelane/runs/<macro>/
