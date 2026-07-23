@@ -34,15 +34,16 @@ DESIGN_NAME: chip_top
 USE_SLANG: true
 SLANG_ARGUMENTS: ['--keep-hierarchy']
 
-# Keep block hierarchy THROUGH synthesis, flatten only afterwards for PnR. The
-# flat fp16 decode datapath makes yosys' SAT resource-sharing (SHARE) pass
-# pathologically slow when the whole chip is flattened up front (never converges);
-# running synth per-module keeps SHARE bounded, then flatten happens before PnR.
-# (SYNTH_SHARE_RESOURCES:false does NOT skip SHARE under `flatten`, so this is the
-# working lever.) NOTE: deferred_flatten's post-flatten opt_clean would strip the
-# port-less decorative gf180mcu_ws_ip__id/logo instances, so submit.sh adds a
-# `(* keep *)` to them in chip_top.sv (they are empty macros with no connections).
-SYNTH_HIERARCHY_MODE: deferred_flatten
+# Keep FULL hierarchy through synthesis AND into the netlist. Two reasons:
+#  1. The flat fp16 decode datapath makes yosys' SAT resource-sharing (SHARE) pass
+#     pathologically slow when flattened up front (never converges);
+#     `SYNTH_HIERARCHY_MODE: keep` synthesizes per-module so SHARE stays bounded.
+#  2. `flatten`/`deferred_flatten` rename or strip the padring's generate-loop pad
+#     instances (dvdd_pads[i].pad, ...), which breaks OpenROAD's power global-
+#     connect ("add_global_connections failed for dvdd_pads[0].pad/DVDD") and the
+#     manual placement of the id/logo macros. `keep` preserves every instance path,
+#     so the padring power connections resolve. Placement is still flat.
+SYNTH_HIERARCHY_MODE: keep
 
 # Re-assert the slot's SLOT_WORKSHOP (this config is loaded after the slot yaml
 # and would otherwise clobber its VERILOG_DEFINES) and select the synthesizable

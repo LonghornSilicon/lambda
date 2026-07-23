@@ -38,7 +38,7 @@ from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
 
 # ---- decode-tile shape (must match lambda_acu params in chip_core.sv) --------
-DH = 4           # head-dim channels
+DH = 2           # head-dim channels
 L  = 2           # cached tokens / keys
 
 # ---- SPI pad bits (see rtl/chip_core.sv PAD MAP) -----------------------------

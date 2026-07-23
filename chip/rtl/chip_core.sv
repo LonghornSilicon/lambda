@@ -75,7 +75,7 @@ module chip_core #(
     wire [NUM_BIDIR_PADS-1:0] obs_out;
 
     lambda_acu #(
-        .DH         (4),    // head-dim channels (P·V lanes, Q·Kᵀ reduction)
+        .DH         (2),    // head-dim channels (P·V lanes, Q·Kᵀ reduction)
         .L          (2),    // cached tokens / keys per decode step
         .ADDR_WIDTH (16),
         .NUM_BIDIR  (NUM_BIDIR_PADS)
