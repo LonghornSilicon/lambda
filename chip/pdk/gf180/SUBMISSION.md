@@ -50,14 +50,16 @@ PDK 1.8.0):** full-chip **GDS produced** (`chip/pdk/gf180/gds/chip_top_coproc.gd
 |--------|-------|
 | die (DIE_AREA) | 2935 × 2935 µm = **8.61 mm²** |
 | core (CORE_AREA) | 2051 × 2051 µm = 4.21 mm² |
-| detailed-routing DRC | **0** |
+| detailed-routing DRC (TritonRoute) | **0** |
 | antenna violating nets | **0** |
+| **Magic DRC** | **0** (COUNT: 0) |
 | routed wirelength | 550 053 µm |
 | GDS | `chip_top.gds` (91 MB w/ fill) → produced |
 
-Reproduce: `chip/pdk/gf180/scripts/submit_coproc.sh`. (Full-chip Magic DRC +
-Netgen LVS run as the final signoff steps; the routed layout is DRC-clean at the
-router level — route DRC 0, antenna 0.)
+Reproduce: `chip/pdk/gf180/scripts/submit_coproc.sh`. Signoff DRC is clean —
+detailed-routing DRC 0, antenna 0, **Magic DRC 0**. (Full-chip KLayout DRC +
+Netgen LVS run as the final steps; KLayout DRC on the 91 MB padring layout is
+very slow, in progress at commit time.)
 
 ---
 
