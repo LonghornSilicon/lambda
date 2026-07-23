@@ -155,37 +155,18 @@ KLAYOUT_FILLER_OPTIONS:
 
 MAGIC_EXT_UNIQUE: notopports
 
-# Only placed macros are the fork's chip_id + wafer.space logo (from <fork>/ip/).
-MACROS:
-  gf180mcu_ws_ip__id:
-    gds:
-      - dir::../ip/gf180mcu_ws_ip__id/gds/gf180mcu_ws_ip__id.gds
-    lef:
-      - dir::../ip/gf180mcu_ws_ip__id/lef/gf180mcu_ws_ip__id.lef
-    vh:
-      - dir::../ip/gf180mcu_ws_ip__id/vh/gf180mcu_ws_ip__id.v
-    lib:
-      "*":
-        - dir::../ip/gf180mcu_ws_ip__id/lib/gf180mcu_ws_ip__id.lib
-    instances:
-      chip_id:
-        location: [26, 26]
-        orientation: N
-
-  gf180mcu_ws_ip__logo:
-    gds:
-      - dir::../ip/gf180mcu_ws_ip__logo/gds/gf180mcu_ws_ip__logo.gds
-    lef:
-      - dir::../ip/gf180mcu_ws_ip__logo/lef/gf180mcu_ws_ip__logo.lef
-    vh:
-      - dir::../ip/gf180mcu_ws_ip__logo/vh/gf180mcu_ws_ip__logo.v
-    lib:
-      "*":
-        - dir::../ip/gf180mcu_ws_ip__logo/lib/gf180mcu_ws_ip__logo.lib
-    instances:
-      wafer_space_logo:
-        location: ["expr::$DIE_AREA[2] + -169.25", "expr::$DIE_AREA[3] + -169.25"]
-        orientation: N
+# DECORATIVE MACROS DROPPED for the Lambda full-chip build. The fork places two
+# purely-decorative wafer.space IP macros (gf180mcu_ws_ip__id chip identifier +
+# __logo; the fork's own chip_top.sv comments the logo "can be removed"). They are
+# EMPTY, port-less instances with no functional connection. Under our fast
+# `deferred_flatten` synthesis (needed so yosys' SHARE pass converges on the fp16
+# datapath) the post-flatten opt_clean strips port-less cells, and a `(* keep *)`
+# does not survive slang -> flatten, so OpenROAD's manual macro placement aborts
+# ("No macro instance ... found"). Since they are cosmetic, submit.sh strips their
+# two instantiations from chip_top.sv and we place NO user macros — the Lambda
+# core is flat std-cell logic. (To restore them: use SYNTH_HIERARCHY_MODE flatten,
+# but that makes SHARE non-converging on this design.)
+MACROS: {}
 
 PDN_MACRO_CONNECTIONS: []
 

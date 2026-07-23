@@ -55,10 +55,19 @@ cp "$ROOT/kve/rtl/wht_inverse_out_syn.sv"    "$SRC/wht_inverse_out_syn.sv"
 # our full-chip config over the fork's
 cp "$GF180/librelane/config_fullchip.yaml" "$FORK/librelane/config.yaml"
 
-# Keep the port-less decorative id/logo macros from being opt_clean'd out under
-# SYNTH_HIERARCHY_MODE: deferred_flatten (see config_fullchip.yaml). Idempotent.
-sed -i 's|^\( *\)gf180mcu_ws_ip__id chip_id ();|\1(* keep *) gf180mcu_ws_ip__id chip_id ();|' "$SRC/chip_top.sv"
-sed -i 's|^\( *\)gf180mcu_ws_ip__logo wafer_space_logo ();|\1(* keep *) gf180mcu_ws_ip__logo wafer_space_logo ();|' "$SRC/chip_top.sv"
+# Drop the two purely-decorative wafer.space IP macros (chip_id + logo) from
+# chip_top.sv: they are empty port-less instances, our fast deferred_flatten synth
+# opt_cleans them out, and manual macro placement then aborts. We place no user
+# macros (see config_fullchip.yaml MACROS: {}). Comment them out; idempotent.
+python3 - "$SRC/chip_top.sv" <<'PYEOF'
+import re, sys
+p = sys.argv[1]; s = open(p).read()
+for mod, inst in [("id", "chip_id"), ("logo", "wafer_space_logo")]:
+    s = re.sub(r'^([ \t]*)(?:\(\* keep \*\) )?gf180mcu_ws_ip__%s %s \(\);' % (mod, inst),
+               r'\1// [lambda] decorative macro dropped (see chip/pdk/gf180): gf180mcu_ws_ip__%s %s' % (mod, inst),
+               s, flags=re.M)
+open(p, 'w').write(s)
+PYEOF
 
 echo "== 4. build (SLOT=workshop) =="
 cd "$FORK"
