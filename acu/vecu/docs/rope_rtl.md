@@ -3,8 +3,8 @@
 **Status:** RTL complete + micro-sequenced, **bit-exact to the RoPE LUT golden**
 (`rtl/tb/tb_rope.sv`: 23 committed corner rows + 300-row random stress, **0
 mismatches**), **Yosys-clean** (436 FFs at HEAD_DIM=8/MAX_POS=16, **no latches** —
-`t:$dlatch = 0` asserted). **GF180 hardened to GDSII** (LibreLane 3.0.5, clean
-5-check sign-off — see below); Sky130 in progress.
+`t:$dlatch = 0` asserted). **Hardened to GDSII on GF180 + Sky130** (LibreLane 3.0.5,
+clean sign-off — see below).
 **Home:** `rtl/rope.sv` (+ `rtl/tb/tb_rope.sv`, `rtl/tb/gen_rope_vectors.py`, golden
 `sw/reference_model/rope_ref.py`).
 **One line:** applies rotary position embedding to a decode Q or K vector — the raw
@@ -97,11 +97,23 @@ Five hard sign-off checks (setup/hold/DRC/LVS/antenna) all zero. The ss-corner
 max-slew/max-cap residuals are the known fp32 register-array item (same as
 `vecu_softmax`), absorbed by the loose clock.
 
-### Sky130A (OpenLane/LibreLane 3.0.5) — in progress
-`pdk/sky130/openlane/rope/config.json`. Loosened to FP_CORE_UTIL 30 /
-PL_TARGET_DENSITY_PCT 40 + GRT_ALLOW_CONGESTION (the fp32+LUT datapath congests at
-45 % on the tighter Sky130 tracks). Clock 105 ns start (one-fp32-op path, like
-`vecu_softmax`).
+### Sky130A (OpenLane/LibreLane 3.0.5) — CLOSED
+Results: `pdk/sky130/openlane/rope/results/` (GDS, metrics, render, `SIGNOFF.md`).
+
+| | value |
+|---|---|
+| Die area | 277632 µm² (0.278 mm²), 58855 insts, 40.5 % util |
+| Clock (loose) | 105 ns; fmax(ss) ~16.2 MHz (crit path ~61.6 ns) |
+| Setup / Hold WNS | 0 / 0 (all corners) |
+| Magic DRC / KLayout DRC | 0 / 0 |
+| LVS | clean (netgen "Circuits match uniquely") |
+| Antenna / max-cap | 0 / 0 |
+| Residual (ss register-array) | max_slew 524 — noted, not gating |
+
+Loosened to FP_CORE_UTIL 30 / PL_TARGET_DENSITY_PCT 40 + GRT_ALLOW_CONGESTION (the
+fp32+LUT datapath congests global routing at the 45 % util that closes on GF180,
+given Sky130's tighter tracks). All six hard checks (setup/hold/DRC/LVS/antenna/
+max-cap) zero; only the ss max-slew register-array residual remains.
 
 ## Scope / still open
 
