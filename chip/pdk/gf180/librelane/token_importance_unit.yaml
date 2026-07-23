@@ -4,7 +4,7 @@
 # signed off on Sky130 in token-importance-unit/openlane/token_importance_unit.
 # Re-targeted to GF180MCU here. Ported from that repo's config.json.
 #
-# Provenance: ../rtl/blocks/PROVENANCE.md
+# Provenance: ../PROVENANCE.md
 
 meta:
   version: 3
@@ -15,7 +15,7 @@ DESIGN_NAME: token_importance_unit
 PDK: gf180mcuD
 
 VERILOG_FILES:
-  - dir::../rtl/blocks/token_importance_unit.sv
+  - dir::../../../verif/blocks/tiu/token_importance_unit.sv
 
 SYNTH_PARAMETERS:
   - N_SLOTS=4

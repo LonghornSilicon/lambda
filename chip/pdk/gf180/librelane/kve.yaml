@@ -6,7 +6,7 @@
 # Ported from that repo's config.json (params + clock kept); CLOCK_PERIOD is a
 # starting point and MUST be re-timed for GF180 (slower node than Sky130).
 #
-# Provenance of the RTL under ../rtl/blocks/kve/: see ../rtl/blocks/PROVENANCE.md
+# Provenance of the RTL under ../../../verif/blocks/kve/: see ../PROVENANCE.md
 
 meta:
   version: 3
@@ -19,18 +19,18 @@ PDK: gf180mcuD
 # Curated SYNTHESIS file set (matches the sibling repo's openlane/kv_cache_engine
 # /src). The KVE ships two RTL views: behavioral (cq_fp_pkg.sv/cq_units.sv/
 # wht_*.sv — use `real`/`$fscanf`, sim-only, yosys-incompatible) and synthesis
-# (`*_syn.sv`, real-free). Globbing all of ../rtl/blocks/kve/*.sv pulls in the
+# (`*_syn.sv`, real-free). Globbing all of ../../../verif/blocks/kve/*.sv pulls in the
 # behavioral ones and yosys aborts on `real`. This is the synth set only.
 VERILOG_FILES:
-  - dir::../rtl/blocks/kve/amax_unit.sv
-  - dir::../rtl/blocks/kve/cq_units_syn.sv
-  - dir::../rtl/blocks/kve/cq_key_path.sv
-  - dir::../rtl/blocks/kve/cq_value_path.sv
-  - dir::../rtl/blocks/kve/scale_bank.sv
-  - dir::../rtl/blocks/kve/residual_buffer.sv
-  - dir::../rtl/blocks/kve/sram_controller.sv
-  - dir::../rtl/blocks/kve/kv_sram.sv          # behavioral KV-store memory (flop proxy)
-  - dir::../rtl/blocks/kve/kv_cache_engine.sv
+  - dir::../../../verif/blocks/kve/amax_unit.sv
+  - dir::../../../verif/blocks/kve/cq_units_syn.sv
+  - dir::../../../verif/blocks/kve/cq_key_path.sv
+  - dir::../../../verif/blocks/kve/cq_value_path.sv
+  - dir::../../../verif/blocks/kve/scale_bank.sv
+  - dir::../../../verif/blocks/kve/residual_buffer.sv
+  - dir::../../../verif/blocks/kve/sram_controller.sv
+  - dir::../../../verif/blocks/kve/kv_sram.sv          # behavioral KV-store memory (flop proxy)
+  - dir::../../../verif/blocks/kve/kv_cache_engine.sv
 
 # Gate-proxy parameters (small synth footprint), mirroring the Sky130 signoff.
 # NOTE: at SRAM_DEPTH=2 the KV storage (scale_bank/residual_buffer) synthesizes
