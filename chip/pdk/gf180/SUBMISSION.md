@@ -242,23 +242,48 @@ block macros GF180 Classic-clean signoff → GDS/LEF (§5a); KVE synthesizable
 lowering, bit-exact (§5b); the full-chip Chip flow synthesizes, floorplans,
 connects power, places, and runs CTS + routing at the workshop core (§5c).
 
-**Full-chip signoff status (Dh=2/L=2):** _<FILL: PnR is multi-hour at 85.2 %
-utilization; record here the Detailed-Routing DRC / Magic DRC / Netgen LVS /
-antenna outcome + the final `final/gds/chip_top.gds`, or the exact routing
-overflow if 85 % proves too congested>_. The design reaches routing; 85 %
-utilization is tight for the GF180 fp16 datapath, so the closing risk is routing
-congestion (global-placement reported ~1.25 % overflowed tiles / "could not reach
-target"), not any earlier flow step.
+**Full-chip signoff status (Dh=2/L=2) — the honest verdict.** The Chip flow runs
+cleanly through synthesis → floorplan → PDN/power-connect → global+detailed
+placement → CTS, then **does not converge in the post-CTS routability/timing
+resizer**: at 85.2 % utilization OpenROAD's routability-driven step reports
+**routing congestion ≈ 1.01–1.015 (> 1.0 capacity), "could not reach target"
+(0.35)** and cannot place the slew/fanout repair buffers (3 860 slew / 1 312
+fanout violations on the loose-clock high-fanout fp16 nets) because there is no
+free area. So **no clean `final/gds/chip_top.gds` is produced** — the blocker is
+**routing congestion in the fixed workshop core**, and it is the *only* remaining
+one (every earlier step — synthesis, floorplan, power, placement, CTS — passes).
 
-**If 85 % is too congested to route clean**, the only remaining lever is more core
-area than the fixed workshop slot gives (the fp16 datapath does not shrink further
-in a meaningful tile): request/assemble into a larger die slot, or harden the six
-compute blocks as macros at these Dh=2/L=2 sizes and place them hierarchically with
-their own denser internal routing. The synthesizable-lowering + integration work
-(§5b/§5c) is the reusable result; the fit is a slot-area trade.
+**Root cause (quantified).** The Lambda decode datapath is a *flat fp16/fp32*
+core, and fp16 arithmetic carries a large FIXED cell cost on GF180 that does not
+shrink with the tile: Dh=2/L=2 is already the minimal meaningful decode tile
+(2 channels, 2 cached tokens, D power-of-two for the WHT) yet still synthesizes to
+**60 029 instances ≈ 3.6 mm²**, i.e. 85 % of the 2051×2051 = 4.21 mm² fixed core —
+past the ~60–70 % that a congested GF180 fp16 design routes clean. The fixed
+workshop core simply does not have the routing area for this datapath.
 
-**Reproduce the closing run:** `chip/pdk/gf180/scripts/submit.sh` (Dh=2/L=2 is
-already set in `chip_core.sv`).
+**Punch-list to a clean full-chip GDS (in priority order):**
+
+1. **A larger die/core slot.** The workshop slot's 4.21 mm² core is the hard
+   limit hit here. The same `config_fullchip.yaml` + `submit.sh` on a bigger slot
+   (or a custom die with a larger core ring) routes at comfortable utilization —
+   the design is unchanged, only the fixed core grows.
+2. **Hierarchical macro assembly at Dh=2/L=2 sizes.** Re-harden the six compute
+   blocks + the KVE `*_syn` value path as macros *at these instantiation sizes*
+   (they close standalone with their own dense internal routing, §5a), then place
+   the macro LEF/GDS + `PDN_MACRO_CONNECTIONS` in the padring — moving the fp16
+   routing congestion inside each macro instead of one flat 85 %-full core.
+3. **Relax the timing lever.** The 3 860 slew repairs are what the resizer chokes
+   on; a tighter clock (retimed) or a higher `MAX_TRANSITION_CONSTRAINT` would cut
+   the repair-buffer count and the congestion it adds — worth trying before (1)/(2).
+
+**What IS closed and reusable:** the synthesizable KVE lowering (§5b, bit-exact),
+the full integration (config + submit.sh + the tiu_thr / keep-mode / macro fixes),
+and a flow that drives the assembled chip from RTL through CTS in the real padring.
+The remaining gap is purely the fixed-core routing area — a slot trade, not a
+design or tooling defect.
+
+**Reproduce:** `chip/pdk/gf180/scripts/submit.sh` (Dh=2/L=2 is set in
+`chip_core.sv`); it runs to the post-CTS resizer as described.
 
 ## 7. Reproduce
 
