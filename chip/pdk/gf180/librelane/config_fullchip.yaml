@@ -36,9 +36,12 @@ SLANG_ARGUMENTS: ['--keep-hierarchy']
 
 # Keep block hierarchy THROUGH synthesis, flatten only afterwards for PnR. The
 # flat fp16 decode datapath makes yosys' SAT resource-sharing (SHARE) pass
-# pathologically slow when the whole chip is flattened up front; running synth
-# per-module (each mate_*/vecu/KVE block on its own) keeps SHARE fast AND still
-# shares/merges within each block, then flattening happens before placement.
+# pathologically slow when the whole chip is flattened up front (never converges);
+# running synth per-module keeps SHARE bounded, then flatten happens before PnR.
+# (SYNTH_SHARE_RESOURCES:false does NOT skip SHARE under `flatten`, so this is the
+# working lever.) NOTE: deferred_flatten's post-flatten opt_clean would strip the
+# port-less decorative gf180mcu_ws_ip__id/logo instances, so submit.sh adds a
+# `(* keep *)` to them in chip_top.sv (they are empty macros with no connections).
 SYNTH_HIERARCHY_MODE: deferred_flatten
 
 # Re-assert the slot's SLOT_WORKSHOP (this config is loaded after the slot yaml

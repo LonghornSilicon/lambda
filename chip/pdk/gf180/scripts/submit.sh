@@ -55,6 +55,11 @@ cp "$ROOT/kve/rtl/wht_inverse_out_syn.sv"    "$SRC/wht_inverse_out_syn.sv"
 # our full-chip config over the fork's
 cp "$GF180/librelane/config_fullchip.yaml" "$FORK/librelane/config.yaml"
 
+# Keep the port-less decorative id/logo macros from being opt_clean'd out under
+# SYNTH_HIERARCHY_MODE: deferred_flatten (see config_fullchip.yaml). Idempotent.
+sed -i 's|^\( *\)gf180mcu_ws_ip__id chip_id ();|\1(* keep *) gf180mcu_ws_ip__id chip_id ();|' "$SRC/chip_top.sv"
+sed -i 's|^\( *\)gf180mcu_ws_ip__logo wafer_space_logo ();|\1(* keep *) gf180mcu_ws_ip__logo wafer_space_logo ();|' "$SRC/chip_top.sv"
+
 echo "== 4. build (SLOT=workshop) =="
 cd "$FORK"
 SLOT=workshop make librelane
