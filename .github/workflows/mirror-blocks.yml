@@ -17,11 +17,12 @@
 name: mirror-blocks
 on:
   push:
-    branches: [main]
+    branches: [main, rev0]   # main = clean scaffold; rev0 = the RTL revision branch
 
-# Avoid overlapping mirror pushes racing each other.
+# Avoid overlapping mirror pushes racing each other. Keyed per-branch so a main push and a
+# rev0 push don't cancel each other.
 concurrency:
-  group: mirror-blocks
+  group: mirror-blocks-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -68,10 +69,12 @@ jobs:
         run: |
           git subtree split --prefix='${{ matrix.prefix }}' -b _mirror_split
 
-      - name: Push to standalone mirror
+      - name: Push to standalone mirror (same-named branch)
         env:
           MIRROR_PAT: ${{ secrets.MIRROR_PAT }}
         run: |
+          # Push the split to the mirror's SAME branch as the one that triggered this run:
+          # push to main -> mirror main (scaffold); push to rev0 -> mirror rev0 (RTL).
           git push --force \
             "https://x-access-token:${MIRROR_PAT}@github.com/${{ matrix.repo }}.git" \
-            _mirror_split:main
+            "_mirror_split:${{ github.ref_name }}"

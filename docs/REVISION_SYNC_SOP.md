@@ -181,6 +181,39 @@ no `sw/ research/` — but it MUST carry a `README.md` and a `DECISIONS.md`.
 
 ---
 
+## 6a. Branch model — `main` scaffold + revision branches (RTL lives on revisions)
+
+**`main` is a clean scaffold, not the RTL.** `main` carries the structure, docs, DECISIONS, `pdk/`
+flow configs, Python reference-models (the golden spec), tooling, the SOP, and the proven `results/`
+record — but **no `.sv`/`.v` RTL**. The synthesizable RTL lives on **revision branches**.
+
+This is deliberate: Longhorn Silicon is a talent-development tapeout. **Students and leads write the
+RTL** — we do not ship generated RTL as the canonical `main` baseline. `main` shows the target
+(spec + golden + proven results + flow configs); contributors implement the RTL on revisions.
+
+| Branch | Holds | Who writes | Flow |
+|---|---|---|---|
+| `main` | clean scaffold (no `.sv`/`.v`) | leads (via bless) | receives blessed RTL when a revision merges upstream |
+| `rev0`, `rev1`, … | the full RTL under development | contributors | branch from it, PR into it |
+
+**Contributor flow:** branch from the active revision (`rev0`) → write/modify RTL → PR into `rev0`.
+A block's per-block unit tests + reference-model parity gate the PR. When a lead **blesses** a
+revision (RTL reviewed, understood, sign-off reproduced), the revision merges **upstream into `main`**
+— at which point that RTL becomes canonical and a coordinated baseline tag (`rev-RN`) is cut.
+
+**Do not merge `main` → a revision branch** — `main` carries the RTL-strip; merging it would delete
+the RTL from the revision. Infra/doc changes that belong on both are cherry-picked, or land on the
+shared base. RTL only ever flows revision → `main` (never the reverse).
+
+**Mirrors carry both branches.** `mirror-blocks.yml` triggers on pushes to `main` **and** `rev0`,
+and pushes each block's split to the mirror's same-named branch — so `lambda-<block>` has a `main`
+(scaffold) and a `rev0` (RTL), matching this monorepo. A push to `main` never touches the mirrors'
+`rev0`, and vice-versa.
+
+**`chip/` follows the same rule** (its integration RTL strips to the revision branch). The deeper
+disaggregation of chip-level SystemVerilog into student-authored blocks is a follow-on revision
+branch, cut after the block-level RTL is established.
+
 ## 7. Out-of-band repos (documented boundary — NOT governed by this SOP)
 
 Two sibling repos feed content into `lambda/` but are **outside** the monorepo's atomic revisioning.
