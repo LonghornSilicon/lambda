@@ -1,1 +1,0 @@
-../../../../../rtl/scale_bank.sv
