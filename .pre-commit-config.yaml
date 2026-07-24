@@ -1,0 +1,37 @@
+# Pre-commit hooks for the Lambda monorepo — local, no repo secrets.
+# Enforces the Revision-Sync SOP (docs/REVISION_SYNC_SOP.md §9) at commit time.
+#
+# Setup (one-time, per clone):
+#   pip install pre-commit && pre-commit install
+# Run manually across the whole tree:
+#   pre-commit run --all-files
+# Bypass a single hook when justified (e.g. a genuinely doc-free RTL comment fix):
+#   SKIP=rtl-doc-gate git commit ...
+#
+# These mirror scripts/*.py so they also run standalone without the pre-commit framework.
+
+repos:
+  - repo: local
+    hooks:
+      - id: rtl-doc-gate
+        name: rtl-doc gate (docs travel with code)
+        entry: python3 scripts/rtl_doc_gate.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: block-structure
+        name: block-structure lint (canonical template)
+        entry: python3 scripts/check_block_structure.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        # WARN-level deviations do not block; only missing required files/dirs (ERROR) fail.
+        # Use --strict here once the Phase 3 normalization has cleared the warnings.
+
+      - id: progress-fresh
+        name: PROGRESS.md is ground-truth-current
+        entry: python3 scripts/gen_progress.py --check
+        language: system
+        pass_filenames: false
+        files: '(metrics.*\.json|docs/PROGRESS\.md)$'
