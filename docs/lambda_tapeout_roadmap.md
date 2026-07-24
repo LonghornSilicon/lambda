@@ -1,7 +1,13 @@
-# Lambda — Roadmap to Tape-out (December 2026)
+# Lambda — Roadmap to Tape-out (SUPERSEDED — see docs/ROADMAP.md)
 
-**The real target is a December full-chip tape-out.** The SSCS Chipathon 2026 shuttle is a
-*milestone on the way*, not the destination. This doc is the whole picture: where every block
+> **⚠️ SUPERSEDED by [`docs/ROADMAP.md`](ROADMAP.md)** (the canonical timeline of record). This
+> doc's "December 2026 full-chip" framing predates the two-track decision: the GF180/Chipathon proxy
+> track now runs **in parallel** with the hallmark N16 product track (**N16 tapeout ~Fall 2027**,
+> +1 semester buffer), not as a single sequential path. Retained for its per-block build detail;
+> for dates and track structure, read `ROADMAP.md`.
+
+**(Historical framing below.)** The near-term GF180 work is a milestone toward the full chip. This
+doc captures where every block
 stands, the two tracks (chipathon submission + full chip), and the path to December.
 
 ## Where every block stands (2026-07-23)

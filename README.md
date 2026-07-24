@@ -1,10 +1,18 @@
 # Lambda — LonghornSilicon decode-attention accelerator (monorepo)
 
-**Lambda** is the LonghornSilicon LLM decode-attention accelerator. This is the **block-major
-monorepo**: one clone, atomic cross-block commits, one CI. Each functional block is a
-self-contained top-level folder (`sw/ rtl/ pdk/ docs/ research/`); cross-block integration lives
-in `chip/`. Each block is also auto-mirrored to a standalone read-only `lambda-<block>` repo so it
-keeps its own browsable/cloneable URL.
+**Lambda** is the LonghornSilicon LLM decode-attention accelerator. This is the **monorepo**: one
+clone, atomic cross-block commits, one CI. Each functional block is a self-contained folder under
+`src/blocks/<block>/` (`sw/ rtl/ pdk/ docs/ research/`); cross-block integration lives in `chip/`;
+the architecture spec / ISA is the standalone [`lambda-arch`](https://github.com/LonghornSilicon/lambda-arch)
+repo; Cadence chamber tooling is in `tools/`. Each block auto-mirrors to a read-only `lambda-<block>`
+repo so it keeps its own browsable/cloneable URL.
+
+**Branch model — `main` is a clean scaffold; RTL lives on `rev0`.** `main` carries structure, docs,
+`pdk/` configs, Python reference-models (the golden spec), tooling, and the proven `results/`
+record — but **no `.sv`/`.v` RTL**. RTL is developed on the **`rev0`** revision branch (PR into
+`rev0`; a lead blesses → merges to `main`). Longhorn Silicon is a talent-development tapeout —
+students and leads write the RTL. **To see/work on RTL: `git checkout rev0`.** Full model:
+[`docs/REVISION_SYNC_SOP.md`](docs/REVISION_SYNC_SOP.md) §6a.
 
 **Targets — one RTL, multiple PDKs.** The **product target is TSMC 16nm (N16FFC)** — under NDA, so
 we prove/estimate on open PDKs. **GF180MCU** is the near-term *chipathon shuttle* (**SSCS Chipathon
@@ -68,8 +76,9 @@ Cross-block integration (cosim + full-chip PDK) lives in [`chip/`](chip/); chip-
 
 ## Auto-mirror
 
-On every push to `main`, `.github/workflows/mirror-blocks.yml` runs `git subtree split
---prefix=<block>` and force-pushes each block to its standalone **read-only** mirror repo:
+On every push to `main` **and** `rev0`, `.github/workflows/mirror-blocks.yml` runs `git subtree
+split --prefix=src/blocks/<block>` and force-pushes each block to the **same-named branch** of its
+standalone **read-only** mirror — so each mirror has a `main` (scaffold) and a `rev0` (RTL):
 
 | monorepo path | mirror repo | status |
 |---|---|---|

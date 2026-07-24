@@ -1,5 +1,10 @@
 # Lambda — Architecture Status
 
+> **⚠️ Timeline of record is [`docs/ROADMAP.md`](ROADMAP.md).** The tapeout schedule below (any
+> "Summer 2027" / charter-schedule mentions) is superseded by the canonical two-track roadmap:
+> proxy (GF180/Chipathon) runs in parallel with the N16 product track; **N16 tapeout ~Fall 2027**
+> (+1 semester buffer). Where this file and `ROADMAP.md` disagree on dates, `ROADMAP.md` wins.
+
 > **Codec-of-record note:** The KV-cache compression codec is **ChannelQuant** (per-channel INT4 keys, grouped G=128, D per-channel FP16 scales; per-token INT4 values; static top-k k=2 FP16 outlier-channel lane via calibrated ROM mask; tiers CQ-8 / CQ-4 / CQ-4+; ~3.8× KV compression at ~4 bits/value, near-lossless), packaged as the **KV Cache Engine (KVE)**. Decompression is per-channel `INT4·FP16` (+ FP16 replay for outlier channels); keys are dequantized per-channel before the score matmul (no compressed-domain read path). The full block RTL is complete through Sky130 sign-off in the `kve` block. The KVE's **physical PD numbers at 16nm (area / power / Fmax) are TBD — pending re-measurement for ChannelQuant**, and the per-model throughput/capacity/accumulator numbers derived for the retired 3-5B target are **TBD — pending re-derivation for ChannelQuant / Qwen2-1.5B**. TurboQuant remains a cited prior work only; its pure history is on the `legacy/turboquant` branch.
 
 **Last updated: 2026-07-21 (RTL-maturity honest-status refresh + CQ-3-rot value tier; see the change log below. Prior tooling entry: 2026-06-06 chamber v0.4.1.)**
