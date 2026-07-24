@@ -6,9 +6,20 @@
 > re-building blocks, and re-hitting the same walls.
 
 ## What this is
-**Lambda** — the LonghornSilicon decode-attention accelerator, as a **block-major monorepo**.
-Each functional block is a self-contained top-level folder holding all its aspects
-(`sw/ rtl/ pdk/ docs/ research/`). Cross-block integration lives in `chip/`.
+**Lambda** — the LonghornSilicon decode-attention accelerator, as a **monorepo with a `src/blocks/`
+taxonomy** (reorg 2026-07; see `docs/REORG_NOTES.md`). Each functional block is a self-contained
+folder under `src/blocks/<block>/` holding all its aspects (`sw/ rtl/ pdk/ docs/ research/`).
+Cross-block integration lives in `chip/`. The architecture spec / ISA is the standalone
+[`lambda-arch`](https://github.com/LonghornSilicon/lambda-arch) repo (see `src/arch/`); the Cadence
+chamber tooling lives in `tools/`.
+
+**Branch model — `main` is a clean scaffold; RTL lives on revision branches.** `main` carries the
+structure, docs, `pdk/` configs, Python reference-models (the golden spec), tooling, and the proven
+`results/` record — but **no `.sv`/`.v` RTL**. The RTL is developed by contributors on the `rev0`
+revision branch (PR into `rev0`); a lead **blesses** it (reviewed, sign-off reproduced) and merges
+it upstream into `main`. This is deliberate — Longhorn Silicon is a talent-development tapeout, so
+students and leads write the RTL. Full model: `docs/REVISION_SYNC_SOP.md` §6a. **To see/work on RTL:
+`git checkout rev0`.**
 
 **Targets — one RTL, multiple PDKs.** The **product target is TSMC 16nm (N16FFC)**. That PDK is
 under NDA, so we prove/estimate on open PDKs: **GF180MCU** is the near-term *chipathon shuttle*
@@ -52,13 +63,15 @@ lambda/
 
 ## Runbook (exact commands — don't re-derive the flow)
 ```
+# RTL work happens on the rev0 revision branch (main is scaffold, no .sv):
+git checkout rev0
 # cross-block cosim (the integration harness)
 make -C chip/verif cosim
-# per-block sim / parity (from inside the block, e.g. kve/rtl or tiu/rtl)
-make -C kve/rtl sim            # (see the block's own AGENTS.md for its exact targets)
-make -C tiu/rtl sim
+# per-block sim / parity (from inside the block, e.g. src/blocks/kve/rtl or src/blocks/tiu/rtl)
+make -C src/blocks/kve/rtl sim   # (see the block's own AGENTS.md for its exact targets)
+make -C src/blocks/tiu/rtl sim
 # harden a block for a PDK (block-local pdk/ config)
-#   librelane <block>/pdk/<pdk>/<block>.yaml   (see block AGENTS.md)
+#   librelane src/blocks/<block>/pdk/<pdk>/<block>.yaml   (see block AGENTS.md)
 ```
 Environment note: the LHS box venv is read-only (no pip/numpy). Reinstall `iverilog`/`yosys`
 each session; use `/home/shadeform/cuda_advisor/.venv/bin/python` for numpy. See root
@@ -79,12 +92,14 @@ Full standard: `docs/documentation_standard.md`. A PR that changes `rtl/` withou
 `docs/`/`DECISIONS.md` should be flagged by CI.
 
 ## Monorepo + mirrors
-Develop **here** (atomic cross-block commits, one CI). On push to `main`, `.github/workflows/
-mirror-blocks.yml` `subtree split`s each block dir and force-pushes it to a read-only
-`lambda-<block>` mirror. Mirrors are **read-only** — PRs land on this monorepo and propagate out.
-The mirror job needs a repo secret `MIRROR_PAT` (see root README).
+Develop **here** (atomic cross-block commits, one CI). On push to `main` **and** `rev0`,
+`.github/workflows/mirror-blocks.yml` `subtree split`s each `src/blocks/<block>` dir and
+force-pushes it to the same-named branch of a read-only `lambda-<block>` mirror — so each mirror has
+a `main` (scaffold) and a `rev0` (RTL), matching this monorepo. Mirrors are **read-only** — PRs land
+here and propagate out. The mirror job needs the repo secret `MIRROR_PAT` (configured).
 
 ## Commit conventions
-- Author as the project identity (`Chaithu Talasila <themoddedcube@gmail.com>`) via
-  `git -c user.name=... -c user.email=...` — NOT your default git config, or commits won't link.
-- Block RTL commits go on the block dir; cross-block/integration on `chip/`.
+- **Author as yourself** — your own name + GitHub email, via `git -c user.name=... -c user.email=...`
+  or your git config. Attribution matters: contributors own the work they do.
+- RTL work + block commits go on `rev0` (the revision branch); the SOP §6a describes how a blessed
+  revision merges to `main`. Never merge `main` → a revision branch (it would delete the RTL).
