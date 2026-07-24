@@ -27,9 +27,9 @@ Legend — sign-off: `signed-off` = GDS + all headline checks 0 (DRC/LVS/antenna
 |---|---|---|---|---|---|---|
 | `kve` | `3074d92` | `kv-isa-0.2` | **signed-off** @10 MHz (die 0.236 mm²) | config-only | — | 1 ss-corner max-cap near-miss (`SIGNOFF.md`); 3-way Py↔C++↔SV parity claimed |
 | `tiu` | `5b51900` | `tiu-isa-0.1` | **no-gds**: metrics clean @40 MHz (die 0.015 mm²) but **GDS not committed** | config-only | — | headline checks all 0 + layout.png present, but no `*.gds*` in the tree — commit the GDS to reach signed-off. Py-only ref (29/29 + 40/40 replay claimed) |
-| `acu/mate` | `3074d92` | — | **signed-off** ×3: pv@71, qkt@12.5, fp16@11.8 MHz | config-only | route-clean: pv@2 GHz, fp16@286 MHz | asap7 = route-clean only; FP16 parity is rel-err<5e-3 (not bit-exact, by design) |
-| `acu/vecu` | `cb08d1b` | — | **signed-off**: rope, softmax @9.5 MHz | **signed-off**: rmsnorm, rope @3.85 MHz | — | half-covered: rmsnorm sky130 = config-only; softmax gf180 = config-only. Py-only ref, no committed parity test |
-| `acu/precision_controller` | `3074d92` | `pc-isa-0.2` | **signed-off** @80 MHz (die 0.0086 mm², tightest slack +0.072 ns) | config-only | route-clean @1.18 GHz | Py+C++ parity claimed. **Drift risk:** byte-identical twin in `attention-compute-unit/` (no auto-sync) |
+| `src/blocks/acu/mate` | `3074d92` | — | **signed-off** ×3: pv@71, qkt@12.5, fp16@11.8 MHz | config-only | route-clean: pv@2 GHz, fp16@286 MHz | asap7 = route-clean only; FP16 parity is rel-err<5e-3 (not bit-exact, by design) |
+| `src/blocks/acu/vecu` | `cb08d1b` | — | **signed-off**: rope, softmax @9.5 MHz | **signed-off**: rmsnorm, rope @3.85 MHz | — | half-covered: rmsnorm sky130 = config-only; softmax gf180 = config-only. Py-only ref, no committed parity test |
+| `src/blocks/acu/precision_controller` | `3074d92` | `pc-isa-0.2` | **signed-off** @80 MHz (die 0.0086 mm², tightest slack +0.072 ns) | config-only | route-clean @1.18 GHz | Py+C++ parity claimed. **Drift risk:** byte-identical twin in `attention-compute-unit/` (no auto-sync) |
 | `chip` | `17f5a6c` | `lh-isa-0.1` (unified) | — | full-chip KV-coproc GDS present (**prose-only** sign-off) | — | scope honestly downsized to coproc (fp16 datapath didn't fit 2051×2051 core). No committed metrics JSON |
 
 **Known-open at R1 (carried into R1.5 assembly):**

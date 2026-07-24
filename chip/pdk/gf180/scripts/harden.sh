@@ -5,8 +5,8 @@
 #   scripts/harden.sh <macro_yaml_basename>   # e.g. token_importance_unit
 #
 # Each block owns its GF180 config block-major, under
-# <block>/pdk/gf180/librelane/<macro>.yaml (e.g. kve/pdk/gf180/librelane/kve.yaml,
-# tiu/pdk/gf180/librelane/token_importance_unit.yaml, acu/*/pdk/gf180/librelane/*.yaml).
+# <block>/pdk/gf180/librelane/<macro>.yaml (e.g. src/blocks/kve/pdk/gf180/librelane/kve.yaml,
+# src/blocks/tiu/pdk/gf180/librelane/token_importance_unit.yaml, acu/*/pdk/gf180/librelane/*.yaml).
 # This script locates the config by macro name anywhere under the worktree and
 # runs it from its own directory (its RTL is referenced by paths relative to that
 # dir — block sources of truth are each block's rtl/). The WHOLE worktree root is
@@ -30,7 +30,7 @@ if [ -z "$CFG_REL" ]; then
   echo "harden.sh: no config found for macro '${MACRO}' (looked for */pdk/gf180/librelane/${MACRO}.yaml)" >&2
   exit 1
 fi
-CFG_DIR="$(dirname "$CFG_REL")"   # e.g. kve/pdk/gf180/librelane
+CFG_DIR="$(dirname "$CFG_REL")"   # e.g. src/blocks/kve/pdk/gf180/librelane
 
 docker run --rm \
   -u "$(id -u):$(id -g)" \

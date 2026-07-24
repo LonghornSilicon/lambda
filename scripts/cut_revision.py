@@ -39,7 +39,7 @@ def git(*args: str) -> str:
 
 
 def block_sha(block: str) -> str:
-    return git("log", "-1", "--format=%h", "--", block)
+    return git("log", "-1", "--format=%h", "--", gp.bpath(block))
 
 
 def arch_version() -> str:

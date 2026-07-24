@@ -22,7 +22,7 @@
 #   The ONLY reason the flat flow ever failed was the behavioral KVE value-path
 #   (`cq_value_path_wht` / `wht_inverse_out`) using SystemVerilog `real`. This
 #   config uses the SYNTHESIZABLE lowering (`*_syn`, bit-exact vs the behavioral
-#   oracle — see kve/rtl/tb/tb_wht_pathb_syn.sv), so yosys no longer aborts.
+#   oracle — see src/blocks/kve/rtl/tb/tb_wht_pathb_syn.sv), so yosys no longer aborts.
 
 meta:
   version: 3

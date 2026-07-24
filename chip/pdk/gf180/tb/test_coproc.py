@@ -10,7 +10,7 @@
 #   SIM=icarus make test-coproc
 #
 # The KVE value path itself is proven bit-exact vs the ChannelQuant reference in
-# kve/rtl (make sim_wht_pathb_syn, 5120/5120). This test proves the ASSEMBLY:
+# src/blocks/kve/rtl (make sim_wht_pathb_syn, 5120/5120). This test proves the ASSEMBLY:
 # stream V/W in over SPI -> compress -> stream the compressed KV record + the
 # importance/precision decision back out, driven only through the pads.
 

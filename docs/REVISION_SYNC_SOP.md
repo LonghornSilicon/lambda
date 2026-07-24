@@ -16,7 +16,7 @@
 Before this SOP, the repo had **zero git tags** and **no chip-wide revision object**. Blocks
 versioned independently (per-block ISA, and only 3 of 5 blocks even had one), referenced each other
 by loose commit SHAs and prose, and chip-level status docs drifted from block reality (e.g. RoPE/
-RMSNorm were GDSII-signed in `acu/vecu/DECISIONS.md` while three chip-level docs still said "no
+RMSNorm were GDSII-signed in `src/blocks/acu/vecu/DECISIONS.md` while three chip-level docs still said "no
 RTL"). There was no defined moment to say "**all blocks, as of here, are baseline N**."
 
 **The key enabler:** `lambda/` is a *monorepo*, so **one annotated git tag atomically pins every
@@ -128,7 +128,7 @@ or the next baseline and note the correction in `REVISIONS.md` — the append-on
 
 ## 5. Repo-structure standard (what "clean & succinct across blocks" means)
 
-Every functional block (`kve/`, `tiu/`, `acu/mate/`, `acu/vecu/`, `acu/precision_controller/`)
+Every functional block (`kve/`, `tiu/`, `src/blocks/acu/mate/`, `src/blocks/acu/vecu/`, `src/blocks/acu/precision_controller/`)
 conforms to the **canonical block template**. `scripts/check_block_structure.py` enforces it.
 
 ### 5.1 Canonical block layout
@@ -186,11 +186,11 @@ no `sw/ research/` — but it MUST carry a `README.md` and a `DECISIONS.md`.
 Two sibling repos feed content into `lambda/` but are **outside** the monorepo's atomic revisioning.
 They are **reconcile-only** and explicitly out of this SOP's refactor scope:
 
-- **`attention-compute-unit/`** — Chaithu's standalone `master`; upstream of `acu/precision_controller`
+- **`attention-compute-unit/`** — Chaithu's standalone `master`; upstream of `src/blocks/acu/precision_controller`
   (the `precision_controller.sv` is byte-identical). Already imported (2026-07-22), now overtaken by
   monorepo work. **Frozen upstream.** No auto-sync exists in either direction → any future edit on
   either side diverges silently. Rule: **future precision-controller changes originate in the
-  monorepo.** If the standalone must change, re-import and note it in `acu/precision_controller/DECISIONS.md`.
+  monorepo.** If the standalone must change, re-import and note it in `src/blocks/acu/precision_controller/DECISIONS.md`.
 - **`architecture/`** — the ancestor of `arch.yml`; a stale, divergent working fork. Its unique
   uncommitted audit work was **captured non-destructively** on branch `rescue/2026-06-audit-uncommitted`
   (2026-07-23). **Do not blind-sync it** — a fast-forward/re-clone would destroy that work. Any

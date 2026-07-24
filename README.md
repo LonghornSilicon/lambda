@@ -18,21 +18,33 @@ New here? Read **`AGENTS.md`** first (front door + runbook + lab-notebook rules)
 
 ## Layout
 
+Restructured 2026-07 to the **`src/blocks/` taxonomy** (adopted from the `architecture` repo) — one
+clean, legible map of every block including the not-yet-built ones. See `docs/REORG_NOTES.md`.
+
 ```
 lambda/
-├── kve/      KV Cache Engine — ChannelQuant codec (per-channel INT4 K + per-token INT4 V + FP16 outlier lane).
-│             Complete block: sw/ rtl/ docs/ research/. Imported with history. → mirror lambda-kve.
-├── tiu/      Token Importance Unit — H2O accumulated-mass keep/demote/evict for the KV cache.
-│             Complete block. Imported with history. → mirror lambda-tiu.
-├── acu/      Attention Compute Unit (MatE + VecU + precision_controller). Imported; all 5 tiles Sky130-signed (see acu/README.md). → mirrors lambda-acu/-mate/-vecu/-precision-controller.
-├── chip/     Cross-block integration:
-│             ├── verif/     tb_chip_cosim + vendored block RTL + Makefile (the cross-block cosim harness)
-│             └── pdk/gf180/  full-chip padring assembly (imported from the former chipathon-lambda-acu; honest skeleton)
-├── docs/     Chip-wide: STATUS.md, pdk_holes_audit.md, chipathon_rtl_closure_plan.md,
-│             repo_reorg_plan.md, dataflow_walkthrough.md, documentation_standard.md, paper/.
+├── src/
+│   ├── blocks/
+│   │   ├── acu/        Attention Compute Unit umbrella → mirror lambda-acu
+│   │   │   ├── mate/               Q·Kᵀ + P·V matmul PEs         → mirror lambda-mate
+│   │   │   ├── vecu/               decode online-softmax/RoPE/RMSNorm → mirror lambda-vecu
+│   │   │   └── precision_controller/ INT8/FP16 per-tile gate     → mirror lambda-precision-controller
+│   │   ├── kve/        KV Cache Engine — ChannelQuant codec       → mirror lambda-kve
+│   │   ├── tiu/        Token Importance Unit — H2O keep/demote/evict → mirror lambda-tiu
+│   │   ├── msc/        Memory Subsystem Controller   (spec-only stub)
+│   │   ├── lsu/        Layer Sequencer               (spec-only stub)
+│   │   └── hif/        Host Interface (PCIe Gen3 x1) (spec-only stub)
+│   ├── isa/            Chip-level ISA (LSU opcodes, CSR map); per-block ISA lives in each block
+│   └── golden/         Chip-level golden reference + index of per-block reference models
+├── chip/     Cross-block integration: verif/ (tb_chip_cosim) + pdk/gf180/ (full-chip padring assembly)
+├── tools/    Cadence-chamber launcher framework (reconciled from the architecture repo)
+├── tests/integration/  Cross-block cosim + end-to-end decode traces
+├── docs/     Chip-wide: STATUS, REVISION_SYNC_SOP, REVISIONS, ROADMAP, PROGRESS (generated),
+│             documentation_standard, audits, dataflow_walkthrough, paper/.
 ├── research/ Chip-wide research (APA RL project + chip-wide exploration).
+├── scripts/  Revision-Sync tooling (gen_progress, check_block_structure, cut_revision, rtl_doc_gate).
 ├── arch.yml  Machine-readable architecture (blocks, tiles, dataflow).
-└── .github/workflows/mirror-blocks.yml  Auto-mirror each block to its standalone repo.
+└── .github/workflows/mirror-blocks.yml  Auto-mirror each src/blocks/<block> to its standalone repo.
 ```
 
 ## Blocks
@@ -41,12 +53,15 @@ Each block folder is self-contained and auto-mirrors to a standalone read-only `
 
 | Block | Folder | Mirror repo |
 |---|---|---|
-| KV Cache Engine (ChannelQuant codec) | [`kve/`](kve/) | [`lambda-kve`](https://github.com/LonghornSilicon/lambda-kve) |
-| Token Importance Unit (H2O keep/demote/evict) | [`tiu/`](tiu/) | [`lambda-tiu`](https://github.com/LonghornSilicon/lambda-tiu) |
-| Attention Compute Unit (umbrella) | [`acu/`](acu/) | [`lambda-acu`](https://github.com/LonghornSilicon/lambda-acu) |
-| &nbsp;&nbsp;├ MatE — Q·Kᵀ + P·V matmul PEs | [`acu/mate/`](acu/mate/) | [`lambda-mate`](https://github.com/LonghornSilicon/lambda-mate) |
-| &nbsp;&nbsp;├ VecU — decode online-softmax | [`acu/vecu/`](acu/vecu/) | [`lambda-vecu`](https://github.com/LonghornSilicon/lambda-vecu) |
-| &nbsp;&nbsp;└ Precision Controller — INT8/FP16 gate | [`acu/precision_controller/`](acu/precision_controller/) | [`lambda-precision-controller`](https://github.com/LonghornSilicon/lambda-precision-controller) |
+| KV Cache Engine (ChannelQuant codec) | [`src/blocks/kve/`](src/blocks/kve/) | [`lambda-kve`](https://github.com/LonghornSilicon/lambda-kve) |
+| Token Importance Unit (H2O keep/demote/evict) | [`src/blocks/tiu/`](src/blocks/tiu/) | [`lambda-tiu`](https://github.com/LonghornSilicon/lambda-tiu) |
+| Attention Compute Unit (umbrella) | [`src/blocks/acu/`](src/blocks/acu/) | [`lambda-acu`](https://github.com/LonghornSilicon/lambda-acu) |
+| &nbsp;&nbsp;├ MatE — Q·Kᵀ + P·V matmul PEs | [`src/blocks/acu/mate/`](src/blocks/acu/mate/) | [`lambda-mate`](https://github.com/LonghornSilicon/lambda-mate) |
+| &nbsp;&nbsp;├ VecU — decode online-softmax | [`src/blocks/acu/vecu/`](src/blocks/acu/vecu/) | [`lambda-vecu`](https://github.com/LonghornSilicon/lambda-vecu) |
+| &nbsp;&nbsp;└ Precision Controller — INT8/FP16 gate | [`src/blocks/acu/precision_controller/`](src/blocks/acu/precision_controller/) | [`lambda-precision-controller`](https://github.com/LonghornSilicon/lambda-precision-controller) |
+| Memory Subsystem Controller | [`src/blocks/msc/`](src/blocks/msc/) *(spec-only stub)* | — |
+| Layer Sequencer | [`src/blocks/lsu/`](src/blocks/lsu/) *(spec-only stub)* | — |
+| Host Interface (PCIe Gen3 x1) | [`src/blocks/hif/`](src/blocks/hif/) *(spec-only stub)* | — |
 
 Cross-block integration (cosim + full-chip PDK) lives in [`chip/`](chip/); chip-wide docs in
 [`docs/`](docs/); chip-wide research in [`research/`](research/).
@@ -58,12 +73,12 @@ On every push to `main`, `.github/workflows/mirror-blocks.yml` runs `git subtree
 
 | monorepo path | mirror repo | status |
 |---|---|---|
-| `kve` | [`LonghornSilicon/lambda-kve`](https://github.com/LonghornSilicon/lambda-kve) | active |
-| `tiu` | [`LonghornSilicon/lambda-tiu`](https://github.com/LonghornSilicon/lambda-tiu) | active |
-| `acu` | [`LonghornSilicon/lambda-acu`](https://github.com/LonghornSilicon/lambda-acu) | active (umbrella) |
-| `acu/mate` | [`LonghornSilicon/lambda-mate`](https://github.com/LonghornSilicon/lambda-mate) | active |
-| `acu/vecu` | [`LonghornSilicon/lambda-vecu`](https://github.com/LonghornSilicon/lambda-vecu) | active |
-| `acu/precision_controller` | [`LonghornSilicon/lambda-precision-controller`](https://github.com/LonghornSilicon/lambda-precision-controller) | active |
+| `src/blocks/kve` | [`LonghornSilicon/lambda-kve`](https://github.com/LonghornSilicon/lambda-kve) | active |
+| `src/blocks/tiu` | [`LonghornSilicon/lambda-tiu`](https://github.com/LonghornSilicon/lambda-tiu) | active |
+| `src/blocks/acu` | [`LonghornSilicon/lambda-acu`](https://github.com/LonghornSilicon/lambda-acu) | active (umbrella) |
+| `src/blocks/acu/mate` | [`LonghornSilicon/lambda-mate`](https://github.com/LonghornSilicon/lambda-mate) | active |
+| `src/blocks/acu/vecu` | [`LonghornSilicon/lambda-vecu`](https://github.com/LonghornSilicon/lambda-vecu) | active |
+| `src/blocks/acu/precision_controller` | [`LonghornSilicon/lambda-precision-controller`](https://github.com/LonghornSilicon/lambda-precision-controller) | active |
 
 Mirrors are **read-only** — open PRs against this monorepo; they propagate out on the next push.
 

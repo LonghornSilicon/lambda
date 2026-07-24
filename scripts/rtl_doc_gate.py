@@ -16,7 +16,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BLOCKS = ["kve", "tiu", "acu/mate", "acu/vecu", "acu/precision_controller", "chip"]
+# full repo-relative block paths (functional blocks under src/blocks/, chip at top level)
+BLOCKS = ["src/blocks/kve", "src/blocks/tiu", "src/blocks/acu/mate",
+          "src/blocks/acu/vecu", "src/blocks/acu/precision_controller", "chip"]
 
 
 def staged_files() -> list[str]:

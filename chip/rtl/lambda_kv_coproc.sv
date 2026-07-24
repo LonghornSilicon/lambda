@@ -10,7 +10,7 @@
 //                                 -> forward-WHT + per-token amax + INT3 quant
 //                                 => rotated INT3 codes[D] + one fp16 scale.
 //                                 (ChannelQuant CQ-3-rot, SYNTHESIZABLE, bit-exact
-//                                 vs the behavioral reference — kve/rtl/tb_wht_pathb_syn.)
+//                                 vs the behavioral reference — src/blocks/kve/rtl/tb_wht_pathb_syn.)
 //   TIU   token_importance_unit  : H2O heavy-hitter scoring over L cache slots
 //                                 -> per-slot keep-tier + an eviction victim slot.
 //   ACU   precision_controller   : divide-free per-tile gate over the importance

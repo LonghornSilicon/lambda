@@ -40,19 +40,19 @@ data-independent and transparent to the w_valid handshake. Still verbatim (no
 
 Note: the `kve/*.sv` set is the full non-testbench RTL of the KV-cache engine
 (the top `kv_cache_engine.sv` plus its ChannelQuant / WHT / SRAM-controller
-submodules). The LibreLane config `kve/pdk/gf180/librelane/kve.yaml` hardens the
+submodules). The LibreLane config `src/blocks/kve/pdk/gf180/librelane/kve.yaml` hardens the
 top with the gate-proxy parameters.
 
 `kve/kv_sram.sv` + the updated `kve/sram_controller.sv` are re-synced from the
 `kve` block's `rtl/` refactor that puts the KV-store array behind a
 swappable `kv_sram` memory interface (behavioral default).
-**`kve/pdk/gf180/kve_gf180_sram/`** is **chipathon-authored (NOT vendored):**
+**`src/blocks/kve/pdk/gf180/kve_gf180_sram/`** is **chipathon-authored (NOT vendored):**
 `kv_sram.sv` there is the GF180 view of
 the same module — it tiles the real `gf180mcu_fd_ip_sram__sram512x8m8wm1` hard
 macro to the identical interface; `*__bb.v` is the macro blackbox stub for
 lint/synth. `maglef_drc/…mag` is a **local copy of the PDK maglef with one
 sub-min-width Metal3 vendor-abstract pin widened to min-width**, used only as the
 `MAGIC_DRC_MAGLEFS` DRC-blackbox view (the vendor GDS is signed-off clean; not
-used for LVS/connectivity). `kve/pdk/gf180/librelane/kve_store_gf180.yaml` hardens
+used for LVS/connectivity). `src/blocks/kve/pdk/gf180/librelane/kve_store_gf180.yaml` hardens
 it with real SRAM macros placed — clean 6-check signoff (DRC=0, LVS=0); see
 `docs/gf180_gls_report.md` §4.

@@ -39,20 +39,25 @@ jobs:
           # ACU imported 2026-07-22 (block-major, history-preserved). Umbrella + 3 pieces.
           # NOTE: the MIRROR_PAT secret must be scoped to these 4 repos too (lambda-acu,
           # lambda-mate, lambda-vecu, lambda-precision-controller) or their push steps 403.
-          - prefix: acu
+          # NOTE: after the 2026-07 reorg, functional blocks live under src/blocks/ and the
+          # integration block `chip` stays at top level. Prefixes updated accordingly; mirror repo
+          # names are unchanged (prefix and repo name are independent — subtree-split maps any
+          # prefix to any target). The ACU umbrella nesting is preserved so lambda-acu stays a
+          # single-prefix mirror (src/blocks/acu) containing mate/vecu/precision_controller.
+          - prefix: src/blocks/acu
             repo: LonghornSilicon/lambda-acu
           # Pieces: one mirror per functional block. EVERY new block adds a row here.
-          - prefix: acu/mate
+          - prefix: src/blocks/acu/mate
             repo: LonghornSilicon/lambda-mate
-          - prefix: acu/vecu
+          - prefix: src/blocks/acu/vecu
             repo: LonghornSilicon/lambda-vecu
-          - prefix: acu/precision_controller
+          - prefix: src/blocks/acu/precision_controller
             repo: LonghornSilicon/lambda-precision-controller
-          - prefix: kve
+          - prefix: src/blocks/kve
             repo: LonghornSilicon/lambda-kve
-          - prefix: tiu
+          - prefix: src/blocks/tiu
             repo: LonghornSilicon/lambda-tiu
-          # add rows as blocks land: msc, lsu, hif, ...
+          # add rows as blocks land: src/blocks/{msc,lsu,hif}, ...
     steps:
       - uses: actions/checkout@v4
         with:

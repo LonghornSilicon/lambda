@@ -100,9 +100,9 @@ Provenance (source repo, branch, commit) is in
 > `chip/pdk/gf180/` holds only the **integration / chip** assets — `PROVENANCE.md`, this
 > `README.md`, `SUBMISSION.md`, `docs/`, `scripts/` (`harden.sh`), and `tb/` (full-chip GLS);
 > it has **no** `rtl/`, `librelane/`, or `kve_gf180_sram/` directory. The per-block GF180
-> configs live at: `kve/pdk/gf180/librelane/{kve,kve_store_gf180}.yaml` (+ the real-SRAM
-> wrapper `kve/pdk/gf180/kve_gf180_sram/` and `pdn_cfg_sram.tcl`),
-> `tiu/pdk/gf180/librelane/token_importance_unit.yaml`, and the five ACU tiles (`mate_pv`,
+> configs live at: `src/blocks/kve/pdk/gf180/librelane/{kve,kve_store_gf180}.yaml` (+ the real-SRAM
+> wrapper `src/blocks/kve/pdk/gf180/kve_gf180_sram/` and `pdn_cfg_sram.tcl`),
+> `src/blocks/tiu/pdk/gf180/librelane/token_importance_unit.yaml`, and the five ACU tiles (`mate_pv`,
 > `mate_pv_fp16`, `mate_qkt`, `vecu_softmax`, `precision_controller`) at
 > `acu/<block>/pdk/gf180/librelane/`; each block's RTL lives in its own `rtl/`. `scripts/harden.sh
 > <macro>` locates a block's config by name automatically. The `LibreLane config` column in the

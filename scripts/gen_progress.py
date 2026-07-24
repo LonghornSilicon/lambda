@@ -27,8 +27,16 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# short block ids (used for display + as the ISA/summary key); functional blocks live under
+# src/blocks/, the integration block `chip` stays at top level.
 BLOCKS = ["kve", "tiu", "acu/mate", "acu/vecu", "acu/precision_controller", "chip"]
+BLOCK_ROOT = "src/blocks"
 OUT = ROOT / "docs" / "PROGRESS.md"
+
+
+def bpath(block: str) -> str:
+    """Map a short block id to its repo-relative path."""
+    return "chip" if block == "chip" else f"{BLOCK_ROOT}/{block}"
 
 # headline sign-off checks that must all be 0 for a full-signoff-flow macro to be "signed-off"
 SIGNOFF_CHECKS = [
@@ -123,7 +131,7 @@ def found_metrics(block_dir: Path) -> dict:
 
 
 def scan_block(block: str) -> list[dict]:
-    bdir = ROOT / block
+    bdir = ROOT / bpath(block)
     rows = []
     declared = declared_macros(bdir)
     metrics = found_metrics(bdir)

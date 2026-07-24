@@ -22,6 +22,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+BLOCK_ROOT = "src/blocks"
+
+
+def bpath(block: str) -> str:
+    """Map a short block id to its repo-relative path."""
+    return "chip" if block == "chip" else f"{BLOCK_ROOT}/{block}"
+
 
 # canonical functional-block template (docs/REVISION_SYNC_SOP.md §5.1)
 FUNCTIONAL_BLOCKS = ["kve", "tiu", "acu/mate", "acu/vecu", "acu/precision_controller"]
@@ -59,7 +66,7 @@ def warn(block: str, msg: str) -> None:
 
 
 def check_functional(block: str) -> None:
-    bdir = ROOT / block
+    bdir = ROOT / bpath(block)
     for f in REQUIRED_FILES:
         if not (bdir / f).is_file():
             err(block, f"missing required file: {f}")
@@ -84,7 +91,7 @@ def check_functional(block: str) -> None:
 
 
 def check_integration(block: str) -> None:
-    bdir = ROOT / block
+    bdir = ROOT / bpath(block)
     for f in INTEGRATION_REQUIRED_FILES:
         if not (bdir / f).is_file():
             err(block, f"missing required file: {f} (integration block)")
@@ -136,12 +143,12 @@ def main() -> int:
     args = ap.parse_args()
 
     for b in FUNCTIONAL_BLOCKS:
-        if (ROOT / b).is_dir():
+        if (ROOT / bpath(b)).is_dir():
             check_functional(b)
         else:
             err(b, "block directory does not exist")
     for b in INTEGRATION_BLOCKS:
-        if (ROOT / b).is_dir():
+        if (ROOT / bpath(b)).is_dir():
             check_integration(b)
 
     errors = [f for f in findings if f[0] == "ERROR"]

@@ -171,7 +171,7 @@ module lambda_acu #(
     wire [IDXW-1:0]  kve_didx;   // driven combinationally by the KVE channel index
     wire [15:0]      kve_drot;
     // LAMBDA_SYN_KVE selects the SYNTHESIZABLE KVE value-path lowering (*_syn,
-    // bit-exact vs the behavioral `real`-math oracle — kve/rtl/tb/tb_wht_pathb_syn.sv).
+    // bit-exact vs the behavioral `real`-math oracle — src/blocks/kve/rtl/tb/tb_wht_pathb_syn.sv).
     // The full-chip GF180 build (chip/pdk/gf180/librelane/config_fullchip.yaml)
     // defines it so yosys can synthesize the KVE; RTL sims leave it undefined and
     // keep the behavioral reference. Ports are identical either way.

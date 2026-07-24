@@ -20,17 +20,27 @@ branches**. The **16nm hardening is a separate PRIVATE overlay** (NDA — TSMC P
 in a public repo); it points at this same RTL once we have PDK access. GF180/Sky130 are proxies,
 not the destination.
 
-## Repo map (block-major)
+## Repo map (src/blocks/ taxonomy — reorg 2026-07; see docs/REORG_NOTES.md)
 ```
 lambda/
-├── kve/     ← KV Cache Engine (ChannelQuant codec). Complete block: sw/ rtl/ docs/ research/. Mirrors to lambda-kve.
-├── tiu/     ← Token Importance Unit (H2O keep/demote/evict). Complete block. Mirrors to lambda-tiu.
-├── acu/     ← Attention Compute Unit (MatE + VecU + precision_controller). Imported; all 5 tiles Sky130-signed (see acu/README.md). Mirrors to lambda-acu/-mate/-vecu/-precision-controller.
-├── chip/    ← cross-block integration: verif/ (tb_chip_cosim), pdk/gf180/ (GF180 hardening + padring; full-chip assembly pending).
-├── docs/    ← chip-wide: arch story, STATUS, PDK audit, closure plan, reorg plan, paper/.
-├── research/← chip-wide research (APA RL project + exploration notes).
-├── arch.yml ← the machine-readable architecture (blocks, tiles, dataflow).
-└── .github/workflows/mirror-blocks.yml ← auto-mirror each block to its standalone lambda-<block> repo.
+├── src/blocks/
+│   ├── acu/     ← Attention Compute Unit umbrella (mate + vecu + precision_controller). Mirrors lambda-acu/-mate/-vecu/-precision-controller.
+│   │   ├── mate/                 Q·Kᵀ + P·V matmul PEs
+│   │   ├── vecu/                 decode softmax / RoPE / RMSNorm
+│   │   └── precision_controller/ INT8/FP16 per-tile gate
+│   ├── kve/     ← KV Cache Engine (ChannelQuant codec). Complete block: sw/ rtl/ pdk/ docs/ research/. Mirrors lambda-kve.
+│   ├── tiu/     ← Token Importance Unit (H2O keep/demote/evict). Complete block. Mirrors lambda-tiu.
+│   └── msc/ lsu/ hif/  ← spec-only stubs (not-yet-built blocks; README + arch.yml spec).
+├── src/isa/    ← chip-level ISA (LSU opcodes, CSR map). Per-block ISA lives in each block's docs/isa/.
+├── src/golden/ ← chip-level golden reference + index of per-block reference models.
+├── chip/       ← cross-block integration: verif/ (tb_chip_cosim), pdk/gf180/ (full-chip padring assembly).
+├── tools/      ← Cadence-chamber launcher framework (reconciled from the architecture repo).
+├── tests/integration/ ← cross-block cosim + end-to-end decode traces.
+├── docs/       ← chip-wide: STATUS, REVISION_SYNC_SOP, REVISIONS, ROADMAP, PROGRESS (generated), standard, audits, paper/.
+├── research/   ← chip-wide research (APA RL project + exploration notes).
+├── scripts/    ← Revision-Sync tooling (gen_progress, check_block_structure, cut_revision, rtl_doc_gate).
+├── arch.yml    ← the machine-readable architecture (blocks, tiles, dataflow).
+└── .github/workflows/mirror-blocks.yml ← auto-mirror each src/blocks/<block> to its standalone lambda-<block> repo.
 ```
 
 ## Before you start — read these (don't skip; they exist so you don't repeat work)

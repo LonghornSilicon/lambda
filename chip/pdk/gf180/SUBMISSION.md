@@ -240,7 +240,7 @@ SystemVerilog `real`) — is now lowered to synthesizable hardware:
 `wht_unit_syn` / `cq_units_syn` / `fp16_addsub_syn` cores plus a new
 round-half-even fp32→fp16 converter and an exact fp16→fp32 ×2⁻ᵏ inverse-scale.
 **Verified bit-exact** vs the behavioral `real` oracle on real-Qwen value rows:
-`make -C kve/rtl` — new TB `tb/tb_wht_pathb_syn.sv` reports
+`make -C src/blocks/kve/rtl` — new TB `tb/tb_wht_pathb_syn.sv` reports
 **`Path B SYN vs reference V̂: 5120/5120 bit-exact (D=64), ALL TESTS PASSED`**.
 yosys elaborates both with **0 `real`, 0 inferred latches, 0 CHECK problems**.
 `lambda_acu.sv` selects them under `` `ifdef LAMBDA_SYN_KVE `` (default stays
@@ -359,7 +359,7 @@ make -C chip/pdk/gf180/tb test-smoke        # elaboration + SPI framing
 make -C chip/verif cosim                     # cross-block bit-exact cosim
 
 # KVE synthesizable value-path — bit-exact vs the behavioral oracle
-cd kve/rtl && iverilog -g2012 -DQD=64 -I. -o tb/tb_pathbsyn64.out \
+cd src/blocks/kve/rtl && iverilog -g2012 -DQD=64 -I. -o tb/tb_pathbsyn64.out \
   cq_fp_pkg.sv cq_units.sv cq_units_syn.sv wht_unit.sv wht_unit_syn.sv fp16_addsub_syn.sv \
   wht_inverse_out.sv cq_value_path_wht.sv cq_value_path_wht_syn.sv wht_inverse_out_syn.sv \
   tb/tb_wht_pathb_syn.sv && vvp tb/tb_pathbsyn64.out +TVDIR=tb/testvectors/qwen/g05b/multi

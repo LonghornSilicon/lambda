@@ -1,9 +1,11 @@
 # Cross-block RTL cosim (architecture).
 # KVE/TIU RTL is still vendored under blocks/{kve,tiu}/; ACU RTL is pulled directly from the
-# canonical block dirs (acu/*/rtl/) — the monorepo keeps ONE copy, so no drift (the vendored
-# ACU copies were removed at the 2026-07-22 ACU import; they were byte-identical to canonical).
+# canonical block dirs (src/blocks/acu/*/rtl/) — the monorepo keeps ONE copy, so no drift (the
+# vendored ACU copies were removed at the 2026-07-22 ACU import; byte-identical to canonical).
 # 130nm Sky130 proxy RTL — used for 16nm estimates (see README.md).
-ACUDIR = ../../acu
+# NOTE (2026-07 reorg): blocks moved under src/blocks/, so ACUDIR now reaches ../../src/blocks/acu.
+# TODO: re-point the vendored blocks/{kve,tiu} copies to src/blocks/{kve,tiu}/rtl (single-source).
+ACUDIR = ../../src/blocks/acu
 IV     = iverilog -g2012
 VVP    = vvp
 KVE    = blocks/kve/cq_fp_pkg.sv blocks/kve/cq_units.sv blocks/kve/wht_unit.sv \

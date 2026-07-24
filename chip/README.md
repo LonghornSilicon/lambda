@@ -16,7 +16,7 @@ P·V MAC so the attention output flows all the way through. Curated copy of the 
 repo's cross-block cosim (now sourced here). See `verif/README.md` for what runs.
 
 **Note (drift):** `verif/blocks/` currently **vendors copies** of the KVE/ACU/TIU block RTL (the
-copy-drift the monorepo is meant to eliminate). Once `kve/rtl`, `tiu/rtl`, and `acu/rtl` are the
+copy-drift the monorepo is meant to eliminate). Once `src/blocks/kve/rtl`, `src/blocks/tiu/rtl`, and `acu/rtl` are the
 single source of truth, re-point the `verif/Makefile` include paths at them and drop the vendored
 copies. ACU is now imported (`acu/{mate,vecu,precision_controller}/rtl` exist as canonical RTL), so
 this re-point is **unblocked** — pending, not held.
