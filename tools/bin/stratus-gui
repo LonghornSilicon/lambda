@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# ============================================================================
+# stratus-gui
+# ----------------------------------------------------------------------------
+# Generic Stratus HLS IDE launcher. Project-agnostic: works on any project.tcl
+# in any directory. The Lambda-aware wrapper `lambda-stratus` delegates here.
+#
+# Usage:
+#   stratus-gui                        # auto-detects ./project.tcl
+#                                      # or ./stratus/project.tcl
+#   stratus-gui <path-to-project.tcl>
+#
+# What it does:
+#   1. Sources lambda-env.sh to set log paths + module pin.
+#   2. Resolves project.tcl (explicit arg, or auto-detect in CWD).
+#   3. Loads the Stratus module.
+#   4. Detaches stratus_ide -project <file> via gui_detach (logs to scratch).
+# ============================================================================
+
+set -euo pipefail
+
+# Resolve script through symlinks (~/bin/stratus-gui -> tools/bin/stratus-gui)
+# so $SCRIPT_DIR/../lib/ points at the REAL lib dir, not ~/lib/.
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+    _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+unset _src _dir
+
+# Source shared infra (fatal if missing — installer should have placed them)
+for _lib in lambda-env.sh lambda-run.sh lambda-detach.sh; do
+    if [[ ! -f "$SCRIPT_DIR/../lib/$_lib" ]]; then
+        echo "ERROR: $SCRIPT_DIR/../lib/$_lib not found" >&2
+        echo "Hint:  re-run bash ~/architecture/tools/install.sh" >&2
+        exit 1
+    fi
+done
+# shellcheck source=../lib/lambda-env.sh
+source "$SCRIPT_DIR/../lib/lambda-env.sh"
+# shellcheck source=../lib/lambda-run.sh
+source "$SCRIPT_DIR/../lib/lambda-run.sh"
+# shellcheck source=../lib/lambda-detach.sh
+source "$SCRIPT_DIR/../lib/lambda-detach.sh"
+unset _lib
+
+# ---- Resolve project file --------------------------------------------------
+project_file="${1:-}"
+
+if [[ -z "$project_file" ]]; then
+    if [[ -f ./project.tcl ]]; then
+        project_file="./project.tcl"
+    elif [[ -f ./stratus/project.tcl ]]; then
+        project_file="./stratus/project.tcl"
+    else
+        cat >&2 <<EOF
+ERROR: no project file given, and none auto-detected in $(pwd).
+
+Looked for:
+  ./project.tcl
+  ./stratus/project.tcl
+
+Usage: stratus-gui [path-to-project.tcl]
+EOF
+        exit 1
+    fi
+fi
+
+if [[ ! -f "$project_file" ]]; then
+    echo "ERROR: project file not found: $project_file" >&2
+    exit 1
+fi
+
+# Absolute path for the IDE (otherwise the cd below breaks the reference)
+project_abs="$(cd "$(dirname "$project_file")" && pwd)/$(basename "$project_file")"
+project_dir="$(dirname "$project_abs")"
+
+# ---- Module + binary check (autofs/compute-node aware via shared lib) -----
+lambda_require_tool "$STRATUS_MODULE" stratus_ide || exit 1
+
+# ---- Detach GUI ------------------------------------------------------------
+# Tag identifies this launch in logs. Convention check: if the project lives
+# in <block>/stratus/project.tcl, use the BLOCK name (parent of stratus/),
+# not "stratus" itself, so logs read "stratus.mate.gui" not "stratus.stratus.gui".
+project_parent_name="$(basename "$project_dir")"
+if [[ "$project_parent_name" == "stratus" ]]; then
+    tag_name="$(basename "$(dirname "$project_dir")")"
+else
+    tag_name="$project_parent_name"
+fi
+tag="stratus.${tag_name}.gui"
+
+# v0.4 critical fix (was: `cd $project_dir`, which writes Stratus's own working
+# dirs — bdw_work/, <CFG>/, scverify_work/ — alongside project.tcl, i.e. INSIDE
+# the git mirror, regardless of the $::env(LAMBDA_BUILD) read in project.tcl).
+# Run from STRATUS_RUNDIR if exported by the wrapper (lambda-stratus sets it
+# via lambda_rundir); fall back to $project_dir for backwards-compatible raw
+# usage outside the wrapper. Either way, stratus_ide gets the ABSOLUTE
+# project.tcl path so the project loads correctly from any CWD.
+run_dir="${STRATUS_RUNDIR:-$project_dir}"
+mkdir -p "$run_dir" 2>/dev/null || { echo "ERROR: cannot create $run_dir" >&2; exit 1; }
+cd "$run_dir"
+# stratus_ide flag is -project (not -prj). Confirmed via stratus_ide --help
+# output in 22.01.009: "-project <project>  The name of the project file".
+gui_detach "$tag" stratus_ide -project "$project_abs"

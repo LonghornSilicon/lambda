@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# ============================================================================
+# lambda-genus
+# ----------------------------------------------------------------------------
+# Lambda-aware Genus (Common UI) launcher. Knows the seven blocks, resolves
+# <block> to:
+#   run dir:   $LAMBDA_WORK/<block>/genus/{interactive,<run-id>}   (NOT in git)
+#   flow dir:  src/blocks/<block>/genus/                            (in git)
+# and delegates to genus-here.
+#
+# Usage:
+#   lambda-genus <block> gui                     # interactive REPL + GUI
+#   lambda-genus <block> shell                   # interactive REPL, no GUI
+#   lambda-genus <block> batch <flow>            # headless: source flow.tcl, exit
+#   lambda-genus <block> clean                   # rm $LAMBDA_WORK/<block>/genus/
+#   lambda-genus <block> diagnose                # paths + module check
+#
+# <flow> is a bare name (resolved against the flow dir, with or without .tcl)
+# or an explicit path. After a successful `batch`, the published netlist lands
+# at $LAMBDA_WORK/<block>/release/<block>.mapped.v with a MANIFEST entry.
+#
+# Examples:
+#   lambda-genus mate gui
+#   lambda-genus mate shell
+#   lambda-genus mate batch synth
+# ============================================================================
+
+set -euo pipefail
+
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+    _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+unset _src _dir
+
+for _lib in lambda-env.sh lambda-run.sh; do
+    if [[ ! -f "$SCRIPT_DIR/../lib/$_lib" ]]; then
+        echo "ERROR: $SCRIPT_DIR/../lib/$_lib not found" >&2
+        echo "Hint:  re-run bash ~/architecture/tools/install.sh" >&2
+        exit 1
+    fi
+done
+# shellcheck source=../lib/lambda-env.sh
+source "$SCRIPT_DIR/../lib/lambda-env.sh"
+# shellcheck source=../lib/lambda-run.sh
+source "$SCRIPT_DIR/../lib/lambda-run.sh"
+unset _lib
+
+usage() {
+    cat <<EOF
+Usage: lambda-genus <block> <subcommand> [args...]
+
+Subcommands:
+  gui                Open Genus (Common UI) with GUI; interactive REPL
+  shell              Open Genus (Common UI) text REPL; no GUI (then 'gui_show')
+  batch <flow>       Headless: source flow.tcl then exit
+  clean              Remove \$LAMBDA_WORK/<block>/genus/ (confirmed)
+  diagnose           Show paths + genus module availability
+
+Blocks: ${LAMBDA_BLOCKS[*]}
+
+Examples:
+  lambda-genus mate gui
+  lambda-genus mate shell
+  lambda-genus mate batch synth
+EOF
+}
+
+block="${1:-}"
+subcmd="${2:-}"
+if [[ -z "$block" || -z "$subcmd" ]]; then usage; exit 1; fi
+
+valid=0
+for b in "${LAMBDA_BLOCKS[@]}"; do
+    [[ "$b" == "$block" ]] && { valid=1; break; }
+done
+if [[ "$valid" -eq 0 ]]; then
+    echo "ERROR: unknown block '$block'" >&2
+    echo "Known blocks: ${LAMBDA_BLOCKS[*]}" >&2
+    exit 1
+fi
+
+flow_dir="$LAMBDA_ROOT/src/blocks/$block/genus"
+tool_root="$LAMBDA_WORK/$block/genus"
+
+case "$subcmd" in
+    gui)
+        run_dir="$(lambda_rundir "$block" genus gui)" || exit 1
+        exec "$SCRIPT_DIR/genus-here" gui "$run_dir"
+        ;;
+    shell)
+        run_dir="$(lambda_rundir "$block" genus shell)" || exit 1
+        exec "$SCRIPT_DIR/genus-here" shell "$run_dir"
+        ;;
+    batch)
+        flow="${3:-}"
+        if [[ -z "$flow" ]]; then
+            echo "ERROR: 'batch' requires a flow (name or path)." >&2
+            echo "Example: lambda-genus $block batch synth" >&2
+            exit 1
+        fi
+        if [[ -f "$flow" ]]; then
+            flow_file="$flow"
+        elif [[ -f "$flow_dir/$flow" ]]; then
+            flow_file="$flow_dir/$flow"
+        elif [[ -f "$flow_dir/${flow}.tcl" ]]; then
+            flow_file="$flow_dir/${flow}.tcl"
+        else
+            echo "ERROR: flow '$flow' not found." >&2
+            echo "Looked for: $flow, $flow_dir/$flow, $flow_dir/${flow}.tcl" >&2
+            exit 1
+        fi
+        run_dir="$(lambda_rundir "$block" genus batch)" || exit 1
+        run_id="$(basename "$run_dir")"
+        # NB: `set -euo pipefail` is active. Without `|| rc=$?`, a non-zero
+        # `genus-here` would abort here before we capture the exit code and
+        # the publish branch would be unreachable. The `|| rc=$?` form makes
+        # the failure path explicit and lets the publish guard work as documented.
+        rc=0
+        "$SCRIPT_DIR/genus-here" batch "$run_dir" "$flow_file" || rc=$?
+        # On success, publish the mapped netlist to release/. Soft-fail: if the
+        # flow didn't emit one (stub today), we just skip the publish.
+        if [[ $rc -eq 0 ]]; then
+            mapped="$run_dir/outputs/${block}.mapped.v"
+            if [[ -f "$mapped" ]]; then
+                lambda_publish_release "$block" "$mapped" "${block}.mapped.v" genus "$run_id" || true
+            fi
+        fi
+        lambda_finalize_rundir "$run_dir" "$rc"
+        exit $rc
+        ;;
+    clean)
+        if [[ ! -d "$tool_root" ]]; then
+            echo "Nothing to clean ($tool_root does not exist)"; exit 0
+        fi
+        echo "Will remove: $tool_root"
+        du -sh "$tool_root" 2>/dev/null || true
+        read -r -p "Confirm? [y/N] " response
+        case "$response" in
+            y|Y|yes|YES) rm -rf "$tool_root"; echo "Removed $tool_root" ;;
+            *) echo "Aborted."; exit 1 ;;
+        esac
+        ;;
+    diagnose)
+        echo "Lambda block: $block"
+        echo ""
+        echo "Paths:"
+        echo "  flow dir:    $flow_dir"
+        [[ -d "$flow_dir" ]] && echo "                (exists)" || echo "                (none yet — flow .tcl not written)"
+        echo "  tool root:   $tool_root"
+        if [[ -d "$tool_root" ]]; then
+            echo "                ($(du -sh "$tool_root" 2>/dev/null | cut -f1) used)"
+            [[ -L "$tool_root/latest" ]] && echo "                latest -> $(readlink "$tool_root/latest")"
+        else
+            echo "                (empty; created on first launch)"
+        fi
+        echo "  release dir: $LAMBDA_WORK/$block/release"
+        echo ""
+        echo "Module:"
+        echo "  pin:         $GENUS_MODULE"
+        if type module >/dev/null 2>&1; then
+            if module avail "$GENUS_MODULE" 2>&1 | grep -q "genus"; then
+                echo "                (available)"
+            else
+                echo "                (NOT FOUND — try: module avail genus)"
+            fi
+        else
+            echo "                (module command not in this shell — run chamber-diagnose)"
+        fi
+        echo ""
+        echo "PDK note: no TSMC N16FFC on chamber (only gpdk + skywater); advgpdk"
+        echo "          is the only FinFET-class vehicle for flow bring-up."
+        ;;
+    *)
+        echo "ERROR: unknown subcommand: $subcmd" >&2
+        echo ""; usage; exit 1
+        ;;
+esac

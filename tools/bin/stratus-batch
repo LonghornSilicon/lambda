@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# ============================================================================
+# stratus-batch
+# ----------------------------------------------------------------------------
+# Generic Stratus HLS headless runner. Runs `cynth <config>` on a project.tcl
+# without opening the IDE. Suitable for CI, overnight regression, or any
+# workflow that doesn't need the schedule viewer.
+#
+# Usage:
+#   stratus-batch <config>                        # auto-detects project.tcl
+#   stratus-batch <config> <path-to-project.tcl>
+#
+# Example:
+#   stratus-batch BASIC                           # in src/blocks/mate/stratus/
+#   stratus-batch BASIC src/blocks/mate/stratus/project.tcl
+#
+# Output:
+#   - RTL lands under STRATUS_RUNDIR (the env var set by lambda-stratus, or
+#     $project_dir if invoked raw). Lambda convention is
+#     $LAMBDA_WORK/<block>/stratus/<config>/  (outside the git mirror — Stratus
+#     emits <config>/ as a subdir of CWD).
+#   - Combined stdout/stderr is tee'd to:
+#       $LAMBDA_LOGS/stratus.<dir>.batch.<config>.<UTC-timestamp>.log
+#   - Exit code matches Stratus's exit code.
+# ============================================================================
+
+set -euo pipefail
+
+# Resolve script through symlinks (~/bin/stratus-batch -> tools/bin/stratus-batch)
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+    _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+unset _src _dir
+
+for _lib in lambda-env.sh lambda-run.sh; do
+    if [[ ! -f "$SCRIPT_DIR/../lib/$_lib" ]]; then
+        echo "ERROR: $SCRIPT_DIR/../lib/$_lib not found" >&2
+        echo "Hint:  re-run bash ~/architecture/tools/install.sh" >&2
+        exit 1
+    fi
+done
+# shellcheck source=../lib/lambda-env.sh
+source "$SCRIPT_DIR/../lib/lambda-env.sh"
+# shellcheck source=../lib/lambda-run.sh
+source "$SCRIPT_DIR/../lib/lambda-run.sh"
+unset _lib
+
+# ---- Arg parsing -----------------------------------------------------------
+config="${1:-}"
+if [[ -z "$config" ]]; then
+    cat >&2 <<EOF
+ERROR: missing config name.
+
+Usage: stratus-batch <config> [project.tcl]
+Example: stratus-batch BASIC
+EOF
+    exit 1
+fi
+shift
+
+project_file="${1:-}"
+if [[ -z "$project_file" ]]; then
+    if [[ -f ./project.tcl ]]; then
+        project_file="./project.tcl"
+    elif [[ -f ./stratus/project.tcl ]]; then
+        project_file="./stratus/project.tcl"
+    else
+        echo "ERROR: no project file found in $(pwd)" >&2
+        exit 1
+    fi
+fi
+
+if [[ ! -f "$project_file" ]]; then
+    echo "ERROR: project file not found: $project_file" >&2
+    exit 1
+fi
+
+project_abs="$(cd "$(dirname "$project_file")" && pwd)/$(basename "$project_file")"
+project_dir="$(dirname "$project_abs")"
+
+# ---- Module + binary check (autofs/compute-node aware via shared lib) -----
+lambda_require_tool "$STRATUS_MODULE" stratus || exit 1
+
+# ---- Run headless ----------------------------------------------------------
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+# Convention check: <block>/stratus/project.tcl -> use block name, not "stratus"
+project_parent_name="$(basename "$project_dir")"
+if [[ "$project_parent_name" == "stratus" ]]; then
+    tag_name="$(basename "$(dirname "$project_dir")")"
+else
+    tag_name="$project_parent_name"
+fi
+tag="stratus.${tag_name}.batch.${config}"
+log_file="$LAMBDA_LOGS/${tag}.${timestamp}.log"
+mkdir -p "$LAMBDA_LOGS" 2>/dev/null
+if [[ ! -w "$LAMBDA_LOGS" ]]; then
+    echo "WARN: $LAMBDA_LOGS not writable; falling back to /tmp for logs" >&2
+    log_file="/tmp/$(basename "$log_file")"
+fi
+
+echo "Running cynth $config"
+echo "  project: $project_abs"
+echo "  log:     $log_file"
+echo ""
+
+# v0.4 critical fix (was: `cd $project_dir`, which writes Stratus's working
+# dirs — bdw_work/, <CFG>/, scverify_work/ — inside the git mirror). Honor
+# STRATUS_RUNDIR if exported by the wrapper, otherwise fall back to $project_dir
+# for raw use. Pass the ABSOLUTE project.tcl path to stratus so it loads from
+# any CWD.
+run_dir="${STRATUS_RUNDIR:-$project_dir}"
+mkdir -p "$run_dir" 2>/dev/null || { echo "ERROR: cannot create $run_dir" >&2; exit 1; }
+cd "$run_dir"
+# tee captures stdout+stderr; PIPESTATUS preserves Stratus's actual exit code
+set +e
+stratus -batch "$project_abs" \
+        -do "cynth ${config}; exit" 2>&1 | tee "$log_file"
+stratus_rc=${PIPESTATUS[0]}
+set -e
+
+echo ""
+echo "Exit code: $stratus_rc"
+exit "$stratus_rc"

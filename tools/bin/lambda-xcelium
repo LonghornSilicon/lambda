@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+# ============================================================================
+# lambda-xcelium
+# ----------------------------------------------------------------------------
+# Lambda-aware Xcelium (`xrun`) launcher. Knows the seven blocks, resolves
+# <block> to:
+#   run dir:   $LAMBDA_WORK/<block>/xcelium/{interactive,<run-id>}
+#   tb dir:    src/blocks/<block>/tb/                                (in git)
+# and delegates to xrun-here.
+#
+# Usage:
+#   lambda-xcelium <block> sim   <args...>     # headless xrun
+#   lambda-xcelium <block> gui   <args...>     # SimVision live
+#   lambda-xcelium <block> batch <args-file>   # xrun -f <args-file>
+#   lambda-xcelium <block> waves               # open latest run's waves via lambda-verisium
+#   lambda-xcelium <block> clean
+#   lambda-xcelium <block> diagnose
+#
+# Notes:
+#   - For real RTL-level sim, callers typically pass an args file that lists
+#     -access +rwc, +UVM_TESTNAME=..., source files, top, etc.
+#   - waveform DB lands at <run-dir>/waves.shm/; `lambda-verisium <block>` opens
+#     the latest by default.
+# ============================================================================
+
+set -euo pipefail
+
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+    _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+unset _src _dir
+
+for _lib in lambda-env.sh lambda-run.sh; do
+    if [[ ! -f "$SCRIPT_DIR/../lib/$_lib" ]]; then
+        echo "ERROR: $SCRIPT_DIR/../lib/$_lib not found" >&2
+        echo "Hint:  re-run bash ~/architecture/tools/install.sh" >&2
+        exit 1
+    fi
+done
+# shellcheck source=../lib/lambda-env.sh
+source "$SCRIPT_DIR/../lib/lambda-env.sh"
+# shellcheck source=../lib/lambda-run.sh
+source "$SCRIPT_DIR/../lib/lambda-run.sh"
+unset _lib
+
+usage() {
+    cat <<EOF
+Usage: lambda-xcelium <block> <subcommand> [args...]
+
+Subcommands:
+  sim   <args...>       Headless xrun <args...> in a new run dir
+  gui   <args...>       xrun -gui <args...>  (SimVision live)
+  batch <args-file>     xrun -f <args-file>
+  waves                 Open latest run's waves.shm via lambda-verisium
+  clean                 Remove \$LAMBDA_WORK/<block>/xcelium/
+  diagnose              Show paths + xcelium module availability
+
+Blocks: ${LAMBDA_BLOCKS[*]}
+
+Examples:
+  lambda-xcelium mate sim -access +rwc tb/main.cpp
+  lambda-xcelium mate batch tb/xrun.args
+  lambda-xcelium mate waves
+EOF
+}
+
+block="${1:-}"
+subcmd="${2:-}"
+if [[ -z "$block" || -z "$subcmd" ]]; then usage; exit 1; fi
+
+valid=0
+for b in "${LAMBDA_BLOCKS[@]}"; do
+    [[ "$b" == "$block" ]] && { valid=1; break; }
+done
+if [[ "$valid" -eq 0 ]]; then
+    echo "ERROR: unknown block '$block'" >&2
+    echo "Known blocks: ${LAMBDA_BLOCKS[*]}" >&2
+    exit 1
+fi
+
+tb_dir="$LAMBDA_ROOT/src/blocks/$block/tb"
+tool_root="$LAMBDA_WORK/$block/xcelium"
+
+case "$subcmd" in
+    sim)
+        shift 2
+        run_dir="$(lambda_rundir "$block" xcelium batch)" || exit 1
+        # v0.4.1: capture rc + finalize STATUS marker. Cannot exec here without
+        # losing the rc. xrun's exit code propagates through cleanly.
+        # ${1+"$@"} (v0.4.2, M2): bash 4.2 `set -u` aborts on an empty "$@";
+        # the idiom expands to nothing when no extra args were passed.
+        rc=0
+        "$SCRIPT_DIR/xrun-here" sim "$run_dir" ${1+"$@"} || rc=$?
+        lambda_finalize_rundir "$run_dir" "$rc"
+        exit "$rc"
+        ;;
+    gui)
+        shift 2
+        run_dir="$(lambda_rundir "$block" xcelium gui)" || exit 1
+        # GUI sessions land in interactive/, no STATUS marker (no defined
+        # exit-success semantics), parallel to Stratus/Genus/Innovus gui.
+        # ${1+"$@"} guards the bash-4.2 set -u empty-"$@" crash (v0.4.2, M2).
+        exec "$SCRIPT_DIR/xrun-here" gui "$run_dir" ${1+"$@"}
+        ;;
+    batch)
+        args_file="${3:-}"
+        if [[ -z "$args_file" ]]; then
+            echo "ERROR: 'batch' requires an args file." >&2
+            echo "Example: lambda-xcelium $block batch tb/xrun.args" >&2
+            exit 1
+        fi
+        if [[ -f "$args_file" ]]; then
+            af="$args_file"
+        elif [[ -f "$tb_dir/$args_file" ]]; then
+            af="$tb_dir/$args_file"
+        else
+            echo "ERROR: args file '$args_file' not found." >&2
+            echo "Looked for: $args_file, $tb_dir/$args_file" >&2
+            exit 1
+        fi
+        run_dir="$(lambda_rundir "$block" xcelium batch)" || exit 1
+        rc=0
+        "$SCRIPT_DIR/xrun-here" batch "$run_dir" "$af" || rc=$?
+        lambda_finalize_rundir "$run_dir" "$rc"
+        exit "$rc"
+        ;;
+    waves)
+        latest="$tool_root/latest"
+        if [[ ! -L "$latest" ]]; then
+            echo "ERROR: no 'latest' run for $block xcelium." >&2
+            echo "Hint:  lambda-xcelium $block sim ... or batch ..." >&2
+            exit 1
+        fi
+        waves="$tool_root/$(readlink "$latest")/waves.shm"
+        if [[ ! -e "$waves" ]]; then
+            echo "ERROR: latest run did not produce waves.shm: $waves" >&2
+            echo "Hint:  add -access +rwc to your xrun args." >&2
+            exit 1
+        fi
+        exec "$SCRIPT_DIR/lambda-verisium" "$block" "$waves"
+        ;;
+    clean)
+        if [[ ! -d "$tool_root" ]]; then
+            echo "Nothing to clean ($tool_root does not exist)"; exit 0
+        fi
+        echo "Will remove: $tool_root"
+        du -sh "$tool_root" 2>/dev/null || true
+        read -r -p "Confirm? [y/N] " response
+        case "$response" in
+            y|Y|yes|YES) rm -rf "$tool_root"; echo "Removed $tool_root" ;;
+            *) echo "Aborted."; exit 1 ;;
+        esac
+        ;;
+    diagnose)
+        echo "Lambda block: $block"
+        echo ""
+        echo "Paths:"
+        echo "  tb dir:      $tb_dir"
+        [[ -d "$tb_dir" ]] && echo "                (exists)" || echo "                (none yet — TB not written)"
+        echo "  tool root:   $tool_root"
+        if [[ -d "$tool_root" ]]; then
+            echo "                ($(du -sh "$tool_root" 2>/dev/null | cut -f1) used)"
+            [[ -L "$tool_root/latest" ]] && echo "                latest -> $(readlink "$tool_root/latest")"
+        else
+            echo "                (empty; created on first launch)"
+        fi
+        echo ""
+        echo "Module:"
+        echo "  pin:         $XCELIUM_MODULE"
+        if type module >/dev/null 2>&1; then
+            if module avail "$XCELIUM_MODULE" 2>&1 | grep -q "xcelium"; then
+                echo "                (available)"
+            else
+                echo "                (NOT FOUND — try: module avail xcelium)"
+            fi
+        else
+            echo "                (module command not in this shell — run chamber-diagnose)"
+        fi
+        ;;
+    *)
+        echo "ERROR: unknown subcommand: $subcmd" >&2
+        echo ""; usage; exit 1
+        ;;
+esac

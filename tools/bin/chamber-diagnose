@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+# ============================================================================
+# chamber-diagnose
+# ----------------------------------------------------------------------------
+# Project-agnostic Cadence chamber probe. Reports the health of the runtime
+# environment that any Cadence tool relies on:
+#   - Shell + user identity
+#   - X11 forwarding (DISPLAY, xdpyinfo)
+#   - Modules system
+#   - Cadence tool availability (pre-load AND post-load via `module avail`)
+#   - Storage paths from the chamber reference (/projects, /rscratch, /apps)
+#   - License server reachability ($CDS_LIC_FILE)
+#
+# Run before launching a GUI when something feels off. Never mutates state.
+#
+# Usage: chamber-diagnose
+# ============================================================================
+
+# NOT set -e: we want to report ALL failures, not exit on first.
+set -uo pipefail
+
+# Bootstrap module() in our bash subprocess if MODULESHOME is exported.
+# csh exports MODULESHOME into bash subprocesses, but the `module` function
+# itself is csh-only — bash has to source $MODULESHOME/init/bash to define
+# the bash equivalent. Without this, chamber-diagnose reports a misleading
+# "module command not in this shell" FAIL when actually module loading
+# works correctly from any sibling launcher (lambda-stratus, etc).
+# Also respect LAMBDA_MODULE_INIT override if set.
+if ! type module >/dev/null 2>&1; then
+    if [[ -n "${LAMBDA_MODULE_INIT:-}" ]] && [[ -f "$LAMBDA_MODULE_INIT" ]]; then
+        # shellcheck disable=SC1090
+        source "$LAMBDA_MODULE_INIT" 2>/dev/null || true
+    elif [[ -n "${MODULESHOME:-}" ]] && [[ -f "${MODULESHOME}/init/bash" ]]; then
+        # shellcheck disable=SC1090
+        source "${MODULESHOME}/init/bash" 2>/dev/null || true
+    fi
+fi
+
+# ---- ANSI cosmetic helpers (no-op on non-TTY) ------------------------------
+if [[ -t 1 ]]; then
+    GREEN=$'\e[32m'
+    RED=$'\e[31m'
+    YELLOW=$'\e[33m'
+    BOLD=$'\e[1m'
+    RESET=$'\e[0m'
+else
+    GREEN=""; RED=""; YELLOW=""; BOLD=""; RESET=""
+fi
+
+ok()      { echo "  ${GREEN}[OK]${RESET}    $*"; }
+fail()    { echo "  ${RED}[FAIL]${RESET}  $*"; }
+warn()    { echo "  ${YELLOW}[WARN]${RESET}  $*"; }
+info()    { echo "          $*"; }
+section() { echo ""; echo "${BOLD}=== $1 ===${RESET}"; }
+
+# ---- 1. Shell + user -------------------------------------------------------
+section "Shell + user"
+host="$(hostname 2>/dev/null || echo unknown)"
+# v0.4.2 (m4): login-node wording aligned with the v0.4.1 ground truth —
+# login CAN autofs-mount the digital tools too; it's a scheduling/sizing
+# policy, not file availability. See docs/tools-overview.md §2.
+case "$host" in
+    ae[0-9]*ut[0-9]*) node_class="LOGIN node (interactive Virtuoso/vManager; digital tools may mount, but run them on compute via qsh)" ;;
+    ip-*)             node_class="compute node (digital + sim tools mount on demand)" ;;
+    *)                node_class="unknown node class" ;;
+esac
+info "user:     $USER"
+info "shell:    ${SHELL:-unknown}"
+info "hostname: $host  [$node_class]"
+info "pwd:      $(pwd)"
+info "uname:    $(uname -srm)"
+info "note:     /apps/<TOOL> is AUTOFS — payload mounts when a 'module load' +"
+info "          PATH scan touches it. cold 'ls /apps' will UNDER-report."
+
+# ---- 2. X11 forwarding -----------------------------------------------------
+section "X11 forwarding"
+if [[ -n "${DISPLAY:-}" ]]; then
+    ok "DISPLAY=$DISPLAY"
+else
+    fail "DISPLAY not set; no GUI tool will work"
+    info "Fix: ssh -X (or -Y) into the utility node, then qsh -V"
+fi
+
+if command -v xdpyinfo >/dev/null 2>&1; then
+    if xdpyinfo >/dev/null 2>&1; then
+        ok "xdpyinfo reaches X server"
+    else
+        fail "xdpyinfo cannot reach X server (DISPLAY=$DISPLAY)"
+        info "Try: xclock & (if a clock window appears, X works)"
+    fi
+else
+    warn "xdpyinfo not installed; skipping X-server reachability check"
+fi
+
+# ---- 3. Module system ------------------------------------------------------
+section "Module system"
+if type module >/dev/null 2>&1; then
+    ok "module command available"
+    info "MODULEPATH=${MODULEPATH:-(unset)}"
+    if [[ -n "${LOADEDMODULES:-}" ]]; then
+        info "loaded:   ${LOADEDMODULES//:/, }"
+    else
+        info "loaded:   (none)"
+    fi
+else
+    fail "module command not in this shell"
+    info "Discovery (bash):"
+    info "  find / -name 'modulecmd' -type f 2>/dev/null | head -3"
+    info "  find / -name '*.sh' -path '*module*init*' 2>/dev/null | head -3"
+    info "Discovery (csh, where 'module' works):"
+    info "  which modulecmd"
+    info "  echo \$MODULEPATH"
+    info "Fix: once you know the bash init path, set in ~/.longhorn/lambda.env:"
+    info "  export LAMBDA_MODULE_INIT=/the/path/to/init/bash"
+fi
+
+# ---- 4. Cadence tool availability (LOAD-then-TEST, autofs-aware) ----------
+# v0.3 had a pre-load `command -v` loop here that ALWAYS warned because the
+# module hasn't been loaded yet. With /apps as autofs, the only meaningful
+# test is: load the module, then check whether the binary lands on PATH (the
+# PATH scan is what triggers the automount). Source lambda-env.sh for the pins
+# and lambda-run.sh for lambda_require_tool; report each tool non-fatally.
+section "Cadence tools (load-then-test; autofs-aware)"
+# Source pins if available (chamber-diagnose may be invoked before install.sh).
+# Symlink resolver matches the pattern used by every other launcher (avoids
+# GNU-only `readlink -f` for BSD/macOS portability).
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+    _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+_diag_dir="$(cd -P "$(dirname "$_src")" && pwd)"
+unset _src _dir
+if [[ -f "$_diag_dir/../lib/lambda-env.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$_diag_dir/../lib/lambda-env.sh" 2>/dev/null || true
+fi
+if [[ -f "$_diag_dir/../lib/lambda-run.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$_diag_dir/../lib/lambda-run.sh" 2>/dev/null || true
+fi
+unset _diag_dir
+
+# Tool name -> module-spec variable -> binary the modulefile should put on PATH.
+# Use the LOADEDMODULES check to avoid re-load noise; only test what's pinned.
+# Each probe runs in a subshell so the module load (which mutates PATH and
+# CDS_LIC_FILE) does NOT leak to the next probe — otherwise loading all five
+# tool trees would accumulate ~10 dirs on PATH and last-tool-wins for licensing.
+# Subshell isolation preserves the parent shell's clean state.
+diag_tool() {
+    local label="$1" spec="$2" binary="$3"
+    if [[ -z "$spec" ]]; then
+        warn "$label: module spec unset (skip)"
+        return
+    fi
+    if ! type module >/dev/null 2>&1; then
+        fail "$label NOT probed (module command unavailable)"
+        return
+    fi
+    local where
+    where="$(
+        module load "$spec" 2>/dev/null
+        command -v "$binary" 2>/dev/null
+    )"
+    if [[ -n "$where" ]]; then
+        ok "$label  ($spec -> $where)"
+    else
+        fail "$label NOT resolvable ($spec -> $binary)"
+        info "  on autofs chambers this usually means this node lacks the install."
+        info "  Get a compute node: qsh -q normal.q -now n -V"
+    fi
+}
+
+diag_tool "stratus_ide" "${STRATUS_MODULE:-}"  stratus_ide
+diag_tool "genus"       "${GENUS_MODULE:-}"    genus
+diag_tool "xrun"        "${XCELIUM_MODULE:-}"  xrun
+diag_tool "innovus"     "${INNOVUS_MODULE:-}"  innovus
+diag_tool "verisium"    "${VERISIUM_MODULE:-}" verisium
+diag_tool "pegasus"     "${PEGASUS_MODULE:-}"  pegasus
+# SSV's modulefile sets PATH for tempus/voltus/quantus binaries collectively;
+# probe via `tempus` (lightest of the three).
+diag_tool "ssv (tempus)" "${SSV_MODULE:-}"     tempus
+# lmstat ships with most Cadence tools, not pinned separately.
+if command -v lmstat >/dev/null 2>&1; then
+    ok "lmstat at $(command -v lmstat)"
+else
+    warn "lmstat not in PATH yet (auto-loads with a tool module)"
+fi
+
+# ---- 5. Storage paths ------------------------------------------------------
+section "Storage paths"
+for path in /projects /rscratch /apps/hosted /process/hosted /grid/common/pkgs; do
+    if [[ -d "$path" ]]; then
+        ok "$path exists"
+    else
+        warn "$path missing"
+    fi
+done
+
+if [[ -n "${LAMBDA_WORK:-}" ]]; then
+    if [[ -d "$LAMBDA_WORK" ]]; then
+        local_writable="no"
+        [[ -w "$LAMBDA_WORK" ]] && local_writable="yes"
+        ok "LAMBDA_WORK=$LAMBDA_WORK (writable: $local_writable)"
+    else
+        warn "LAMBDA_WORK=$LAMBDA_WORK does not exist"
+        info "Fix: bash $LAMBDA_ROOT/tools/install.sh  (provisions ~/work/lambda)"
+    fi
+fi
+if [[ -n "${LAMBDA_FAST:-}" ]]; then
+    info "LAMBDA_FAST=$LAMBDA_FAST  (ephemeral, node-local fallback)"
+fi
+
+# ---- 6. License server -----------------------------------------------------
+section "License server"
+if [[ -n "${CDS_LIC_FILE:-}" ]]; then
+    ok "CDS_LIC_FILE=$CDS_LIC_FILE"
+else
+    warn "CDS_LIC_FILE not set (will be set by 'module load <tool>')"
+fi
+
+if command -v lmstat >/dev/null 2>&1 && [[ -n "${CDS_LIC_FILE:-}" ]]; then
+    if lmstat -a -c "$CDS_LIC_FILE" >/dev/null 2>&1; then
+        ok "license server reachable"
+    else
+        fail "lmstat cannot reach license server ($CDS_LIC_FILE)"
+    fi
+else
+    warn "skipping lmstat probe (need lmstat + CDS_LIC_FILE; load a tool module first)"
+fi
+
+# ---- 7. ~/bin -------------------------------------------------------------
+section "User bin"
+if [[ -d "$HOME/bin" ]]; then
+    ok "$HOME/bin exists"
+    if echo "$PATH" | tr ':' '\n' | grep -qx "$HOME/bin"; then
+        ok "$HOME/bin is on \$PATH"
+    else
+        warn "$HOME/bin is NOT on \$PATH"
+        info "Fix (csh):  set path = ( \$HOME/bin \$path )"
+        info "Fix (bash): export PATH=\"\$HOME/bin:\$PATH\""
+    fi
+else
+    warn "$HOME/bin does not exist (will be created by tools/install.sh)"
+fi
+
+echo ""
+echo "${BOLD}Done.${RESET} Review any FAILs above before launching tools."

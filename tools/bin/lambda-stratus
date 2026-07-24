@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# ============================================================================
+# lambda-stratus
+# ----------------------------------------------------------------------------
+# Lambda-aware Stratus HLS launcher. Knows the seven Lambda blocks (mate,
+# kce, vecu, tiu, msc, lsu, hif) and resolves <block> to the per-block
+# project.tcl at src/blocks/<block>/stratus/project.tcl, then delegates to
+# the generic stratus-gui / stratus-batch in the same dir.
+#
+# Usage:
+#   lambda-stratus <block> gui                # open IDE on block's project.tcl
+#   lambda-stratus <block> batch <config>     # headless cynth <config>
+#   lambda-stratus <block> clean              # rm $LAMBDA_WORK/<block>/stratus/
+#   lambda-stratus <block> report <config>    # tail latest batch log
+#   lambda-stratus <block> diagnose           # check project.tcl exists, etc.
+#
+# Example:
+#   lambda-stratus mate gui
+#   lambda-stratus mate batch BASIC
+# ============================================================================
+
+set -euo pipefail
+
+# Resolve script through symlinks (~/bin/lambda-stratus -> tools/bin/lambda-stratus)
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+    _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+unset _src _dir
+
+for _lib in lambda-env.sh lambda-run.sh; do
+    if [[ ! -f "$SCRIPT_DIR/../lib/$_lib" ]]; then
+        echo "ERROR: $SCRIPT_DIR/../lib/$_lib not found" >&2
+        echo "Hint:  re-run bash ~/architecture/tools/install.sh" >&2
+        exit 1
+    fi
+done
+# shellcheck source=../lib/lambda-env.sh
+source "$SCRIPT_DIR/../lib/lambda-env.sh"
+# shellcheck source=../lib/lambda-run.sh
+source "$SCRIPT_DIR/../lib/lambda-run.sh"
+unset _lib
+
+usage() {
+    cat <<EOF
+Usage: lambda-stratus <block> <subcommand> [args...]
+
+Subcommands:
+  gui                Open Stratus IDE on the block's project.tcl
+  batch <config>     Run Stratus headless with HLS config (e.g., BASIC)
+  clean              Remove \$LAMBDA_WORK/<block>/stratus/ (confirmed)
+  report <config>    Tail latest batch log for that config
+  diagnose           Check project.tcl exists, module loadable, etc.
+
+Blocks: ${LAMBDA_BLOCKS[*]}
+
+Examples:
+  lambda-stratus mate gui
+  lambda-stratus mate batch BASIC
+  lambda-stratus kce diagnose
+EOF
+}
+
+block="${1:-}"
+subcmd="${2:-}"
+
+if [[ -z "$block" ]] || [[ -z "$subcmd" ]]; then
+    usage
+    exit 1
+fi
+
+# ---- Validate block --------------------------------------------------------
+valid=0
+for b in "${LAMBDA_BLOCKS[@]}"; do
+    if [[ "$b" == "$block" ]]; then valid=1; break; fi
+done
+if [[ "$valid" -eq 0 ]]; then
+    echo "ERROR: unknown block '$block'" >&2
+    echo "Known blocks: ${LAMBDA_BLOCKS[*]}" >&2
+    exit 1
+fi
+
+block_dir="$LAMBDA_ROOT/src/blocks/$block"
+stratus_dir="$block_dir/stratus"
+project_file="$stratus_dir/project.tcl"
+
+case "$subcmd" in
+    gui)
+        if [[ ! -f "$project_file" ]]; then
+            echo "ERROR: $project_file not found" >&2
+            echo "Hint:  lambda-stratus $block diagnose" >&2
+            exit 1
+        fi
+        # GUI sessions live in the stable `interactive/` dir (no STATUS marker —
+        # GUI has no defined exit-success semantics, same convention as Innovus
+        # GUI and Genus GUI). Detached via stratus-gui, so exec is correct here.
+        STRATUS_RUNDIR="$(lambda_rundir "$block" stratus gui)" || exit 1
+        export STRATUS_RUNDIR
+        exec "$SCRIPT_DIR/stratus-gui" "$project_file"
+        ;;
+
+    batch)
+        config="${3:-}"
+        if [[ -z "$config" ]]; then
+            echo "ERROR: 'batch' requires a config name (e.g., BASIC)" >&2
+            exit 1
+        fi
+        if [[ ! -f "$project_file" ]]; then
+            echo "ERROR: $project_file not found" >&2
+            exit 1
+        fi
+        # v0.4.1: per-invocation <run-id>/ dir, matching Genus/Innovus/Xcelium.
+        # Stratus's `cynth <CFG>` creates <CFG>/, bdw_work/, scverify_work/
+        # under CWD — those now nest as <run-id>/<CFG>/, <run-id>/bdw_work/,
+        # etc. Closes the v0.4 race where concurrent `cynth BASIC` and
+        # `cynth FALLBACK` from two shells collided on bdw_work/.
+        STRATUS_RUNDIR="$(lambda_rundir "$block" stratus batch)" || exit 1
+        run_id="$(basename "$STRATUS_RUNDIR")"
+        export STRATUS_RUNDIR
+        # Capture rc instead of exec — needed for publish + finalize below.
+        # `|| rc=$?` under set -euo: same idiom as lambda-genus / lambda-innovus.
+        rc=0
+        "$SCRIPT_DIR/stratus-batch" "$config" "$project_file" || rc=$?
+        # v0.4.1: publish Stratus-emitted Verilog to release/ so Genus reads from
+        # the contract path, not a sibling-tool hardcoded location. Soft-fail:
+        # the stub project emits no .v today, so absence is expected during
+        # bring-up. When real HLS source lands, this becomes the load-bearing
+        # Stratus → Genus edge of the cross-stage release contract.
+        if [[ $rc -eq 0 ]]; then
+            hls_out="$STRATUS_RUNDIR/$config/${block}.v"
+            if [[ -f "$hls_out" ]]; then
+                lambda_publish_release "$block" "$hls_out" "${block}.hls.v" stratus "$run_id" || true
+            fi
+        fi
+        lambda_finalize_rundir "$STRATUS_RUNDIR" "$rc"
+        exit "$rc"
+        ;;
+
+    clean)
+        target="$LAMBDA_BUILD/$block/stratus"
+        if [[ ! -d "$target" ]]; then
+            echo "Nothing to clean ($target does not exist)"
+            exit 0
+        fi
+        echo "Will remove: $target"
+        # Show size so user knows what they're nuking
+        du -sh "$target" 2>/dev/null || true
+        read -r -p "Confirm? [y/N] " response
+        case "$response" in
+            y|Y|yes|YES)
+                rm -rf "$target"
+                echo "Removed $target"
+                ;;
+            *)
+                echo "Aborted."
+                exit 1
+                ;;
+        esac
+        ;;
+
+    report)
+        config="${3:-}"
+        if [[ -z "$config" ]]; then
+            echo "ERROR: 'report' requires a config name" >&2
+            exit 1
+        fi
+        # shellcheck disable=SC2012  # ls -t is intentional for newest-first
+        # `|| true` (v0.4.2, m1): with no logs, ls exits non-zero and pipefail
+        # made the whole command substitution fail under set -e — the script
+        # died silently instead of printing the friendly hint below.
+        latest=$(ls -t "$LAMBDA_LOGS"/stratus."${block}".batch."${config}".*.log 2>/dev/null | head -1 || true)
+        if [[ -z "$latest" ]]; then
+            echo "ERROR: no logs found matching stratus.${block}.batch.${config}.*.log" >&2
+            echo "Hint:  ls $LAMBDA_LOGS/" >&2
+            exit 1
+        fi
+        echo "Latest log: $latest"
+        echo "----------------------------------------"
+        tail -80 "$latest"
+        ;;
+
+    diagnose)
+        echo "Lambda block: $block"
+        echo ""
+        echo "Paths:"
+        echo "  source dir:   $block_dir"
+        [[ -d "$block_dir" ]] && echo "                  (exists)" || echo "                  (MISSING)"
+        echo "  stratus dir:  $stratus_dir"
+        [[ -d "$stratus_dir" ]] && echo "                  (exists)" || echo "                  (MISSING)"
+        echo "  project.tcl:  $project_file"
+        [[ -f "$project_file" ]] && echo "                  (exists)" || echo "                  (MISSING)"
+        echo ""
+        echo "Module:"
+        echo "  pin:          $STRATUS_MODULE"
+        if type module >/dev/null 2>&1; then
+            # Derive the leaf version from the pin so the grep is meaningful
+            # without referencing an undefined STRATUS_VERSION (was a v0.1 bug
+            # that would crash diagnose under `set -euo pipefail`).
+            _stratus_leaf="${STRATUS_MODULE##*/}"
+            if module avail "$STRATUS_MODULE" 2>&1 | grep -q "$_stratus_leaf"; then
+                echo "                  (available)"
+            else
+                echo "                  (NOT FOUND — try: module avail stratus)"
+            fi
+            unset _stratus_leaf
+        else
+            echo "                  (module command not in this shell — run chamber-diagnose)"
+        fi
+        echo ""
+        echo "Run dir:      $LAMBDA_WORK/$block/stratus/"
+        if [[ -d "$LAMBDA_WORK/$block/stratus" ]]; then
+            echo "                  $(du -sh "$LAMBDA_WORK/$block/stratus" 2>/dev/null | cut -f1) used"
+        else
+            echo "                  (empty)"
+        fi
+        ;;
+
+    *)
+        echo "ERROR: unknown subcommand: $subcmd" >&2
+        echo ""
+        usage
+        exit 1
+        ;;
+esac

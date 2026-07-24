@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# ============================================================================
+# genus-here
+# ----------------------------------------------------------------------------
+# Generic Cadence Genus (Common UI) launcher. Project-agnostic. The Lambda-
+# aware wrapper `lambda-genus` resolves <block> -> run dir + flow and delegates
+# here.
+#
+# Usage:
+#   genus-here gui   [rundir]                # interactive REPL + GUI (gui_show)
+#   genus-here shell [rundir]                # interactive REPL, no GUI
+#   genus-here batch [rundir] <flow.tcl>     # headless: source flow then exit
+#
+# Verified facts baked in (per the 2026-06-06 ground-truth pass):
+#   - **Common UI is Genus's DEFAULT**; -legacy_ui opts out. NO -stylus needed
+#     (unlike Innovus, which DOES need -stylus). Asymmetry is intentional in
+#     Cadence's flow — pin documented in docs/tools-overview.md.
+#   - `genus -no_gui -files <script>` for batch. `-files` is the documented
+#     Common UI script-source flag (Cadence support 20467255, 20448740).
+#   - `genus` is a console REPL that ALSO opens a GUI window — run foreground,
+#     inheriting the terminal (same shape as innovus-here). Do NOT nohup-detach.
+#   - Logs to `genus.log`/`genus.cmd` in CWD by default; `-log <file>` overrides.
+#
+# Module: $GENUS_MODULE (default genus/211/21.18.000 — matches Innovus family).
+# ============================================================================
+
+set -euo pipefail
+
+# Resolve script through symlinks (~/bin/genus-here -> tools/bin/genus-here).
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+    _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+unset _src _dir
+
+for _lib in lambda-env.sh lambda-run.sh; do
+    if [[ ! -f "$SCRIPT_DIR/../lib/$_lib" ]]; then
+        echo "ERROR: $SCRIPT_DIR/../lib/$_lib not found" >&2
+        echo "Hint:  re-run bash ~/architecture/tools/install.sh" >&2
+        exit 1
+    fi
+done
+# shellcheck source=../lib/lambda-env.sh
+source "$SCRIPT_DIR/../lib/lambda-env.sh"
+# shellcheck source=../lib/lambda-run.sh
+source "$SCRIPT_DIR/../lib/lambda-run.sh"
+unset _lib
+
+# ---- Arg parsing -----------------------------------------------------------
+mode="${1:-}"
+case "$mode" in
+    gui|shell|batch) ;;
+    *)
+        cat >&2 <<EOF
+ERROR: missing or invalid mode: '${mode:-}'
+
+Usage: genus-here <gui|shell|batch> [rundir] [flow.tcl]
+  gui    interactive REPL + GUI window (Common UI; type 'gui_show')
+  shell  interactive REPL, no GUI
+  batch  headless: source flow.tcl then exit (flow.tcl required)
+EOF
+        exit 1
+        ;;
+esac
+shift
+
+rundir="${1:-$PWD}"
+shift || true
+flow="${1:-}"
+
+if [[ "$mode" == "batch" && -z "$flow" ]]; then
+    echo "ERROR: 'batch' mode requires a flow .tcl to source." >&2
+    echo "Usage: genus-here batch <rundir> <flow.tcl>" >&2
+    exit 1
+fi
+if [[ -n "$flow" && ! -f "$flow" ]]; then
+    echo "ERROR: flow script not found: $flow" >&2
+    exit 1
+fi
+[[ -n "$flow" ]] && flow="$(cd "$(dirname "$flow")" && pwd)/$(basename "$flow")"
+
+# ---- Module + binary check (autofs/compute-node aware) ---------------------
+lambda_require_tool "$GENUS_MODULE" genus || exit 1
+
+# ---- X11 preflight (gui mode only) -----------------------------------------
+if [[ "$mode" == "gui" && -z "${DISPLAY:-}" ]]; then
+    echo "ERROR: \$DISPLAY not set; X11 required for 'gui' mode." >&2
+    echo "Hint:  ssh -X (or -Y), then re-qsh. Test: xclock &" >&2
+    echo "       Or use 'shell' mode (no GUI), then 'gui_show' once X11 is up." >&2
+    exit 1
+fi
+
+# ---- Run dir + log ---------------------------------------------------------
+mkdir -p "$rundir" 2>/dev/null || { echo "ERROR: cannot create $rundir" >&2; exit 1; }
+cd "$rundir"
+
+# v0.4.2 (M5): run-id regex allows the -N collision suffix minted by
+# lambda_rundir when two batch launches share a second.
+rd_base="$(basename "$rundir")"
+if [[ "$rd_base" == "interactive" || "$rd_base" =~ ^[0-9]{8}-[0-9]{6}(-[0-9]+)?$ ]]; then
+    tag_name="$(basename "$(dirname "$(dirname "$rundir")")")"   # <block>
+else
+    tag_name="$rd_base"
+fi
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$LAMBDA_LOGS" 2>/dev/null || true
+log_dir="$LAMBDA_LOGS"
+[[ -w "$log_dir" ]] || { log_dir="/tmp"; echo "WARN: $LAMBDA_LOGS not writable; logging to /tmp" >&2; }
+log_file="$log_dir/genus.${tag_name}.${mode}.${timestamp}.log"
+
+echo "Genus ($GENUS_MODULE), Common UI (default)"
+echo "  mode:    $mode"
+echo "  run dir: $rundir"
+[[ -n "$flow" ]] && echo "  flow:    $flow"
+echo "  log:     $log_file"
+[[ "$mode" == "batch" ]] && echo "  tool log: $rundir/genus.${timestamp}.log (+ .cmd)"
+echo ""
+
+# ---- Launch (foreground; inherits the terminal) ----------------------------
+case "$mode" in
+    gui)
+        exec genus -log "$log_file"
+        ;;
+    shell)
+        exec genus -no_gui -log "$log_file"
+        ;;
+    batch)
+        # GENUS_BATCH lets the flow detect headless mode in pure Tcl without
+        # relying on a Cadence command name (mirrors INNOVUS_BATCH).
+        export GENUS_BATCH=1
+        # v0.4.2 (M6): batch points the Cadence-native -log INTO the run dir
+        # (genus.<ts>.log/.cmd colocated with outputs/ — "cd into the run dir
+        # = everything"), while the console transcript is still tee'd to the
+        # flat $LAMBDA_LOGS list. GUI/shell keep -log in $LAMBDA_LOGS (their
+        # interactive/ dir is shared, so per-run colocation buys nothing).
+        # Process substitution (not `| tee`) so exec really replaces the shell
+        # and Ctrl-C reaches genus — same rationale as xrun-here.
+        exec genus -no_gui -files "$flow" -log "$rundir/genus.${timestamp}" > >(tee "$log_file") 2>&1
+        ;;
+esac

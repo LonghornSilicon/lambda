@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# ============================================================================
+# xrun-here
+# ----------------------------------------------------------------------------
+# Generic Cadence Xcelium (`xrun`) launcher. Project-agnostic. The Lambda-aware
+# wrapper `lambda-xcelium` resolves <block> -> run dir + test args and delegates
+# here.
+#
+# Usage:
+#   xrun-here sim   [rundir] <xrun-args...>     # headless compile+elab+sim
+#   xrun-here gui   [rundir] <xrun-args...>     # opens SimVision live
+#   xrun-here batch [rundir] <args-file>        # source @args-file, headless
+#
+# Verified facts:
+#   - `xrun` is the unified Xcelium driver — compile + elaborate + simulate in
+#     one call. Dumps `xcelium.d/`, `xrun.log`, `xrun.history`, `xrun.key` into
+#     CWD. Waveform DB lands at `waves.shm/` if the TB enables it (or pass
+#     `-access +rwc` for full probing).
+#   - `-gui` opens SimVision live during the run. Without it, SimVision can be
+#     attached post-mortem on `waves.shm` (see lambda-verisium).
+#   - `-f <file>` (or `-args <file>`) sources a flat args file — used by `batch`.
+#
+# Module: $XCELIUM_MODULE (default xcelium/2403/24.03.005 — matches the
+# observed install on compute node ip-10-2-6-68 per 2026-06-06 debug).
+# ============================================================================
+
+set -euo pipefail
+
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+    _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+unset _src _dir
+
+for _lib in lambda-env.sh lambda-run.sh; do
+    if [[ ! -f "$SCRIPT_DIR/../lib/$_lib" ]]; then
+        echo "ERROR: $SCRIPT_DIR/../lib/$_lib not found" >&2
+        echo "Hint:  re-run bash ~/architecture/tools/install.sh" >&2
+        exit 1
+    fi
+done
+# shellcheck source=../lib/lambda-env.sh
+source "$SCRIPT_DIR/../lib/lambda-env.sh"
+# shellcheck source=../lib/lambda-run.sh
+source "$SCRIPT_DIR/../lib/lambda-run.sh"
+unset _lib
+
+mode="${1:-}"
+case "$mode" in
+    sim|gui|batch) ;;
+    *)
+        cat >&2 <<EOF
+ERROR: missing or invalid mode: '${mode:-}'
+
+Usage: xrun-here <sim|gui|batch> [rundir] <args...>
+  sim    headless: xrun <args...>
+  gui    xrun -gui <args...>  (SimVision live)
+  batch  xrun -f <args-file>  (args-file required as last positional)
+EOF
+        exit 1
+        ;;
+esac
+shift
+
+rundir="${1:-$PWD}"
+shift || true
+
+# In batch mode the last positional must be an args file (or we accept
+# `xrun-here batch <rundir> <argsfile>`).
+if [[ "$mode" == "batch" ]]; then
+    args_file="${1:-}"
+    if [[ -z "$args_file" ]]; then
+        echo "ERROR: 'batch' requires an args file." >&2
+        echo "Usage: xrun-here batch <rundir> <args-file>" >&2
+        exit 1
+    fi
+    if [[ ! -f "$args_file" ]]; then
+        echo "ERROR: args file not found: $args_file" >&2
+        exit 1
+    fi
+    args_file="$(cd "$(dirname "$args_file")" && pwd)/$(basename "$args_file")"
+    shift
+fi
+
+lambda_require_tool "$XCELIUM_MODULE" xrun || exit 1
+
+if [[ "$mode" == "gui" && -z "${DISPLAY:-}" ]]; then
+    echo "ERROR: \$DISPLAY not set; X11 required for 'gui' mode." >&2
+    echo "Hint:  ssh -X (or -Y), then re-qsh. Or use 'sim' (headless) then 'lambda-verisium'." >&2
+    exit 1
+fi
+
+mkdir -p "$rundir" 2>/dev/null || { echo "ERROR: cannot create $rundir" >&2; exit 1; }
+cd "$rundir"
+
+# v0.4.2 (M5): run-id regex allows the -N collision suffix minted by
+# lambda_rundir when two batch launches share a second.
+rd_base="$(basename "$rundir")"
+if [[ "$rd_base" == "interactive" || "$rd_base" =~ ^[0-9]{8}-[0-9]{6}(-[0-9]+)?$ ]]; then
+    tag_name="$(basename "$(dirname "$(dirname "$rundir")")")"
+else
+    tag_name="$rd_base"
+fi
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$LAMBDA_LOGS" 2>/dev/null || true
+log_dir="$LAMBDA_LOGS"
+[[ -w "$log_dir" ]] || { log_dir="/tmp"; echo "WARN: $LAMBDA_LOGS not writable; logging to /tmp" >&2; }
+log_file="$log_dir/xrun.${tag_name}.${mode}.${timestamp}.log"
+
+echo "Xcelium ($XCELIUM_MODULE), xrun"
+echo "  mode:    $mode"
+echo "  run dir: $rundir"
+echo "  log:     $log_file  (also xcelium.d/, xrun.log in run dir)"
+echo ""
+
+# `exec cmd | tee` would only exec-replace the LEFT side of the pipe — the
+# parent shell still waits for `tee`, defeating the point and breaking signal
+# forwarding to xrun. Use process substitution so the shell IS replaced and
+# Ctrl-C goes straight to xrun. Process substitution preserves logging.
+#
+# ${1+"$@"} (v0.4.2, M2): on the chamber's bash 4.2.46, `set -u` + an EMPTY
+# "$@" expansion aborts with "unbound variable" (fixed upstream in bash 4.4).
+# The classic ${1+"$@"} idiom expands to nothing when there are no args and
+# to "$@" otherwise — safe on every bash.
+case "$mode" in
+    sim)
+        exec xrun ${1+"$@"} > >(tee "$log_file") 2>&1
+        ;;
+    gui)
+        exec xrun -gui ${1+"$@"} > >(tee "$log_file") 2>&1
+        ;;
+    batch)
+        exec xrun -f "$args_file" > >(tee "$log_file") 2>&1
+        ;;
+esac

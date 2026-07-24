@@ -1,23 +1,29 @@
-# tools/ — chamber launcher framework
+# tools/ — Cadence-chamber launcher framework
 
-**Status: home for the Cadence-chamber launcher framework (to be reconciled in from the
-`architecture` repo).** The validated launcher infrastructure — `lambda-stratus`, `lambda-genus`,
-`lambda-innovus`, `lambda-xcelium`, `lambda-verisium`, `chamber-diagnose`, the shared
-`lib/lambda-*.sh` helpers, and `install.sh` — currently lives in the `architecture` repo
-(`tools/`), most recently as the v0.4.x launcher-audit-fixes wave. That work was captured
-non-destructively on the `architecture` branch `rescue/2026-06-audit-uncommitted`.
+The validated launcher infrastructure for the shared hosted **Cadence chamber** (all-Cadence flow:
+Stratus HLS → Genus → Innovus → Pegasus DRC/LVS → Tempus/SSV STA; Verisium/SimVision debug).
+Migrated 2026-07 from the `lambda-arch` repo (formerly `architecture/tools/`) into the implementation
+monorepo, where the flows actually run. Distinct from the open-PDK OpenLane/LibreLane proxy flows,
+which live per-block under `src/blocks/<block>/pdk/`.
 
-**Why a stub here:** the reorg establishes the canonical structure now; importing the chamber
-tooling is a deliberate reconcile step (it crosses the `architecture` → `lambda` boundary — see
-[`../docs/REVISION_SYNC_SOP.md`](../docs/REVISION_SYNC_SOP.md) §7). The launchers target the shared
-hosted Cadence chamber (all-Cadence flow: Stratus HLS → Genus → Innovus → Pegasus DRC/LVS →
-Tempus/SSV STA), not the open-PDK OpenLane/LibreLane flows used for the sky130/gf180 proxy hardening
-(those live per-block under `src/blocks/<block>/pdk/`).
-
-Layout when populated (matches the `architecture` repo):
 ```
 tools/
-├── bin/   lambda-{stratus,genus,innovus,xcelium,verisium}, chamber-diagnose, *-here wrappers
-├── lib/   lambda-{env,run,detach}.sh   (shared helpers)
-└── install.sh
+├── bin/
+│   ├── lambda-stratus / stratus-gui / stratus-batch   HLS (C++ → RTL)
+│   ├── lambda-genus / genus-here                       synthesis
+│   ├── lambda-innovus / innovus-here                   place & route (Stylus Common UI)
+│   ├── lambda-xcelium / xrun-here                       simulation
+│   ├── lambda-verisium / verisium-here                 waveform debug (SimVision fallback)
+│   └── chamber-diagnose / lambda-diagnose              environment check
+├── lib/   lambda-{env,run,detach}.sh                   shared helpers (autofs/compute-node aware)
+└── install.sh                                          provisions the run-area (~/work/lambda)
 ```
+
+**Chamber notes** (see `lambda-arch` STATUS change-log for the full bring-up history):
+- Tools live on **compute nodes**, not the login node — `lambda_require_tool` autofs-detects and hints.
+- Run-area is **outside the repo** (`~/work/lambda/`), cross-node NFS; `install.sh` provisions it.
+- `latest` symlink = most recent invocation; `STATUS` sidecar = PASS/FAIL; `MANIFEST` = published artifacts.
+
+Usage: `cd ~/work/lambda && make <target>` after `tools/install.sh` (see `lambda-arch` docs for the
+per-tool run/log dataflow). The N16 hardening (private overlay) uses this chamber flow; the open-PDK
+proxy hardening uses the per-block `pdk/` OpenLane/LibreLane configs.

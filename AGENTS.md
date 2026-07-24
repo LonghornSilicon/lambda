@@ -31,7 +31,7 @@ lambda/
 │   ├── kve/     ← KV Cache Engine (ChannelQuant codec). Complete block: sw/ rtl/ pdk/ docs/ research/. Mirrors lambda-kve.
 │   ├── tiu/     ← Token Importance Unit (H2O keep/demote/evict). Complete block. Mirrors lambda-tiu.
 │   └── msc/ lsu/ hif/  ← spec-only stubs (not-yet-built blocks; README + arch.yml spec).
-├── src/isa/    ← chip-level ISA (LSU opcodes, CSR map). Per-block ISA lives in each block's docs/isa/.
+├── src/arch/    ← chip-level ISA (LSU opcodes, CSR map). Per-block ISA lives in each block's docs/isa/.
 ├── src/golden/ ← chip-level golden reference + index of per-block reference models.
 ├── chip/       ← cross-block integration: verif/ (tb_chip_cosim), pdk/gf180/ (full-chip padring assembly).
 ├── tools/      ← Cadence-chamber launcher framework (reconciled from the architecture repo).

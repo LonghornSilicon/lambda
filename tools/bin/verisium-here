@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# ============================================================================
+# verisium-here
+# ----------------------------------------------------------------------------
+# Generic Cadence Verisium Debug launcher with SimVision fallback. Project-
+# agnostic. The Lambda-aware wrapper `lambda-verisium` resolves
+# <block>/<run-id> -> waves.shm and delegates here.
+#
+# Usage:
+#   verisium-here <waves.shm>
+#
+# Behavior + risk posture:
+#   - PRIMARY: `verisium debug -input <waves>` — Cadence's modern AI-driven
+#     debug UI, replaces SimVision since ~2022. The binary name `verisium`
+#     (with `debug` as the first arg) is the convention per Cadence's
+#     Verisium Debug user guide. This is the ONE invocation flag we have not
+#     yet smoke-tested on this chamber's verisiumdebug/2403 install.
+#   - FALLBACK: `simvision -waves <waves>` — ships INSIDE the Xcelium install
+#     (confirmed on the 2026-06-06 debug: /apps/XCELIUM2403 carries it). So
+#     even if the Verisium module name is wrong, SimVision opens the same
+#     waves.shm with no extra install required. Decade-stable invocation.
+#
+# Strategy: try VERISIUM_MODULE first via lambda_require_tool. On any failure
+# (module not loadable, binary not on PATH after autofs touch), fall back to
+# the Xcelium-bundled SimVision. Print clearly which one opened.
+#
+# Modules:
+#   $VERISIUM_MODULE  default verisiumdebug/2403/24.03.001
+#   $XCELIUM_MODULE   default xcelium/2403/24.03.005  (fallback bundles simvision)
+# ============================================================================
+
+set -euo pipefail
+
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+    _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+unset _src _dir
+
+for _lib in lambda-env.sh lambda-run.sh; do
+    if [[ ! -f "$SCRIPT_DIR/../lib/$_lib" ]]; then
+        echo "ERROR: $SCRIPT_DIR/../lib/$_lib not found" >&2
+        echo "Hint:  re-run bash ~/architecture/tools/install.sh" >&2
+        exit 1
+    fi
+done
+# shellcheck source=../lib/lambda-env.sh
+source "$SCRIPT_DIR/../lib/lambda-env.sh"
+# shellcheck source=../lib/lambda-run.sh
+source "$SCRIPT_DIR/../lib/lambda-run.sh"
+unset _lib
+
+waves="${1:-}"
+if [[ -z "$waves" ]]; then
+    cat >&2 <<EOF
+ERROR: missing waveform database.
+
+Usage: verisium-here <waves.shm>
+Example: verisium-here ~/work/lambda/mate/xcelium/latest/waves.shm
+EOF
+    exit 1
+fi
+if [[ ! -e "$waves" ]]; then
+    echo "ERROR: waveform DB not found: $waves" >&2
+    echo "Hint:  run 'lambda-xcelium <block> sim' first to produce it." >&2
+    exit 1
+fi
+waves="$(cd "$(dirname "$waves")" && pwd)/$(basename "$waves")"
+
+if [[ -z "${DISPLAY:-}" ]]; then
+    echo "ERROR: \$DISPLAY not set; Verisium/SimVision are GUI-only." >&2
+    echo "Hint:  ssh -X (or -Y), then re-qsh. Test: xclock &" >&2
+    exit 1
+fi
+
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$LAMBDA_LOGS" 2>/dev/null || true
+log_dir="$LAMBDA_LOGS"
+[[ -w "$log_dir" ]] || { log_dir="/tmp"; echo "WARN: $LAMBDA_LOGS not writable; logging to /tmp" >&2; }
+tag_name="$(basename "$waves" .shm)"
+log_file="$log_dir/verisium.${tag_name}.${timestamp}.log"
+
+# ---- PRIMARY: Verisium Debug -----------------------------------------------
+# `verisium` is the unverified binary name; module load may also succeed with a
+# different binary. lambda_require_tool gives the clear compute-node error if
+# the module is broken; on `verisium`-not-found we fall through to SimVision.
+echo "Waveform DB: $waves"
+echo "  log:       $log_file"
+echo ""
+echo "Attempting PRIMARY: Verisium Debug ($VERISIUM_MODULE)..."
+
+if lambda_require_tool "$VERISIUM_MODULE" verisium 2>/tmp/verisium-here.$$.err; then
+    # v0.4.2 (m8): remove the probe capture before exec — exec never returns,
+    # so the success path used to leak one /tmp/verisium-here.<pid>.err per run.
+    rm -f /tmp/verisium-here.$$.err
+    echo "  -> opening: verisium debug -input $waves"
+    exec verisium debug -input "$waves" -log "$log_file"
+fi
+
+# Show the primary failure (module loaded but binary not found, OR autofs/node
+# issue) before trying the fallback, so the user understands what happened.
+echo "  PRIMARY failed:"
+sed 's/^/    /' /tmp/verisium-here.$$.err >&2 || true
+rm -f /tmp/verisium-here.$$.err
+
+# ---- FALLBACK: SimVision (ships in Xcelium) --------------------------------
+echo ""
+echo "Attempting FALLBACK: SimVision via $XCELIUM_MODULE..."
+if ! lambda_require_tool "$XCELIUM_MODULE" simvision; then
+    cat >&2 <<EOF
+
+ERROR: both Verisium and SimVision unreachable. Cannot open waveform DB.
+Hint:  lambda-diagnose       (full chamber probe + node-type check)
+EOF
+    exit 1
+fi
+echo "  -> opening: simvision -waves $waves"
+exec simvision -waves "$waves"

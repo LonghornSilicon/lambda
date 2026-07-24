@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# ============================================================================
+# lambda-diagnose
+# ----------------------------------------------------------------------------
+# Lambda-aware chamber diagnostic. Runs chamber-diagnose first (generic
+# environment checks), then adds Lambda-specific checks:
+#   - LAMBDA_ROOT exists and is a git repo
+#   - Per-block stratus/project.tcl presence
+#   - Build dir state
+# ============================================================================
+
+set -uo pipefail
+
+# Resolve script through symlinks (~/bin/lambda-diagnose -> tools/bin/lambda-diagnose)
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+    _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+unset _src _dir
+
+if [[ ! -f "$SCRIPT_DIR/../lib/lambda-env.sh" ]]; then
+    echo "ERROR: $SCRIPT_DIR/../lib/lambda-env.sh not found" >&2
+    echo "Hint:  re-run bash ~/architecture/tools/install.sh" >&2
+    exit 1
+fi
+# shellcheck source=../lib/lambda-env.sh
+source "$SCRIPT_DIR/../lib/lambda-env.sh"
+
+# ---- ANSI cosmetic helpers (mirror chamber-diagnose) ----------------------
+if [[ -t 1 ]]; then
+    GREEN=$'\e[32m'; RED=$'\e[31m'; YELLOW=$'\e[33m'; BOLD=$'\e[1m'; RESET=$'\e[0m'
+else
+    GREEN=""; RED=""; YELLOW=""; BOLD=""; RESET=""
+fi
+
+ok()      { echo "  ${GREEN}[OK]${RESET}    $*"; }
+fail()    { echo "  ${RED}[FAIL]${RESET}  $*"; }
+warn()    { echo "  ${YELLOW}[WARN]${RESET}  $*"; }
+info()    { echo "          $*"; }
+section() { echo ""; echo "${BOLD}=== $1 ===${RESET}"; }
+
+# ---- Run generic chamber checks first -------------------------------------
+"$SCRIPT_DIR/chamber-diagnose"
+
+# ---- Lambda-specific section ----------------------------------------------
+section "Lambda repo state"
+
+if [[ -d "$LAMBDA_ROOT" ]]; then
+    ok "LAMBDA_ROOT=$LAMBDA_ROOT"
+else
+    fail "LAMBDA_ROOT=$LAMBDA_ROOT does not exist"
+    info "Fix: sync-promote (from the chamber-sync-setup.md flow)"
+    exit 1
+fi
+
+if [[ -d "$LAMBDA_ROOT/.git" ]]; then
+    head_sha=$(cd "$LAMBDA_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo "?")
+    head_msg=$(cd "$LAMBDA_ROOT" && git log -1 --pretty=format:"%s" 2>/dev/null | head -c 60)
+    ok "git repo: HEAD=$head_sha ($head_msg)"
+else
+    warn "LAMBDA_ROOT is not a git repo"
+fi
+
+if [[ -f "$LAMBDA_ROOT/arch.yml" ]]; then
+    ok "arch.yml present"
+else
+    fail "arch.yml missing from $LAMBDA_ROOT"
+fi
+
+section "Per-block Stratus project files"
+for block in "${LAMBDA_BLOCKS[@]}"; do
+    project_file="$LAMBDA_ROOT/src/blocks/$block/stratus/project.tcl"
+    if [[ -f "$project_file" ]]; then
+        ok "$block: stratus/project.tcl"
+    else
+        warn "$block: no stratus/project.tcl yet (HLS not started)"
+    fi
+done
+
+section "Run / work area"
+# LAMBDA_WORK is the canonical run area (home-backed, cross-node, NOT in git).
+# LAMBDA_BUILD is an alias of it for back-compat with v0.1-v0.3 launchers.
+if [[ -d "$LAMBDA_WORK" ]]; then
+    size=$(du -sh "$LAMBDA_WORK" 2>/dev/null | cut -f1)
+    ok "LAMBDA_WORK=$LAMBDA_WORK ($size)"
+else
+    info "LAMBDA_WORK=$LAMBDA_WORK (empty; will be created by first batch run)"
+    info "Fix: bash $LAMBDA_ROOT/tools/install.sh  (provisions ~/work/lambda)"
+fi
+info "LAMBDA_BUILD=$LAMBDA_BUILD  (alias of LAMBDA_WORK)"
+info "LAMBDA_LOGS=$LAMBDA_LOGS"
+[[ -n "${LAMBDA_FAST:-}" ]] && info "LAMBDA_FAST=$LAMBDA_FAST  (ephemeral fallback)"
+
+echo ""
+echo "${BOLD}Done.${RESET} Lambda environment ready for: lambda-stratus <block> {gui|batch <config>}"

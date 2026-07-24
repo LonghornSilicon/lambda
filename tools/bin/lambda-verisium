@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# ============================================================================
+# lambda-verisium
+# ----------------------------------------------------------------------------
+# Lambda-aware waveform-debug launcher. Resolves <block> to its latest
+# `xcelium/latest/waves.shm` and delegates to verisium-here, which tries
+# Verisium Debug first and falls back to SimVision (bundled with Xcelium).
+#
+# Usage:
+#   lambda-verisium <block>              # open <block>'s LATEST waves
+#   lambda-verisium <block> <waves.shm>  # open a specific waves DB
+#   lambda-verisium <block> diagnose
+#
+# Examples:
+#   lambda-verisium mate
+#   lambda-verisium mate ~/work/lambda/mate/xcelium/20260606-100530/waves.shm
+# ============================================================================
+
+set -euo pipefail
+
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+    _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+unset _src _dir
+
+if [[ ! -f "$SCRIPT_DIR/../lib/lambda-env.sh" ]]; then
+    echo "ERROR: $SCRIPT_DIR/../lib/lambda-env.sh not found" >&2
+    exit 1
+fi
+# shellcheck source=../lib/lambda-env.sh
+source "$SCRIPT_DIR/../lib/lambda-env.sh"
+
+usage() {
+    cat <<EOF
+Usage: lambda-verisium <block> [<waves.shm>|diagnose]
+
+If no waves path is given, opens the LATEST xcelium run's waves.shm.
+
+Blocks: ${LAMBDA_BLOCKS[*]}
+EOF
+}
+
+block="${1:-}"
+arg="${2:-}"
+if [[ -z "$block" ]]; then usage; exit 1; fi
+
+valid=0
+for b in "${LAMBDA_BLOCKS[@]}"; do
+    [[ "$b" == "$block" ]] && { valid=1; break; }
+done
+if [[ "$valid" -eq 0 ]]; then
+    echo "ERROR: unknown block '$block'" >&2
+    echo "Known blocks: ${LAMBDA_BLOCKS[*]}" >&2
+    exit 1
+fi
+
+xcelium_root="$LAMBDA_WORK/$block/xcelium"
+
+case "$arg" in
+    diagnose)
+        echo "Lambda block: $block"
+        echo ""
+        echo "Primary:    $VERISIUM_MODULE  (verisium debug)"
+        echo "Fallback:   $XCELIUM_MODULE   (simvision; ships with Xcelium)"
+        echo ""
+        echo "Xcelium runs found:"
+        if [[ -d "$xcelium_root" ]]; then
+            ls -1t "$xcelium_root" 2>/dev/null | sed 's/^/  /'
+            [[ -L "$xcelium_root/latest" ]] && \
+                echo "  -> latest: $(readlink "$xcelium_root/latest")"
+        else
+            echo "  (none; run lambda-xcelium $block sim ...)"
+        fi
+        exit 0
+        ;;
+    "")
+        # Default: open the latest run's waves.
+        if [[ ! -L "$xcelium_root/latest" ]]; then
+            echo "ERROR: no 'latest' xcelium run for $block." >&2
+            echo "Hint:  lambda-xcelium $block sim <args>     (produces waves.shm)" >&2
+            exit 1
+        fi
+        waves="$xcelium_root/$(readlink "$xcelium_root/latest")/waves.shm"
+        ;;
+    *)
+        # Explicit waves path.
+        waves="$arg"
+        ;;
+esac
+
+if [[ ! -e "$waves" ]]; then
+    cat >&2 <<EOF
+ERROR: waveform DB not found: $waves
+Hint:  the xrun args must include '-access +rwc' to emit waves.shm.
+       Then 'lambda-verisium $block' opens the latest.
+EOF
+    exit 1
+fi
+
+exec "$SCRIPT_DIR/verisium-here" "$waves"

@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# ============================================================================
+# innovus-here
+# ----------------------------------------------------------------------------
+# Generic Cadence Innovus launcher (Stylus Common UI). Project-agnostic: runs
+# Innovus in any directory, in one of three modes. The Lambda-aware wrapper
+# `lambda-innovus` resolves <block> -> a run dir + flow script and delegates
+# here.
+#
+# Usage:
+#   innovus-here gui   [rundir]                 # interactive REPL + GUI
+#   innovus-here shell [rundir]                 # interactive REPL, no GUI
+#   innovus-here batch [rundir] <flow.tcl>      # headless, source flow, exit
+#
+# Why this differs from stratus-gui:
+#   stratus_ide is a pure GUI app, so stratus-gui nohup-detaches it. `innovus`
+#   is a console REPL that *also* opens a GUI window — detaching it would leave
+#   you with no prompt to type `gui_show` into. So innovus-here runs in the
+#   FOREGROUND, inheriting your terminal. Run it from an interactive ETX/X11
+#   session (not from a script, not nohup'd).
+#
+# Verified facts baked in (do not "fix" without re-verifying):
+#   - Stylus Common UI is enabled with `innovus -stylus`. Ground truth: the
+#       Innovus Stylus Common UI User Guide (v21.1 series; flags also apply on
+#       25.1 — confirmed by live `module show innovus/251` on the chamber).
+#       Chamber pin: innovus/211/21.18.000 (matched to genus/211 family for
+#       clean Genus→Innovus DB handoff). `innovus -no_gui -stylus` is the
+#       headless form.
+#   - GUI is controlled in Common UI with `gui_show` / `gui_hide`
+#       (the legacy-UI equivalent is `win`). In `gui` mode below the window
+#       auto-opens; if your version does not auto-open, just type `gui_show`.
+#       Live-confirmed: `innovus -stylus` opens the Stylus GUI cleanly on
+#       compute node ip-10-2-6-68 (2026-06-06), license `invs` checked out.
+#   - `-log <file>` sets the log basename.
+#   - `-files <script>` sources a Tcl script. This flag is used ONLY by `batch`
+#       mode. It is the documented Common UI script-source flag, but is the
+#       remaining unsmoke-tested item on 21.18 (the `gui`/`shell` paths were
+#       live-confirmed). FALLBACK if a `batch` run rejects `-files`:
+#       `innovus-here shell <rundir>` then `source <flow.tcl>` at the prompt,
+#       and report the correct flag so it can be pinned here.
+#
+# Module + license:
+#   Loads $INNOVUS_MODULE (default innovus/211/21.18.000, see tools/lib/lambda-env.sh),
+#   which also sets CDS_LIC_FILE. Innovus acquires its license at startup; a
+#   license failure surfaces as a clear Innovus error (license preflight is a
+#   v0.2 item, not wired here). Module load + binary check goes through
+#   lambda_require_tool (tools/lib/lambda-run.sh) so the autofs/compute-node
+#   diagnostic is uniform across launchers.
+# ============================================================================
+
+set -euo pipefail
+
+# ---- Resolve script through symlinks (~/bin/innovus-here -> tools/bin/...) --
+# so $SCRIPT_DIR/../lib/ points at the REAL lib dir, not ~/lib/.
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+    _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+    _src="$(readlink "$_src")"
+    [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_src")" && pwd)"
+unset _src _dir
+
+for _lib in lambda-env.sh lambda-run.sh; do
+    if [[ ! -f "$SCRIPT_DIR/../lib/$_lib" ]]; then
+        echo "ERROR: $SCRIPT_DIR/../lib/$_lib not found" >&2
+        echo "Hint:  re-run bash ~/architecture/tools/install.sh" >&2
+        exit 1
+    fi
+done
+# shellcheck source=../lib/lambda-env.sh
+source "$SCRIPT_DIR/../lib/lambda-env.sh"
+# shellcheck source=../lib/lambda-run.sh
+source "$SCRIPT_DIR/../lib/lambda-run.sh"
+unset _lib
+
+# ---- Arg parsing -----------------------------------------------------------
+mode="${1:-}"
+case "$mode" in
+    gui|shell|batch) ;;
+    *)
+        cat >&2 <<EOF
+ERROR: missing or invalid mode: '${mode:-}'
+
+Usage: innovus-here <gui|shell|batch> [rundir] [flow.tcl]
+  gui    interactive REPL + GUI window
+  shell  interactive REPL, no GUI
+  batch  headless: source flow.tcl then exit (flow.tcl required)
+EOF
+        exit 1
+        ;;
+esac
+shift
+
+rundir="${1:-$PWD}"
+shift || true
+flow="${1:-}"
+
+if [[ "$mode" == "batch" && -z "$flow" ]]; then
+    echo "ERROR: 'batch' mode requires a flow .tcl to source." >&2
+    echo "Usage: innovus-here batch <rundir> <flow.tcl>" >&2
+    exit 1
+fi
+if [[ -n "$flow" && ! -f "$flow" ]]; then
+    echo "ERROR: flow script not found: $flow" >&2
+    exit 1
+fi
+# Absolute-ize the flow before we cd into the run dir.
+[[ -n "$flow" ]] && flow="$(cd "$(dirname "$flow")" && pwd)/$(basename "$flow")"
+
+# ---- Module + binary check (autofs/compute-node aware via shared lib) -----
+: "${INNOVUS_MODULE:?INNOVUS_MODULE not set; check tools/lib/lambda-env.sh}"
+lambda_require_tool "$INNOVUS_MODULE" innovus || exit 1
+
+# ---- X11 preflight (gui mode only) -----------------------------------------
+if [[ "$mode" == "gui" && -z "${DISPLAY:-}" ]]; then
+    echo "ERROR: \$DISPLAY not set; X11 required for 'gui' mode." >&2
+    echo "Hint:  ssh -X (or -Y) into the chamber, then re-qsh. Test: xclock &" >&2
+    echo "       Or use 'shell' mode (no GUI), then 'gui_show' once X11 is up." >&2
+    exit 1
+fi
+
+# ---- Run dir + log ---------------------------------------------------------
+# All Innovus artifacts (innovus.log*, innovus.cmd*, db, reports) land in the
+# run dir, which the Lambda wrapper places under $LAMBDA_WORK/<block>/innovus/
+# (outside the git mirror; see docs/tools-overview.md "Filesystem & run-area").
+# Run dir is created if absent so a no-design bring-up works on day one.
+mkdir -p "$rundir" 2>/dev/null || {
+    echo "ERROR: cannot create run dir: $rundir" >&2; exit 1; }
+cd "$rundir"
+
+# Tag for the log file: <block>/innovus/{interactive,<run-id>} -> "innovus.<block>.<mode>".
+# v0.4.2 (M5): the old branch still tested `rd_base == "innovus"` — a v0.3
+# leftover from the pre-rundir layout, never true for v0.4 rundirs
+# (interactive/ or <run-id>/), so logs were tagged with the run-id instead of
+# the block. Ported the corrected branch from genus-here; the run-id regex
+# allows the -N collision suffix minted by lambda_rundir.
+rd_base="$(basename "$rundir")"
+if [[ "$rd_base" == "interactive" || "$rd_base" =~ ^[0-9]{8}-[0-9]{6}(-[0-9]+)?$ ]]; then
+    tag_name="$(basename "$(dirname "$(dirname "$rundir")")")"   # <block>
+else
+    tag_name="$rd_base"
+fi
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$LAMBDA_LOGS" 2>/dev/null || true
+log_dir="$LAMBDA_LOGS"
+[[ -w "$log_dir" ]] || { log_dir="/tmp"; echo "WARN: $LAMBDA_LOGS not writable; logging to /tmp" >&2; }
+log_file="$log_dir/innovus.${tag_name}.${mode}.${timestamp}.log"
+
+echo "Innovus ($INNOVUS_MODULE), Stylus Common UI"
+echo "  mode:    $mode"
+echo "  run dir: $rundir"
+[[ -n "$flow" ]] && echo "  flow:    $flow"
+echo "  log:     $log_file"
+[[ "$mode" == "batch" ]] && echo "  tool log: $rundir/innovus.${timestamp}.log (+ .cmd)"
+echo ""
+
+# ---- Launch (foreground; inherits the terminal) ----------------------------
+# Only `batch` uses -files (see the -files caveat in the header). gui/shell use
+# exclusively confirmed flags so the interactive paths cannot fail on syntax.
+case "$mode" in
+    gui)
+        # GUI auto-opens in most versions; if not, type `gui_show` at the prompt.
+        exec innovus -stylus -log "$log_file"
+        ;;
+    shell)
+        exec innovus -stylus -no_gui -log "$log_file"
+        ;;
+    batch)
+        # Flow scripts are expected to end with `exit` so batch terminates.
+        # INNOVUS_BATCH lets a flow detect headless mode in pure Tcl
+        # (`info exists ::env(INNOVUS_BATCH)`) without relying on a Cadence
+        # command name — see src/blocks/<block>/innovus/setup.tcl.
+        export INNOVUS_BATCH=1
+        # v0.4.2 (M6): batch points the Cadence-native -log INTO the run dir
+        # (innovus.<ts>.log/.cmd colocated with outputs/), while the console
+        # transcript is still tee'd to the flat $LAMBDA_LOGS list. GUI/shell
+        # keep -log in $LAMBDA_LOGS. Process substitution (not `| tee`) so
+        # exec really replaces the shell — same rationale as xrun-here.
+        exec innovus -stylus -no_gui -files "$flow" -log "$rundir/innovus.${timestamp}" > >(tee "$log_file") 2>&1
+        ;;
+esac
