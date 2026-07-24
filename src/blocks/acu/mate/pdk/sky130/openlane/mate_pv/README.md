@@ -40,7 +40,7 @@ a trivial comparator) needs to close the Sky130 SS corner:
 ## Sign-off — clean at 71 MHz, Sky130A (N=4 proxy)
 
 All six physical checks are **zero**. Committed under `results/`
-(`mate_pv.gds` + `mate_pv.png` render + `sky130_71MHz_signoff_metrics.json`).
+(`mate_pv.gds` + `mate_pv.png` render + `sky130_signoff_metrics.json`).
 
 | metric | value | where it comes from |
 |---|---|---|

@@ -27,7 +27,7 @@ Total runtime: ~3 minutes.
 | `src/precision_controller.v` | Copy of `rtl/precision_controller.sv` |
 | `results/precision_controller.gds` | Final GDSII (910 KB, Sky130A) |
 | `results/precision_controller.png` | Rendered layout view |
-| `results/sky130_80MHz_signoff_metrics.json` | Full LibreLane metrics |
+| `results/sky130_signoff_metrics.json` | Full LibreLane metrics |
 | `runs/` | Each run's intermediate artifacts (gitignored) |
 
 ## Signed-off result — 80 MHz, all corners clean

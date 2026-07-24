@@ -8,8 +8,8 @@
 |---|---|---|---|---|---|---|
 | `acu/mate` | sky130 | mate_pv | **signed-off** | 75660 | 71 MHz |  |
 | `acu/mate` | sky130 | mate_pv_fp16 | **signed-off** | 221987 | 12 MHz |  |
-| `acu/mate` | sky130 | mate_qkt | **signed-off** | 198901 |  |  |
-| `acu/mate` | asap7 | mate_pv | **route-clean** |  | 2 GHz | no Magic-DRC/LVS step |
+| `acu/mate` | sky130 | mate_qkt | **signed-off** | 198901 | 12 MHz |  |
+| `acu/mate` | asap7 | mate_pv | **route-clean** |  | 2000 MHz | no Magic-DRC/LVS step |
 | `acu/mate` | asap7 | mate_pv_fp16 | **route-clean** |  | 286 MHz | no Magic-DRC/LVS step |
 | `acu/mate` | gf180 | mate_pv | **config-only** |  |  | declared, not run |
 | `acu/mate` | gf180 | mate_pv_fp16 | **config-only** |  |  | declared, not run |
@@ -17,18 +17,18 @@
 | `acu/precision_controller` | sky130 | precision_controller | **signed-off** | 8642 | 80 MHz |  |
 | `acu/precision_controller` | asap7 | precision_controller | **route-clean** |  | 1176 MHz | no Magic-DRC/LVS step |
 | `acu/precision_controller` | gf180 | precision_controller | **config-only** |  |  | declared, not run |
-| `acu/vecu` | gf180 | rmsnorm | **signed-off** | 1095180 |  |  |
-| `acu/vecu` | gf180 | rope | **signed-off** | 432140 |  |  |
-| `acu/vecu` | sky130 | rope | **signed-off** | 277632 |  |  |
-| `acu/vecu` | sky130 | vecu_softmax | **signed-off** | 726020 |  |  |
+| `acu/vecu` | gf180 | rmsnorm | **signed-off** | 1095180 | 4 MHz |  |
+| `acu/vecu` | gf180 | rope | **signed-off** | 432140 | 4 MHz |  |
+| `acu/vecu` | sky130 | rope | **signed-off** | 277632 | 10 MHz |  |
+| `acu/vecu` | sky130 | vecu_softmax | **signed-off** | 726020 | 10 MHz |  |
 | `acu/vecu` | gf180 | vecu_softmax | **config-only** |  |  | declared, not run |
 | `acu/vecu` | sky130 | rmsnorm | **config-only** |  |  | declared, not run |
 | `chip` | gf180 | chip_top_coproc | **prose-only** |  |  | GDS present, no metrics JSON |
-| `kve` | sky130 | kv_cache_engine | **signed-off** | 236211 |  |  |
+| `kve` | sky130 | kv_cache_engine | **signed-off** | 236211 | 10 MHz |  |
 | `kve` | gf180 | kve | **config-only** |  |  | declared, not run |
 | `kve` | gf180 | kve_store_gf180 | **config-only** |  |  | declared, not run |
 | `tiu` | gf180 | token_importance_unit | **config-only** |  |  | declared, not run |
-| `tiu` | sky130 | token_importance_unit | **no-gds** | 15072 |  | metrics but no GDS |
+| `tiu` | sky130 | token_importance_unit | **no-gds** | 15072 | 40 MHz | metrics but no GDS |
 
 **Totals:** config-only=9 · no-gds=1 · prose-only=1 · route-clean=3 · signed-off=9
 

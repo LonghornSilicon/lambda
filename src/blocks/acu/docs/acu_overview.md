@@ -22,7 +22,7 @@ of additional silicon.
 (sw/reference_model/example_compiler_use.py:59); measured per-model INT8-safe
 rates are 91.7/97.1/96.6% (Qwen2) and 58.9% (Phi-2). Bandwidth: 0.79*0.5B +
 0.21*1.0B = 0.605x avg -> 1/0.605 = 1.65x, rounded to ~1.7x. The 30 FFs are the
-real Sky130 sign-off count (openlane/precision_controller/results/sky130_80MHz_signoff_metrics.json). -->
+real Sky130 sign-off count (openlane/precision_controller/results/sky130_signoff_metrics.json). -->
 
 This is the **ACU (Attention Compute Unit)** block of the LonghornSilicon
 LLM inference accelerator — one of four blocks targeting TSMC 16nm FinFET (N16FFC) tape-out.
@@ -246,7 +246,7 @@ attention-compute-unit/
 ### Hardware (post-PnR Sky130, signed off)
 
 <!-- All values below are the REAL, measured Sky130 sign-off from
-openlane/precision_controller/results/sky130_80MHz_signoff_metrics.json:
+openlane/precision_controller/results/sky130_signoff_metrics.json:
 80 MHz = CLOCK_PERIOD 12.5 ns (config.json); FFs=30 (sequential_cell);
 stdcell area=3438.3; die bbox 87.755×98.475, util 0.591; power__total=330.5 µW
 (nom_tt); drc/lvs/antenna/power-grid violations all 0. -->

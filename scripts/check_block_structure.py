@@ -40,8 +40,9 @@ INTEGRATION_BLOCKS = ["chip"]
 INTEGRATION_REQUIRED_FILES = ["README.md", "DECISIONS.md"]
 INTEGRATION_REQUIRED_DIRS = ["rtl", "pdk"]
 
-# canonical sign-off metrics filename (§5.2)
-GOOD_METRICS_RE = re.compile(r"^(sky130|gf180|asap7)_signoff_metrics\.json$")
+# canonical metrics filename (§5.2): full-signoff flows use <pdk>_signoff_metrics.json;
+# route-only ASAP7/ORFS uses asap7_route_metrics.json (honest: it is not a full sign-off).
+GOOD_METRICS_RE = re.compile(r"^(sky130|gf180)_signoff_metrics\.json$|^asap7_route_metrics\.json$")
 # date must be full ISO in DECISIONS rows (§ DECISIONS convention).
 # Be PRECISE — never match a plain 4-digit number (test-vector counts like 5120/2048).
 ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")

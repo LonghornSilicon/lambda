@@ -65,6 +65,39 @@ def _freq_from_name(p: Path) -> str:
     return f"{m.group(1)} {m.group(2).replace('m','M').replace('g','G')}" if m else ""
 
 
+def _freq_from_config(results_dir: Path) -> str:
+    """Fallback: derive frequency from CLOCK_PERIOD (ns) in the sibling flow config.
+    Keeps frequency visible after metrics filenames are normalized (freq stripped from names)."""
+    def mhz(period_ns) -> str:
+        try:
+            return f"{1000/float(period_ns):.0f} MHz"
+        except (TypeError, ValueError, ZeroDivisionError):
+            return ""
+    # sky130 OpenLane: <macro>/results/  ->  <macro>/config.json
+    cfg = results_dir.parent / "config.json"
+    if cfg.exists():
+        try:
+            return mhz(json.loads(cfg.read_text()).get("CLOCK_PERIOD"))
+        except Exception:  # noqa: BLE001
+            pass
+    # gf180 LibreLane: librelane/results/<macro>/  ->  librelane/<macro>.yaml
+    yml = results_dir.parent.parent / f"{results_dir.name}.yaml"
+    if yml.exists():
+        m = re.search(r'CLOCK_PERIOD["\s:]+([0-9.]+)', yml.read_text())
+        if m:
+            return mhz(m.group(1))
+    # asap7 ORFS: <macro>/results_asap7/  ->  <macro>/constraint.sdc ("set clk_period <ps>")
+    sdc = results_dir.parent / "constraint.sdc"
+    if sdc.exists():
+        m = re.search(r'set\s+clk_period\s+([0-9.]+)', sdc.read_text())
+        if m:  # picoseconds -> MHz  (1e6 / ps)
+            try:
+                return f"{1e6/float(m.group(1)):.0f} MHz"
+            except (ValueError, ZeroDivisionError):
+                pass
+    return ""
+
+
 def classify(metrics_path: Path) -> dict:
     """Classify one metrics JSON into a sign-off record."""
     try:
@@ -75,7 +108,7 @@ def classify(metrics_path: Path) -> dict:
     results_dir = metrics_path.parent
     gds = _gds_near(results_dir)
     die = d.get("design__die__area")
-    freq = _freq_from_name(metrics_path)
+    freq = _freq_from_name(metrics_path) or _freq_from_config(results_dir)
 
     if "magic__drc_error__count" in d:  # full-signoff flow (OpenLane / LibreLane)
         failed = [k for k in SIGNOFF_CHECKS if k in d and d[k] not in (0, 0.0)]

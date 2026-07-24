@@ -149,7 +149,7 @@ no `sw/ research/` — but it MUST carry a `README.md` and a `DECISIONS.md`.
 ### 5.2 Sign-off artifact conventions (normalized)
 - **One metrics filename schema:** `pdk/<pdk>/<flow>/<macro>/results/<pdk>_signoff_metrics.json`.
   (Historically four conventions existed — `metrics.json`, `signoff_metrics.json`,
-  `sky130_71MHz_signoff_metrics.json`, etc. Normalize to the one above; frequency goes *inside*
+  `sky130_signoff_metrics.json`, etc. Normalize to the one above; frequency goes *inside*
   the JSON, not the filename.)
 - **Sign-off is per-flow.** A macro is **"signed off"** on a PDK only when its metrics JSON shows
   `magic__drc_error__count = 0`, `klayout__drc_error__count = 0`, `design__lvs_error__count = 0`,
