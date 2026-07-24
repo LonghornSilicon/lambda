@@ -16,8 +16,8 @@ Legend — sign-off: `signed-off` = GDS + all headline checks 0 (DRC/LVS/antenna
 
 ## R1 — Proxy-PDK block baseline
 
-- **Tag:** `rev-R1` — _pending cut (Phase 4, pending review)_ · **Kind:** baseline (frozen)
-- **Date:** 2026-07-23 · **Monorepo anchor:** `cb08d1b` (`main`, 2026-07-23 23:50Z)
+- **Tag:** `rev-R1` — **cut** (annotated tag at `cb08d1b`, local; push with `git push origin rev-R1`) · **Kind:** baseline (frozen)
+- **Date:** 2026-07-23 · **Monorepo anchor:** `cb08d1b` (2026-07-23 23:50Z) · **Structure:** block-major (pre-reorg; the `src/blocks/` reorg is the R1.5 assembly below)
 - **arch.yml doc version:** `0.3-clean`
 - **Milestone:** compute + memory blocks signed off on open PDKs (sky130 primary); GF180 Chipathon
   KV-coproc full-chip GDS closed. First coordinated baseline — the seed revision.
